@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Document, CircleCheck, Switch } from '@element-plus/icons-vue'
+import { Plus, CircleCheck } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const keyword = ref('')
@@ -130,23 +130,14 @@ function handleSwitchModel() {
   switchVisible.value = false
   ElMessage.success('热切换完成')
 }
-
-onMounted(() => {
-})
 </script>
 
 <template>
   <div class="model-container">
-    <!-- 工具栏 -->
     <el-card shadow="hover" class="toolbar-card">
       <div class="toolbar">
         <div class="toolbar-left">
-          <el-input
-            v-model="keyword"
-            placeholder="搜索模型名称..."
-            clearable
-            style="width: 240px"
-          />
+          <el-input v-model="keyword" placeholder="搜索模型名称..." clearable style="width: 240px" />
           <el-select v-model="statusFilter" placeholder="状态筛选" clearable style="width: 140px">
             <el-option label="已加载" value="loaded" />
             <el-option label="未加载" value="unloaded" />
@@ -155,14 +146,11 @@ onMounted(() => {
           </el-select>
         </div>
         <div class="toolbar-right">
-          <el-button type="primary" :icon="Plus" @click="handleLoadModel">
-            加载模型
-          </el-button>
+          <el-button type="primary" :icon="Plus" @click="handleLoadModel">加载模型</el-button>
         </div>
       </div>
     </el-card>
 
-    <!-- 模型列表 -->
     <el-card shadow="hover">
       <el-table :data="modelList" stripe v-loading="loading">
         <el-table-column prop="name" label="模型名称" min-width="180" />
@@ -170,9 +158,7 @@ onMounted(() => {
         <el-table-column prop="size" label="大小" width="100" />
         <el-table-column prop="quantization" label="量化类型" width="110">
           <template #default="{ row }">
-            <el-tag :type="getQuantType(row.quantization)" size="small">
-              {{ row.quantization }}
-            </el-tag>
+            <el-tag :type="getQuantType(row.quantization)" size="small">{{ row.quantization }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="contextLength" label="上下文长度" width="110">
@@ -182,42 +168,22 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
-            </el-tag>
+            <el-tag :type="getStatusType(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="handleDetail(row)">
-              详情
-            </el-button>
-            <el-button
-              :type="row.status === 'loaded' ? 'warning' : 'success'"
-              link
-              size="small"
-              @click="handleToggleLoad(row)"
-            >
+            <el-button type="primary" link size="small" @click="handleDetail(row)">详情</el-button>
+            <el-button :type="row.status === 'loaded' ? 'warning' : 'success'" link size="small" @click="handleToggleLoad(row)">
               {{ row.status === 'loaded' ? '卸载' : '加载' }}
             </el-button>
-            <el-button type="info" link size="small" @click="handleHealthCheck(row)">
-              健康
-            </el-button>
-            <el-button
-              type="warning"
-              link
-              size="small"
-              :disabled="row.status !== 'loaded'"
-              @click="switchVisible = true"
-            >
-              热切换
-            </el-button>
+            <el-button type="info" link size="small" @click="handleHealthCheck(row)">健康</el-button>
+            <el-button type="warning" link size="small" :disabled="row.status !== 'loaded'" @click="switchVisible = true">热切换</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <!-- 加载模型弹窗 -->
     <el-dialog v-model="dialogVisible" title="加载模型" width="500px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="模型路径">
@@ -241,38 +207,28 @@ onMounted(() => {
       </template>
     </el-dialog>
 
-    <!-- 模型详情抽屉 -->
     <el-drawer v-model="drawerVisible" title="模型详情" size="450px">
       <el-descriptions v-if="currentModel" :column="1" border>
         <el-descriptions-item label="名称">{{ currentModel.name }}</el-descriptions-item>
         <el-descriptions-item label="路径">{{ currentModel.path }}</el-descriptions-item>
-        <el-descriptions-item label="大小">{{ currentModel.size }}</descriptions-item>
+        <el-descriptions-item label="大小">{{ currentModel.size }}</el-descriptions-item>
         <el-descriptions-item label="量化类型">{{ currentModel.quantization }}</el-descriptions-item>
         <el-descriptions-item label="上下文长度">{{ currentModel.contextLength.toLocaleString() }}</el-descriptions-item>
         <el-descriptions-item label="状态">
-          <el-tag :type="getStatusType(currentModel.status)" size="small">
-            {{ getStatusText(currentModel.status) }}
-          </el-tag>
+          <el-tag :type="getStatusType(currentModel.status)" size="small">{{ getStatusText(currentModel.status) }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="加载时间">{{ currentModel.loadTime }}</el-descriptions-item>
       </el-descriptions>
     </el-drawer>
 
-    <!-- 热切换确认 -->
-    <ConfirmDialog
-      v-model:visible="switchVisible"
-      title="确认热切换"
-      content="热切换将在不中断服务的情况下替换模型，切换过程中可能有短暂延迟"
-      type="warning"
-      @confirm="handleSwitchModel"
-    />
+    <ConfirmDialog v-model:visible="switchVisible" title="确认热切换" content="热切换将在不中断服务的情况下替换模型，切换过程中可能有短暂延迟" type="warning" @confirm="handleSwitchModel" />
   </div>
 </template>
 
 <style lang="scss" scoped>
 .model-container {
   .toolbar-card {
-    margin-bottom: $spacing-lg;
+    margin-bottom: 16px;
   }
 
   .toolbar {
@@ -282,7 +238,7 @@ onMounted(() => {
 
     .toolbar-left {
       display: flex;
-      gap: $spacing-md;
+      gap: 12px;
     }
   }
 }

@@ -35,10 +35,7 @@ export const useUserStore = defineStore(
 
             token.value = mockData.access_token
             userInfo.value = mockData.user_info
-
-            if (loginForm.remember) {
-              localStorage.setItem('token', mockData.access_token)
-            }
+            localStorage.setItem('token', mockData.access_token)
 
             resolve(mockData)
           } catch (error) {

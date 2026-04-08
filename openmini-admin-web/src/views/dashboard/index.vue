@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { Monitor, Cpu, MemoryCard, DataLine } from '@element-plus/icons-vue'
+import { Monitor, Cpu, Coin, TrendCharts } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 let refreshTimer: number | null = null
@@ -133,7 +133,7 @@ onUnmounted(() => {
           title="GPU显存"
           :value="gpuStats.memoryUsed.toFixed(1)"
           suffix="GB"
-          :icon="MemoryCard"
+          :icon="Coin"
           color="success"
           :trend="{ value: 1.5, isUp: true }"
         >

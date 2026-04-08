@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '@/stores/user'
 import { User, Lock } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
+const userStore = useUserStore()
 
 // 表单数据
 const loginForm = reactive({
@@ -14,19 +17,24 @@ const loginForm = reactive({
 // 加载状态
 const loading = ref(false)
 
-// 登录处理（占位）
+// 登录处理
 const handleLogin = async () => {
   if (!loginForm.username || !loginForm.password) {
+    ElMessage.warning('请输入用户名和密码')
     return
   }
+
   loading.value = true
-  // TODO: 实现登录逻辑，调用后端接口验证用户名密码
-  setTimeout(() => {
-    localStorage.setItem('token', 'mock-token')
+  try {
+    await userStore.login(loginForm as any)
+    ElMessage.success('登录成功')
     const redirect = (router.currentRoute.value.query.redirect as string) || '/'
     router.push(redirect)
+  } catch (error: any) {
+    ElMessage.error(error?.message || '登录失败，请重试')
+  } finally {
     loading.value = false
-  }, 1000)
+  }
 }
 </script>
 
@@ -87,21 +95,21 @@ const handleLogin = async () => {
     width: 420px;
     padding: 40px;
     background-color: #fff;
-    border-radius: $border-radius-lg;
-    box-shadow: $box-shadow-dark;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
 
     .login-title {
       text-align: center;
-      font-size: $font-size-xl * 1.5;
-      color: $text-primary;
-      margin-bottom: $spacing-sm;
+      font-size: 28px;
+      color: #303133;
+      margin-bottom: 8px;
     }
 
     .login-subtitle {
       text-align: center;
-      font-size: $font-size-base;
-      color: $text-secondary;
-      margin-bottom: $spacing-xl * 1.5;
+      font-size: 14px;
+      color: #909399;
+      margin-bottom: 32px;
     }
 
     .login-form {
