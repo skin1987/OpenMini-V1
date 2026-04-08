@@ -1,38 +1,170 @@
-# ============ Rust 相关 ============
+# ============================================================
+# OpenMini-V1 Project .gitignore
+# AI Inference Engine (Rust + Python)
+# ============================================================
+
+# ============ Rust 编译产物 ============
 /target/
-Cargo.lock
+**/*.rs.bk
 *.rlib
 *.so
 *.dylib
 *.dll
+*.lib
+*.a
+
+# Rust 测试和覆盖率
+*.profraw
+*.profdata
+coverage/
+
+# ============ Cargo 相关 ============
+Cargo.lock
+.cargo/config.toml.local
 
 # ============ Python 相关 ============
 __pycache__/
-*.py[cod]
+*[!_].py[cod]
 *$py.class
 *.egg-info/
 dist/
 build/
 .eggs/
+*.egg
+*.whl
+wheelhouse/
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+mypy_cache/
+.ruff_cache/
 
-# ============ IDE/编辑器 ============
-.vscode/
+# ============ GPU 计算相关 ============
+# Metal 编译缓存
+*.metal-ir
+*.air
+# CUDA 编译产物
+*.ptx
+*.cubin
+*.fatbin
+# Vulkan shader 缓存
+*.spv.cache
+
+# ============ 协议缓冲区 ============
+*.pb.go
+*_grpc.pb.go
+openmini-proto/src/generated.rs
+
+# ============ IDE 和编辑器 ============
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
 
-# ============ 备份文件 ============
+# macOS 系统文件
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Linux 系统文件
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============ 备份和临时文件 ============
 *.bk
 *.bak
 *.tmp
+*.temp
+*.orig
+*.swp
+*.swo
+*~.nib
 
-# ============ 日志/临时文件 ============
+# ============ 日志和调试文件 ============
 *.log
-.env
-.env.local
+logs/
+debug.log
+info.log
+error.log
+*.trace
 
-# ============ 性能测试数据 ============
+# ============ 环境变量和密钥 ============
+.env
+.env.*
+!.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============ 性能分析数据 ============
 *.prof
 *.perf
+*.pprof
+flamegraph.svg
+benchmarks/results/
+
+# ============ 模型和数据文件（使用 Git LFS）============
+*.gguf
+*.ggml
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+*.h5
+*.hdf5
+datasets/raw/
+models/pretrained/
+
+# ============ 文档生成 ============
+doc/
+docs/_build/
+site/
+
+# ============ 其他工具 ============
+.rustup/toolchains/*/lib/rustlib/src/rust-src
+.rustup/toolchains/*/lib/rustlib/analysis/
+.tarpaulin.toml
+clippy.toml
+rustfmt.toml.local
