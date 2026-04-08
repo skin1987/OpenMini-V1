@@ -168,3 +168,4 @@ site/
 .tarpaulin.toml
 clippy.toml
 rustfmt.toml.local
+.secrets

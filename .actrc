@@ -1,0 +1,19 @@
+# act 配置文件 - OpenMini-V1 项目
+# 用于本地运行 GitHub Actions
+
+# 使用 Docker 镜像（推荐）
+-P ubuntu-latest=node:18-bullseye
+-P macos-latest=node:18-bullseye
+
+# 环境变量
+-e CARGO_TERM_COLOR=always
+-e RUST_BACKTRACE=1
+
+# 不使用 GitHub 的 token（本地测试不需要）
+--local
+
+# 显示详细输出
+-v
+
+# 工作目录（项目根目录）
+-W .
