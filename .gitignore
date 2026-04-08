@@ -1,0 +1,38 @@
+# ============ Rust 相关 ============
+/target/
+Cargo.lock
+*.rlib
+*.so
+*.dylib
+*.dll
+
+# ============ Python 相关 ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ============ IDE/编辑器 ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ============ 备份文件 ============
+*.bk
+*.bak
+*.tmp
+
+# ============ 日志/临时文件 ============
+*.log
+.env
+.env.local
+
+# ============ 性能测试数据 ============
+*.prof
+*.perf

@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package openmini;
+
+option go_package = "openmini/proto";
+
+message UsageInfo {
+    int32 prompt_tokens = 1;
+    int32 completion_tokens = 2;
+    int32 total_tokens = 3;
+}
+
+message Message {
+    string role = 1;
+    string content = 2;
+    bytes image_data = 3;
+    bytes audio_data = 4;
+    bytes video_data = 5;
+}
+
+message ChatRequest {
+    string session_id = 1;
+    repeated Message messages = 2;
+    bool stream = 3;
+    int32 max_tokens = 4;
+    float temperature = 5;
+}
+
+message ChatResponse {
+    string session_id = 1;
+    string token = 2;
+    bool finished = 3;
+    UsageInfo usage = 4;
+}
+
+message ImageRequest {
+    string session_id = 1;
+    bytes image_data = 2;
+    string question = 3;
+    bool stream = 4;
+}
+
+message ImageResponse {
+    string session_id = 1;
+    string token = 2;
+    bool finished = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+    bool healthy = 1;
+    string message = 2;
+}
+
+message OmniChatRequest {
+    string session_id = 1;
+    oneof input {
+        string text = 2;
+        bytes audio_data = 3;
+        bytes video_data = 4;
+        bytes image_data = 5;
+    }
+    bool stream = 6;
+    int32 max_tokens = 7;
+    float temperature = 8;
+}
+
+message OmniChatResponse {
+    string session_id = 1;
+    oneof output {
+        string text = 2;
+        bytes audio_data = 3;
+    }
+    bool finished = 4;
+    UsageInfo usage = 5;
+}
+
+message SpeechToTextRequest {
+    string session_id = 1;
+    bytes audio_data = 2;
+    string language = 3;
+    bool stream = 4;
+}
+
+message SpeechToTextResponse {
+    string session_id = 1;
+    string text = 2;
+    bool finished = 3;
+    float confidence = 4;
+}
+
+message TextToSpeechRequest {
+    string session_id = 1;
+    string text = 2;
+    string voice = 3;
+    string language = 4;
+    float speed = 5;
+    float pitch = 6;
+}
+
+message TextToSpeechResponse {
+    string session_id = 1;
+    bytes audio_data = 2;
+    bool finished = 3;
+}
+
+service OpenMini {
+    rpc Chat(stream ChatRequest) returns (stream ChatResponse);
+    rpc ImageUnderstanding(ImageRequest) returns (ImageResponse);
+    rpc ImageUnderstandingStream(ImageRequest) returns (stream ImageResponse);
+    rpc HealthCheck(HealthRequest) returns (HealthResponse);
+    rpc OmniChat(stream OmniChatRequest) returns (stream OmniChatResponse);
+    rpc SpeechToText(stream SpeechToTextRequest) returns (stream SpeechToTextResponse);
+    rpc TextToSpeech(TextToSpeechRequest) returns (stream TextToSpeechResponse);
+}

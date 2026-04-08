@@ -1,0 +1,29 @@
+[workspace]
+members = [
+    "openmini-proto",
+    "openmini-server",
+]
+resolver = "2"
+
+[workspace.lints.rust]
+missing_docs = "allow"
+dead_code = "allow"
+
+[workspace.package]
+version = "1.1.0"
+edition = "2021"
+authors = ["OpenMini Team"]
+license = "MIT"
+
+[workspace.dependencies]
+candle-core = "0.4"
+candle-transformers = "0.4"
+tokio = { version = "1", features = ["full"] }
+tonic = "0.10"
+prost = "0.12"
+memmap2 = "0.9"
+rayon = "1"
+crossbeam = "0.8"
+parking_lot = "0.12"
+async-channel = "2"
+num_cpus = "1"

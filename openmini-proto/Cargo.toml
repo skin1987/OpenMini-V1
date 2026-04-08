@@ -1,0 +1,13 @@
+[package]
+name = "openmini-proto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+prost = "0.12"
+tonic = "0.10"
+
+[build-dependencies]
+tonic-build = "0.10"

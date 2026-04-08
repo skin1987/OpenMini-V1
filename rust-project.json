@@ -1,0 +1,12 @@
+{
+  "sysroot": "target",
+  "crates": [
+    {
+      "root_module": "openmini-server/src/lib.rs",
+      "edition": "2021",
+      "cfg": [
+        "feature=\"metal\""
+      ]
+    }
+  ]
+}

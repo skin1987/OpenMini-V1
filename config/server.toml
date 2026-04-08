@@ -1,0 +1,30 @@
+[server]
+host = "0.0.0.0"
+port = 50051
+max_connections = 100
+request_timeout_ms = 60000
+
+[thread_pool]
+size = 4
+stack_size_kb = 8192
+
+[memory]
+max_memory_gb = 12
+model_memory_gb = 6
+cache_memory_gb = 4
+arena_size_mb = 256
+
+[model]
+path = "models/openmini-v1-q4_k_m.gguf"
+quantization = "Q4_K_M"
+context_length = 4096
+
+[worker]
+count = 3
+restart_on_failure = true
+health_check_interval_ms = 5000
+
+[grpc]
+max_message_size_mb = 100
+keepalive_time_ms = 30000
+keepalive_timeout_ms = 10000
