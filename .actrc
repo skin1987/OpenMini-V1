@@ -9,11 +9,8 @@
 -e CARGO_TERM_COLOR=always
 -e RUST_BACKTRACE=1
 
-# 不使用 GitHub 的 token（本地测试不需要）
---local
-
-# 显示详细输出
--v
+# 显示详细输出（调试时取消注释）
+# -v
 
 # 工作目录（项目根目录）
 -W .
