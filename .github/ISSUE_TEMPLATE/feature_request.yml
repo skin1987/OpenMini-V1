@@ -1,0 +1,16 @@
+name: \u2728 Feature Request
+about: Suggest an idea for this project
+title: '[FEATURE] <short description>'
+labels: 'enhancement'
+assignees: ''
+---
+
+## Feature Description
+**Clear description of what this solves.**
+
+## Proposed Solution
+**Describe what you want to happen.**
+
+## Alternatives Considered
+- **Option A:** ... (pros/cons)
+- **Option B:** ... (pros/cons)

@@ -1,0 +1,33 @@
+name: \u{1f41b} Bug Report
+about: Create a report to help us improve
+title: '[BUG] <short description>'
+labels: 'bug'
+assignees: ''
+---
+
+## Bug Description
+**Clear description of the bug.**
+
+## Steps to Reproduce
+1. Go to '...'
+2. Click on '....'
+3. See error
+
+**Expected behavior:**
+**Actual behavior:**
+
+## Environment
+- **OS**: [e.g., macOS 14.2, Ubuntu 22.04]
+- **Architecture**: [e.g., Apple Silicon M2, x86_64]
+- **Rust Version**:
+- **OpenMini Version**:
+- **Hardware Backend**: [e.g., Metal, CUDA, CPU]
+
+```bash
+rustc --version && cargo --version
+```
+
+## Error Logs
+```
+Paste error logs here
+```
