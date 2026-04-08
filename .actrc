@@ -4,13 +4,3 @@
 # 使用 Docker 镜像（推荐）
 -P ubuntu-latest=node:18-bullseye
 -P macos-latest=node:18-bullseye
-
-# 环境变量
--e CARGO_TERM_COLOR=always
--e RUST_BACKTRACE=1
-
-# 显示详细输出（调试时取消注释）
-# -v
-
-# 工作目录（项目根目录）
--W .
