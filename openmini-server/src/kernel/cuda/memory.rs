@@ -21,23 +21,23 @@ impl CudaDevicePtr {
             // 暂时返回空指针
             Ok(Self { ptr, size: _size })
         }
-        
+
         #[cfg(not(feature = "cuda"))]
         {
             Err(anyhow::anyhow!("CUDA feature not enabled"))
         }
     }
-    
+
     /// 获取指针
     pub fn as_ptr(&self) -> *const std::ffi::c_void {
         self.ptr
     }
-    
+
     /// 获取可变指针
     pub fn as_mut_ptr(&mut self) -> *mut std::ffi::c_void {
         self.ptr
     }
-    
+
     /// 获取大小
     pub fn size(&self) -> usize {
         self.size
@@ -65,28 +65,30 @@ impl CudaStream {
     pub fn new() -> Result<Self> {
         #[cfg(feature = "cuda")]
         {
-            Ok(Self { stream: ptr::null_mut() })
+            Ok(Self {
+                stream: ptr::null_mut(),
+            })
         }
-        
+
         #[cfg(not(feature = "cuda"))]
         {
             Err(anyhow::anyhow!("CUDA feature not enabled"))
         }
     }
-    
+
     /// 同步流
     pub fn synchronize(&self) -> Result<()> {
         #[cfg(feature = "cuda")]
         {
             Ok(())
         }
-        
+
         #[cfg(not(feature = "cuda"))]
         {
             Err(anyhow::anyhow!("CUDA feature not enabled"))
         }
     }
-    
+
     /// 获取流指针
     pub fn as_ptr(&self) -> *mut std::ffi::c_void {
         self.stream
@@ -114,22 +116,24 @@ impl CudaEvent {
     pub fn new() -> Result<Self> {
         #[cfg(feature = "cuda")]
         {
-            Ok(Self { event: ptr::null_mut() })
+            Ok(Self {
+                event: ptr::null_mut(),
+            })
         }
-        
+
         #[cfg(not(feature = "cuda"))]
         {
             Err(anyhow::anyhow!("CUDA feature not enabled"))
         }
     }
-    
+
     /// 同步事件
     pub fn synchronize(&self) -> Result<()> {
         #[cfg(feature = "cuda")]
         {
             Ok(())
         }
-        
+
         #[cfg(not(feature = "cuda"))]
         {
             Err(anyhow::anyhow!("CUDA feature not enabled"))

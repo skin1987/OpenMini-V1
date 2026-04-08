@@ -142,33 +142,33 @@ mod tests {
     fn test_settings_default_config() {
         // 测试默认配置
         let config = ServerConfig::default();
-        
+
         // 验证服务器设置
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 50051);
         assert_eq!(config.server.max_connections, 100);
         assert_eq!(config.server.request_timeout_ms, 60000);
-        
+
         // 验证模型设置
         assert_eq!(config.model.quantization, "Q4_K_M");
         assert_eq!(config.model.context_length, 4096);
         assert!(!config.model.path.as_os_str().is_empty());
-        
+
         // 验证线程池设置
         assert!(config.thread_pool.size > 0);
         assert_eq!(config.thread_pool.stack_size_kb, 8192);
-        
+
         // 验证内存设置
         assert_eq!(config.memory.max_memory_gb, 12);
         assert_eq!(config.memory.model_memory_gb, 6);
         assert_eq!(config.memory.cache_memory_gb, 4);
         assert_eq!(config.memory.arena_size_mb, 256);
-        
+
         // 验证 Worker 设置
         assert_eq!(config.worker.count, 3);
         assert!(config.worker.restart_on_failure);
         assert_eq!(config.worker.health_check_interval_ms, 5000);
-        
+
         // 验证 gRPC 设置
         assert_eq!(config.grpc.max_message_size_mb, 100);
         assert_eq!(config.grpc.keepalive_time_ms, 30000);
@@ -180,10 +180,13 @@ mod tests {
         // 测试地址格式化
         let config = ServerConfig::default();
         let addr = config.addr();
-        
+
         // 应该是 host:port 格式
         assert!(addr.contains(':'));
-        assert_eq!(addr, format!("{}:{}", config.server.host, config.server.port));
+        assert_eq!(
+            addr,
+            format!("{}:{}", config.server.host, config.server.port)
+        );
     }
 
     #[test]
@@ -191,7 +194,7 @@ mod tests {
         // 测试内存计算
         let config = ServerConfig::default();
         let max_bytes = config.max_memory_bytes();
-        
+
         // 应该是 GB * 1024^3
         assert_eq!(max_bytes, config.memory.max_memory_gb * 1024 * 1024 * 1024);
     }
@@ -201,7 +204,7 @@ mod tests {
         // 测试 Arena 大小计算
         let config = ServerConfig::default();
         let arena_bytes = config.arena_size_bytes();
-        
+
         // 应该是 MB * 1024^2
         assert_eq!(arena_bytes, config.memory.arena_size_mb * 1024 * 1024);
     }
@@ -210,14 +213,14 @@ mod tests {
     fn test_settings_model_config_validation() {
         // 模型配置验证
         let config = ServerConfig::default();
-        
+
         // 验证模型路径不为空
         assert!(!config.model.path.as_os_str().is_empty());
-        
+
         // 验证上下文长度合理
         assert!(config.model.context_length > 0);
         assert!(config.model.context_length <= 131072); // 最大128K
-        
+
         // 验证量化类型有效
         let valid_quantizations = ["Q4_K_M", "Q4_0", "Q8_0", "F16", "F32", "Q5_K_M", "Q6_K"];
         assert!(valid_quantizations.contains(&config.model.quantization.as_str()));
@@ -227,13 +230,13 @@ mod tests {
     fn test_settings_server_config_ranges() {
         // 服务器配置范围验证
         let config = ServerConfig::default();
-        
+
         // 端口应该在合理范围内
         // port 是 u16 类型,范围 0-65535 由类型保证
 
         // 最大连接数应该合理
         assert!(config.server.max_connections > 0 && config.server.max_connections <= 100000);
-        
+
         // 超时时间应该合理 (毫秒)
         assert!(config.server.request_timeout_ms >= 1000); // 至少1秒
     }
@@ -242,10 +245,10 @@ mod tests {
     fn test_settings_worker_config() {
         // Worker配置验证
         let config = ServerConfig::default();
-        
+
         // Worker数量应该合理
         assert!(config.worker.count >= 1 && config.worker.count <= 64);
-        
+
         // 健康检查间隔应该合理
         assert!(config.worker.health_check_interval_ms >= 1000); // 至少1秒
     }
@@ -293,32 +296,36 @@ keepalive_timeout_ms = 5000
 
         // 加载配置
         let result = ServerConfig::from_file(&temp_file);
-        assert!(result.is_ok(), "Failed to load TOML config: {:?}", result.err());
-        
+        assert!(
+            result.is_ok(),
+            "Failed to load TOML config: {:?}",
+            result.err()
+        );
+
         let config = result.unwrap();
-        
+
         // 验证加载的值
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.server.max_connections, 50);
         assert_eq!(config.server.request_timeout_ms, 30000);
-        
+
         assert_eq!(config.thread_pool.size, 4);
         assert_eq!(config.thread_pool.stack_size_kb, 4096);
-        
+
         assert_eq!(config.memory.max_memory_gb, 16);
         assert_eq!(config.memory.model_memory_gb, 8);
         assert_eq!(config.memory.cache_memory_gb, 6);
         assert_eq!(config.memory.arena_size_mb, 512);
-        
+
         assert_eq!(config.model.path, PathBuf::from("/models/test.gguf"));
         assert_eq!(config.model.quantization, "Q4_0");
         assert_eq!(config.model.context_length, 2048);
-        
+
         assert_eq!(config.worker.count, 2);
         assert!(!config.worker.restart_on_failure);
         assert_eq!(config.worker.health_check_interval_ms, 3000);
-        
+
         assert_eq!(config.grpc.max_message_size_mb, 50);
         assert_eq!(config.grpc.keepalive_time_ms, 15000);
         assert_eq!(config.grpc.keepalive_timeout_ms, 5000);
@@ -339,18 +346,22 @@ keepalive_timeout_ms = 5000
     fn test_settings_serialization_roundtrip() {
         // 测试序列化和反序列化的往返一致性
         let original = ServerConfig::default();
-        
+
         // 序列化为TOML字符串
         let toml_str = toml::to_string(&original).expect("Failed to serialize to TOML");
         assert!(!toml_str.is_empty());
-        
+
         // 从TOML反序列化
-        let loaded: ServerConfig = toml::from_str(&toml_str).expect("Failed to deserialize from TOML");
-        
+        let loaded: ServerConfig =
+            toml::from_str(&toml_str).expect("Failed to deserialize from TOML");
+
         // 验证关键字段一致
         assert_eq!(loaded.server.host, original.server.host);
         assert_eq!(loaded.server.port, original.server.port);
-        assert_eq!(loaded.server.max_connections, original.server.max_connections);
+        assert_eq!(
+            loaded.server.max_connections,
+            original.server.max_connections
+        );
         assert_eq!(loaded.model.path, original.model.path);
         assert_eq!(loaded.model.quantization, original.model.quantization);
         assert_eq!(loaded.model.context_length, original.model.context_length);
@@ -381,7 +392,10 @@ stack_size_kb = 2048
         // 应该解析失败，因为缺少必需字段
         let result = ServerConfig::from_file(&temp_file);
         // TOML 反序列化会失败，因为缺少必需的 struct 字段
-        assert!(result.is_err(), "Missing required fields should cause error");
+        assert!(
+            result.is_err(),
+            "Missing required fields should cause error"
+        );
 
         std::fs::remove_file(temp_file).ok();
     }
@@ -475,10 +489,8 @@ keepalive_timeout_ms = 10000
     fn test_settings_quantization_validation_all_types() {
         // 覆盖分支: 所有支持的量化类型验证
         let valid_quantizations = [
-            "Q4_K_M", "Q4_0", "Q8_0", "F16", "F32", 
-            "Q5_K_M", "Q6_K", "Q3_K_M", "Q2_K", "Q5_0", "Q5_1",
-            "IQ4_NL", "IQ4_XS", "IQ3_S", "IQ3_M", "IQ2_S", "IQ2_M",
-            "IQ1_S", "IQ1_M",
+            "Q4_K_M", "Q4_0", "Q8_0", "F16", "F32", "Q5_K_M", "Q6_K", "Q3_K_M", "Q2_K", "Q5_0",
+            "Q5_1", "IQ4_NL", "IQ4_XS", "IQ3_S", "IQ3_M", "IQ2_S", "IQ2_M", "IQ1_S", "IQ1_M",
         ];
 
         for &q in &valid_quantizations {
@@ -514,7 +526,8 @@ keepalive_timeout_ms = 10000
         // Keepalive 时间应该合理
         assert!(config.grpc.keepalive_time_ms >= 1000); // 至少 1 秒
         assert!(config.grpc.keepalive_timeout_ms >= 1000); // 至少 1 秒
-        assert!(config.grpc.keepalive_timeout_ms < config.grpc.keepalive_time_ms); // timeout < time
+        assert!(config.grpc.keepalive_timeout_ms < config.grpc.keepalive_time_ms);
+        // timeout < time
     }
 
     #[test]
@@ -548,19 +561,19 @@ impl ServerConfig {
         let config: ServerConfig = toml::from_str(&content)?;
         Ok(config)
     }
-    
+
     /// 获取服务器监听地址字符串
     ///
     /// 格式: "host:port"
     pub fn addr(&self) -> String {
         format!("{}:{}", self.server.host, self.server.port)
     }
-    
+
     /// 获取最大内存(字节)
     pub fn max_memory_bytes(&self) -> usize {
         self.memory.max_memory_gb * 1024 * 1024 * 1024
     }
-    
+
     /// 获取 Arena 大小(字节)
     pub fn arena_size_bytes(&self) -> usize {
         self.memory.arena_size_mb * 1024 * 1024

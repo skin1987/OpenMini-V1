@@ -117,9 +117,8 @@ pub fn matmul_batch(
     // 通过 GpuBackend trait 访问 batch_matmul 方法
     use crate::hardware::gpu::{GpuBackend, GpuOps};
 
-    let backend = GpuBackend::detect().ok_or_else(|| {
-        anyhow::anyhow!("GPU backend not available for batch matmul")
-    })?;
+    let backend = GpuBackend::detect()
+        .ok_or_else(|| anyhow::anyhow!("GPU backend not available for batch matmul"))?;
 
     let results = backend.batch_matmul(a_batch, b_batch)?;
 
@@ -302,10 +301,7 @@ mod tests {
     #[test]
     fn test_matmul_batch_mismatched_length() {
         let a_batch: Vec<Array2<f32>> = vec![Array2::zeros((2, 3))];
-        let b_batch: Vec<Array2<f32>> = vec![
-            Array2::zeros((3, 4)),
-            Array2::zeros((3, 4)),
-        ]; // 长度不匹配
+        let b_batch: Vec<Array2<f32>> = vec![Array2::zeros((3, 4)), Array2::zeros((3, 4))]; // 长度不匹配
 
         #[cfg(feature = "metal")]
         {
@@ -384,10 +380,7 @@ mod tests {
     #[test]
     fn test_matmul_batch_chunked_mismatched_length() {
         let a_batch: Vec<Array2<f32>> = vec![Array2::zeros((2, 3))];
-        let b_batch: Vec<Array2<f32>> = vec![
-            Array2::zeros((3, 4)),
-            Array2::zeros((3, 4)),
-        ];
+        let b_batch: Vec<Array2<f32>> = vec![Array2::zeros((3, 4)), Array2::zeros((3, 4))];
 
         #[cfg(feature = "metal")]
         {
@@ -448,8 +441,8 @@ mod tests {
     fn test_batch_stats_normal_calculation() {
         let stats = BatchMatmulStats {
             batch_size: 4,
-            total_time_us: 2000, // 2ms
-            avg_time_per_matmul_us: 500.0, // 2000/4
+            total_time_us: 2000,               // 2ms
+            avg_time_per_matmul_us: 500.0,     // 2000/4
             throughput_matmul_per_sec: 2000.0, // 4 / (2000/1e6)
         };
 

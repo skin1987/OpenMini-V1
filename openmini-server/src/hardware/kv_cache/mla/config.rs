@@ -41,7 +41,11 @@ impl MLAConfig {
         self
     }
 
-    pub fn with_num_heads(mut self, num_attention_heads: usize, num_key_value_heads: usize) -> Self {
+    pub fn with_num_heads(
+        mut self,
+        num_attention_heads: usize,
+        num_key_value_heads: usize,
+    ) -> Self {
         self.num_attention_heads = num_attention_heads;
         self.num_key_value_heads = num_key_value_heads;
         self
@@ -177,9 +181,8 @@ mod tests {
     /// 测试 validate 的 num_attention_heads=0 错误分支
     #[test]
     fn test_validate_zero_attention_heads() {
-        let config = MLAConfig::new()
-            .with_num_heads(0, 8);
-        
+        let config = MLAConfig::new().with_num_heads(0, 8);
+
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("num_attention_heads"));
@@ -188,9 +191,8 @@ mod tests {
     /// 测试 validate 的 num_key_value_heads=0 错误分支
     #[test]
     fn test_validate_zero_kv_heads() {
-        let config = MLAConfig::new()
-            .with_num_heads(32, 0);
-        
+        let config = MLAConfig::new().with_num_heads(32, 0);
+
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("num_key_value_heads"));
@@ -210,7 +212,7 @@ mod tests {
             rope_theta: 1000000.0,
             max_seq_len: 32768,
         };
-        
+
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("head_dim"));
@@ -219,9 +221,8 @@ mod tests {
     /// 测试 validate 的 latent_dim=0 错误分支
     #[test]
     fn test_validate_zero_latent_dim() {
-        let config = MLAConfig::new()
-            .with_latent_dim(0);
-        
+        let config = MLAConfig::new().with_latent_dim(0);
+
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("latent_dim"));
@@ -231,9 +232,8 @@ mod tests {
     #[test]
     fn test_validate_latent_dim_exceeds_kv_dim() {
         // kv_dim = num_key_value_heads * head_dim = 8 * 128 = 1024
-        let config = MLAConfig::new()
-            .with_latent_dim(2048); // > 1024
-        
+        let config = MLAConfig::new().with_latent_dim(2048); // > 1024
+
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("latent_dim should be smaller"));
@@ -242,23 +242,22 @@ mod tests {
     /// 测试 validate 的 num_attention_heads < num_key_value_heads 错误分支
     #[test]
     fn test_validate_attention_heads_less_than_kv_heads() {
-        let config = MLAConfig::new()
-            .with_num_heads(4, 8); // attention_heads < key_value_heads
-        
+        let config = MLAConfig::new().with_num_heads(4, 8); // attention_heads < key_value_heads
+
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("num_attention_heads should be >="));
+        assert!(result
+            .unwrap_err()
+            .contains("num_attention_heads should be >="));
     }
 
     /// 测试 q_latent_dim 方法
     #[test]
     fn test_q_latent_dim() {
-        let config_with_rope = MLAConfig::new()
-            .with_decoupled_rope(true);
-        
-        let config_without_rope = MLAConfig::new()
-            .with_decoupled_rope(false);
-        
+        let config_with_rope = MLAConfig::new().with_decoupled_rope(true);
+
+        let config_without_rope = MLAConfig::new().with_decoupled_rope(false);
+
         // 两种情况下应该相同
         assert_eq!(config_with_rope.q_latent_dim(), 32 * 128);
         assert_eq!(config_without_rope.q_latent_dim(), 32 * 128);
@@ -275,9 +274,8 @@ mod tests {
     #[test]
     fn test_compress_ratio_boundary() {
         // 当 latent_dim 接近 kv_dim 时，压缩率接近 0
-        let low_compress = MLAConfig::new()
-            .with_latent_dim(1023); // kv_dim - 1
-        
+        let low_compress = MLAConfig::new().with_latent_dim(1023); // kv_dim - 1
+
         let ratio = low_compress.compress_ratio();
         assert!(ratio >= 0.0 && ratio < 1.0);
     }
@@ -288,20 +286,20 @@ mod tests {
     fn test_mla_config_partial_eq() {
         let config1 = MLAConfig::default();
         let config2 = MLAConfig::default();
-        
+
         // 两个默认配置应该相等
         assert_eq!(config1, config2);
-        
+
         // 修改一个字段后应该不等
         let config3 = config1.clone().with_hidden_size(2048);
         assert_ne!(config1, config3);
-        
+
         let config4 = config1.clone().with_num_heads(16, 4);
         assert_ne!(config1, config4);
-        
+
         let config5 = config1.clone().with_latent_dim(256);
         assert_ne!(config1, config5);
-        
+
         let config6 = config1.clone().with_decoupled_rope(false);
         assert_ne!(config1, config6);
     }
@@ -312,15 +310,15 @@ mod tests {
     fn test_mla_config_clone_independence() {
         let config1 = MLAConfig::default();
         let mut config2 = config1.clone();
-        
+
         // 修改克隆后的对象
         config2.hidden_size = 9999;
         config2.latent_dim = 100;
-        
+
         // 原对象应该不受影响
         assert_eq!(config1.hidden_size, 3584);
         assert_eq!(config1.latent_dim, 512);
-        
+
         // 克隆后的对象应该反映修改
         assert_eq!(config2.hidden_size, 9999);
         assert_eq!(config2.latent_dim, 100);
@@ -333,14 +331,14 @@ mod tests {
         // 默认配置应该通过验证
         let default_config = MLAConfig::default();
         assert!(default_config.validate().is_ok());
-        
+
         // 自定义但有效的配置
         let custom_config = MLAConfig::new()
             .with_hidden_size(2048)
             .with_num_heads(16, 8) // attention_heads >= kv_heads
-            .with_latent_dim(256);  // latent_dim < kv_dim (kv_dim=8*128=1024)
+            .with_latent_dim(256); // latent_dim < kv_dim (kv_dim=8*128=1024)
         assert!(custom_config.validate().is_ok());
-        
+
         // 极小但有效的配置
         let tiny_config = MLAConfig::new()
             .with_hidden_size(1)
@@ -359,14 +357,14 @@ mod tests {
             .with_num_heads(16, 8)
             .with_latent_dim(512)
             .with_decoupled_rope(false);
-        
+
         // 顺序2：逆序调用
         let config2 = MLAConfig::new()
             .with_decoupled_rope(false)
             .with_latent_dim(512)
             .with_num_heads(16, 8)
             .with_hidden_size(2048);
-        
+
         // 两种顺序应该产生相同的配置
         assert_eq!(config1, config2);
     }
@@ -379,13 +377,12 @@ mod tests {
         let config1 = MLAConfig::default();
         assert_eq!(config1.kv_dim(), 8 * 128); // num_kv_heads * head_dim
         assert_eq!(config1.q_latent_dim(), 32 * 128); // num_attention_heads * head_dim
-        
+
         // 配置2：自定义头数
-        let config2 = MLAConfig::new()
-            .with_num_heads(64, 16); // 64个注意力头，16个KV头
+        let config2 = MLAConfig::new().with_num_heads(64, 16); // 64个注意力头，16个KV头
         assert_eq!(config2.kv_dim(), 16 * 128);
         assert_eq!(config2.q_latent_dim(), 64 * 128);
-        
+
         // 配置3：不同头维度（需要手动构造）
         let config3 = MLAConfig {
             head_dim: 64,

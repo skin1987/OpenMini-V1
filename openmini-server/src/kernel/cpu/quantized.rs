@@ -17,15 +17,16 @@ pub struct QuantParams {
 pub fn quantize_symmetric(data: &[f32]) -> Result<(Vec<i8>, f32)> {
     let max_abs = data.iter().map(|&x| x.abs()).fold(0.0, f32::max);
     let scale = max_abs / 127.0;
-    
+
     if scale == 0.0 {
         return Ok((vec![0i8; data.len()], 1.0));
     }
-    
-    let quantized: Vec<i8> = data.iter()
+
+    let quantized: Vec<i8> = data
+        .iter()
         .map(|&x| (x / scale).round().clamp(-128.0, 127.0) as i8)
         .collect();
-    
+
     Ok((quantized, scale))
 }
 
@@ -38,29 +39,36 @@ pub fn dequantize_symmetric(data: &[i8], scale: f32) -> Vec<f32> {
 pub fn quantize_asymmetric(data: &[f32]) -> Result<(Vec<u8>, QuantParams)> {
     let min_val = data.iter().cloned().fold(f32::INFINITY, f32::min);
     let max_val = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    
+
     let scale = (max_val - min_val) / 255.0;
     let zero_point = (-min_val / scale).round() as i32;
-    
+
     if scale == 0.0 {
-        return Ok((vec![0u8; data.len()], QuantParams {
-            scale: 1.0,
-            zero_point: 0,
-            min_val,
-            max_val,
-        }));
+        return Ok((
+            vec![0u8; data.len()],
+            QuantParams {
+                scale: 1.0,
+                zero_point: 0,
+                min_val,
+                max_val,
+            },
+        ));
     }
-    
-    let quantized: Vec<u8> = data.iter()
+
+    let quantized: Vec<u8> = data
+        .iter()
         .map(|&x| ((x / scale).round() as i32 + zero_point).clamp(0, 255) as u8)
         .collect();
-    
-    Ok((quantized, QuantParams {
-        scale,
-        zero_point,
-        min_val,
-        max_val,
-    }))
+
+    Ok((
+        quantized,
+        QuantParams {
+            scale,
+            zero_point,
+            min_val,
+            max_val,
+        },
+    ))
 }
 
 /// 非对称反量化（INT8）
@@ -74,13 +82,13 @@ pub fn dequantize_asymmetric(data: &[u8], params: &QuantParams) -> Vec<f32> {
 pub fn quantize_int4(data: &[f32]) -> Result<(Vec<u8>, f32)> {
     let max_abs = data.iter().map(|&x| x.abs()).fold(0.0, f32::max);
     let scale = max_abs / 7.0;
-    
+
     if scale == 0.0 {
         return Ok((vec![0u8; (data.len() + 1) / 2], 1.0));
     }
-    
+
     let mut packed = Vec::with_capacity((data.len() + 1) / 2);
-    
+
     for chunk in data.chunks(2) {
         let low = (chunk[0] / scale).round().clamp(-8.0, 7.0) as i8;
         let high = if chunk.len() > 1 {
@@ -88,60 +96,67 @@ pub fn quantize_int4(data: &[f32]) -> Result<(Vec<u8>, f32)> {
         } else {
             0
         };
-        
+
         // 打包两个INT4到一个字节
         let packed_byte = ((low & 0x0F) as u8) | ((high & 0x0F) as u8) << 4;
         packed.push(packed_byte);
     }
-    
+
     Ok((packed, scale))
 }
 
 /// INT4反量化
 pub fn dequantize_int4(packed: &[u8], scale: f32, len: usize) -> Vec<f32> {
     let mut result = Vec::with_capacity(len);
-    
+
     for &byte in packed {
         let low = (byte & 0x0F) as i8;
         let low = if low > 7 { low - 16 } else { low };
         result.push(low as f32 * scale);
-        
+
         if result.len() < len {
             let high = ((byte >> 4) & 0x0F) as i8;
             let high = if high > 7 { high - 16 } else { high };
             result.push(high as f32 * scale);
         }
     }
-    
+
     result.truncate(len);
     result
 }
 
 /// FP16量化
 pub fn quantize_fp16(data: &[f32]) -> Vec<u16> {
-    data.iter().map(|&x| half::f16::from_f32(x).to_bits()).collect()
+    data.iter()
+        .map(|&x| half::f16::from_f32(x).to_bits())
+        .collect()
 }
 
 /// FP16反量化
 pub fn dequantize_fp16(data: &[u16]) -> Vec<f32> {
-    data.iter().map(|&x| half::f16::from_bits(x).to_f32()).collect()
+    data.iter()
+        .map(|&x| half::f16::from_bits(x).to_f32())
+        .collect()
 }
 
 /// 动态量化（根据数据范围自动选择）
 pub fn quantize_dynamic(data: &[f32]) -> Result<(Vec<u8>, QuantParams)> {
     let variance = data.iter().map(|&x| x * x).sum::<f32>() / data.len() as f32;
-    
+
     if variance < 0.01 {
         quantize_asymmetric(data)
     } else {
         let (quantized, scale) = quantize_symmetric(data)?;
         let quantized_u8: Vec<u8> = quantized.iter().map(|&x| (x as i16 + 128) as u8).collect();
-        Ok((quantized_u8, QuantParams {
-            scale,
-            zero_point: 128,
-            min_val: -128.0 * scale,
-            max_val: 127.0 * scale,
-        }))
+        Ok((
+            quantized_u8,
+            QuantParams {
+                scale,
+                zero_point: 128,
+                min_val: -128.0 * scale,
+                max_val: 127.0 * scale,
+            },
+        ))
     }
 }
 
@@ -189,8 +204,12 @@ mod tests {
         // 反量化并验证误差
         let dequantized = dequantize_asymmetric(&quantized, &params);
         for (orig, deq) in data.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 0.1,
-                "原始值 {} 与反量化值 {} 差异过大", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.1,
+                "原始值 {} 与反量化值 {} 差异过大",
+                orig,
+                deq
+            );
         }
     }
 
@@ -212,9 +231,13 @@ mod tests {
             if orig.abs() > 0.01 {
                 // 对于非极小值，相对误差应小于1%
                 let rel_error = (orig - deq).abs() / orig.abs();
-                assert!(rel_error < 0.01,
+                assert!(
+                    rel_error < 0.01,
                     "FP16精度: 原始值={}, 反量化值={}, 相对误差={}",
-                    orig, deq, rel_error);
+                    orig,
+                    deq,
+                    rel_error
+                );
             }
         }
     }
@@ -250,8 +273,12 @@ mod tests {
         // 反量化验证
         let dequantized = dequantize_asymmetric(&quantized, &params);
         for (orig, deq) in low_variance_data.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 0.1,
-                "动态量化(低方差): 原始值={} vs 反量化值={}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.1,
+                "动态量化(低方差): 原始值={} vs 反量化值={}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -268,12 +295,19 @@ mod tests {
         assert_eq!(params.zero_point, 128); // 对称量化转换后的zero_point应为128
 
         // 反量化验证（需要转回i8再反量化）
-        let i8_data: Vec<i8> = quantized.iter().map(|&x| (x as i8).wrapping_sub(128_u8 as i8)).collect();
+        let i8_data: Vec<i8> = quantized
+            .iter()
+            .map(|&x| (x as i8).wrapping_sub(128_u8 as i8))
+            .collect();
         let dequantized = dequantize_symmetric(&i8_data, params.scale);
 
         for (orig, deq) in high_variance_data.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 1.0,
-                "动态量化(高方差): 原始值={} vs 反量化值={}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 1.0,
+                "动态量化(高方差): 原始值={} vs 反量化值={}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -308,9 +342,13 @@ mod tests {
         for (orig, deq) in large_values.iter().zip(dequantized.iter()) {
             if orig.abs() > 0.0 {
                 let rel_error = (orig - deq).abs() / orig.abs();
-                assert!(rel_error < 0.05,
+                assert!(
+                    rel_error < 0.05,
                     "极端值量化误差过大: 原始值={}, 反量化值={}, 相对误差={}",
-                    orig, deq, rel_error);
+                    orig,
+                    deq,
+                    rel_error
+                );
             }
         }
     }
@@ -330,8 +368,12 @@ mod tests {
 
         // 验证反量化结果
         for (orig, deq) in odd_length_data.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 0.2,
-                "奇数长度INT4: 原始值={} vs 反量化值={}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.2,
+                "奇数长度INT4: 原始值={} vs 反量化值={}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -342,13 +384,19 @@ mod tests {
         let (_quantized, params) = quantize_asymmetric(&data).unwrap();
 
         assert!(params.scale > 0.0, "scale必须为正");
-        assert!(params.min_val <= data.iter().cloned().fold(f32::INFINITY, f32::min),
-            "min_val应该<=数据最小值");
-        assert!(params.max_val >= data.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
-            "max_val应该>=数据最大值");
+        assert!(
+            params.min_val <= data.iter().cloned().fold(f32::INFINITY, f32::min),
+            "min_val应该<=数据最小值"
+        );
+        assert!(
+            params.max_val >= data.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+            "max_val应该>=数据最大值"
+        );
 
-        assert!(params.zero_point >= -255 && params.zero_point <= 255,
-            "zero_point应该在[-255,255]范围内");
+        assert!(
+            params.zero_point >= -255 && params.zero_point <= 255,
+            "zero_point应该在[-255,255]范围内"
+        );
     }
 
     /// 测试负数为主的非对称量化
@@ -368,8 +416,12 @@ mod tests {
         // 反量化验证
         let dequantized = dequantize_asymmetric(&quantized, &params);
         for (orig, deq) in negative_data.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 0.5,
-                "负数主导数据: 原始值={} vs 反量化值={}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.5,
+                "负数主导数据: 原始值={} vs 反量化值={}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -430,9 +482,13 @@ mod tests {
         for (orig, deq) in large_range_data.iter().zip(dequantized.iter()) {
             if orig.abs() > 0.0 {
                 let rel_error = (orig - deq).abs() / orig.abs();
-                assert!(rel_error <= 1.0,
+                assert!(
+                    rel_error <= 1.0,
                     "大范围数据精度: 原始值={}, 反量化值={}, 相对误差={}",
-                    orig, deq, rel_error);
+                    orig,
+                    deq,
+                    rel_error
+                );
             }
         }
     }
@@ -461,7 +517,7 @@ mod tests {
     fn test_int4_pack_unpack_correctness() {
         // 已知值的INT4打包验证
         let test_cases = vec![
-            (vec![7.0], vec![7]),          // 最大正数 (0111)
+            (vec![7.0], vec![7]),           // 最大正数 (0111)
             (vec![-8.0], vec![-8]),         // 最小负数 (1000)
             (vec![0.0], vec![0]),           // 零
             (vec![7.0, -8.0], vec![7, -8]), // 打包到同一字节
@@ -471,18 +527,23 @@ mod tests {
             let (packed, scale) = quantize_int4(&input).unwrap();
             let unpacked = dequantize_int4(&packed, scale, input.len());
 
-            assert_eq!(unpacked.len(), expected_values.len(),
-                "INT4往返长度不匹配");
+            assert_eq!(unpacked.len(), expected_values.len(), "INT4往返长度不匹配");
 
             // 验证符号正确性
             for (i, &expected) in expected_values.iter().enumerate() {
                 // 只验证符号一致性（INT4精度有限）
                 if expected >= 0 {
-                    assert!(unpacked[i] >= -scale * 0.5,
-                        "正数不应变为显著负数: index={}", i);
+                    assert!(
+                        unpacked[i] >= -scale * 0.5,
+                        "正数不应变为显著负数: index={}",
+                        i
+                    );
                 } else {
-                    assert!(unpacked[i] < scale * 0.5,
-                        "负数不应变为显著正数: index={}", i);
+                    assert!(
+                        unpacked[i] < scale * 0.5,
+                        "负数不应变为显著正数: index={}",
+                        i
+                    );
                 }
             }
         }
@@ -492,13 +553,19 @@ mod tests {
     fn test_asymmetric_zero_point_boundaries() {
         let positive_data: Vec<f32> = vec![0.0, 0.1, 0.2, 0.5, 1.0];
         let (_, params_pos) = quantize_asymmetric(&positive_data).unwrap();
-        assert!(params_pos.zero_point >= -255 && params_pos.zero_point <= 255,
-            "zero_point应在有效范围内: {}", params_pos.zero_point);
+        assert!(
+            params_pos.zero_point >= -255 && params_pos.zero_point <= 255,
+            "zero_point应在有效范围内: {}",
+            params_pos.zero_point
+        );
 
         let mixed_data: Vec<f32> = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
         let (_, params_mixed) = quantize_asymmetric(&mixed_data).unwrap();
-        assert!(params_mixed.zero_point >= -255 && params_mixed.zero_point <= 255,
-            "zero_point应在有效范围内: {}", params_mixed.zero_point);
+        assert!(
+            params_mixed.zero_point >= -255 && params_mixed.zero_point <= 255,
+            "zero_point应在有效范围内: {}",
+            params_mixed.zero_point
+        );
     }
 
     /// 测试动态量化在variance恰好等于阈值时的行为
@@ -506,7 +573,9 @@ mod tests {
     fn test_dynamic_quantization_threshold_boundary() {
         // 构造方差恰好约等于0.01的数据
         // 方差 = E[X²] - (E[X])² ≈ 0.01
-        let threshold_data = vec![1.0, 1.005, 0.995, 1.002, 0.998, 1.003, 0.997, 1.001, 0.999, 1.004];
+        let threshold_data = vec![
+            1.0, 1.005, 0.995, 1.002, 0.998, 1.003, 0.997, 1.001, 0.999, 1.004,
+        ];
 
         let (quantized, params) = quantize_dynamic(&threshold_data).unwrap();
 
@@ -517,8 +586,12 @@ mod tests {
         // 反量化验证
         let dequantized = dequantize_asymmetric(&quantized, &params);
         for (orig, deq) in threshold_data.iter().zip(dequantized.iter()) {
-            assert!((orig - deq).abs() < 0.15,
-                "动态量化(阈值边界): 原始值={} vs 反量化值={}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.15,
+                "动态量化(阈值边界): 原始值={} vs 反量化值={}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -532,16 +605,24 @@ mod tests {
         let (q_sym, s_sym) = quantize_symmetric(&mixed_data).unwrap();
         let dq_sym = dequantize_symmetric(&q_sym, s_sym);
         for (orig, deq) in mixed_data.iter().zip(dq_sym.iter()) {
-            assert!((orig - deq).abs() < 1.0,
-                "混合数据对称量化: {} vs {}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 1.0,
+                "混合数据对称量化: {} vs {}",
+                orig,
+                deq
+            );
         }
 
         // 非对称量化
         let (q_asym, p_asym) = quantize_asymmetric(&mixed_data).unwrap();
         let dq_asym = dequantize_asymmetric(&q_asym, &p_asym);
         for (orig, deq) in mixed_data.iter().zip(dq_asym.iter()) {
-            assert!((orig - deq).abs() < 0.5,
-                "混合数据非对称量化: {} vs {}", orig, deq);
+            assert!(
+                (orig - deq).abs() < 0.5,
+                "混合数据非对称量化: {} vs {}",
+                orig,
+                deq
+            );
         }
     }
 }

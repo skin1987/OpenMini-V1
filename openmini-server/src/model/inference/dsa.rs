@@ -75,13 +75,13 @@
 use ndarray::{Array2, Array3};
 use rayon::prelude::*;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{OnceLock, Once};
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Once, OnceLock};
 
-use crate::hardware::simd::{create_simd_ops, SimdOps};
-use crate::hardware::{HyperthreadTopology, CpuAffinity, TaskType};
 use crate::hardware::gpu::{GpuBackend, GpuOps};
+use crate::hardware::simd::{create_simd_ops, SimdOps};
+use crate::hardware::{CpuAffinity, HyperthreadTopology, TaskType};
 
 // ============================================================================
 // DSA 错误类型
@@ -91,10 +91,7 @@ use crate::hardware::gpu::{GpuBackend, GpuOps};
 #[derive(Debug, Clone)]
 pub enum DSAError {
     /// 矩阵维度不匹配
-    DimensionMismatch {
-        expected: String,
-        actual: String,
-    },
+    DimensionMismatch { expected: String, actual: String },
     /// 内存分配失败
     MemoryAllocationFailed(String),
     /// 无效配置
@@ -107,7 +104,11 @@ impl std::fmt::Display for DSAError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DSAError::DimensionMismatch { expected, actual } => {
-                write!(f, "Dimension mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "Dimension mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             DSAError::MemoryAllocationFailed(msg) => {
                 write!(f, "Memory allocation failed: {}", msg)
@@ -142,9 +143,7 @@ static GPU_BACKEND: OnceLock<Option<Box<dyn GpuOps>>> = OnceLock::new();
 /// 获取 GPU 后端（缓存）
 fn get_gpu_backend() -> Option<&'static dyn GpuOps> {
     GPU_BACKEND
-        .get_or_init(|| {
-            GpuBackend::detect().map(|b| Box::new(b) as Box<dyn GpuOps>)
-        })
+        .get_or_init(|| GpuBackend::detect().map(|b| Box::new(b) as Box<dyn GpuOps>))
         .as_ref()
         .map(|b| b.as_ref())
 }
@@ -218,12 +217,12 @@ pub fn simd_accelerated() -> bool {
 /// 建议在程序启动时调用一次，避免在推理热路径中触发。
 pub fn configure_rayon_pool() -> anyhow::Result<()> {
     let mut result = Ok(());
-    
+
     RAYON_CONFIGURED.call_once(|| {
         let topology = get_ht_topology();
         let affinity = CpuAffinity::new(topology.clone(), crate::hardware::NumaTopology::detect());
         let optimal_threads = affinity.optimal_thread_count(TaskType::ComputeIntensive);
-        
+
         if let Err(e) = rayon::ThreadPoolBuilder::new()
             .num_threads(optimal_threads)
             .build_global()
@@ -231,7 +230,7 @@ pub fn configure_rayon_pool() -> anyhow::Result<()> {
             result = Err(anyhow::anyhow!("Failed to configure rayon pool: {}", e));
         }
     });
-    
+
     result
 }
 
@@ -344,9 +343,8 @@ where
     S1: ndarray::Data<Elem = f32>,
     S2: ndarray::Data<Elem = f32>,
 {
-    let gpu = get_gpu_backend().ok_or_else(|| {
-        DSAError::ComputationError("GPU backend not available".to_string())
-    })?;
+    let gpu = get_gpu_backend()
+        .ok_or_else(|| DSAError::ComputationError("GPU backend not available".to_string()))?;
 
     // 将输入转换为 owned Array2
     let q_owned = q.to_owned();
@@ -488,7 +486,8 @@ where
         stats.upload_time_us = upload_start.elapsed().as_micros() as u64;
 
         let compute_start = Instant::now();
-        let result = gpu.matmul(&q_owned, &k_t)
+        let result = gpu
+            .matmul(&q_owned, &k_t)
             .map_err(|e| DSAError::ComputationError(format!("GPU matmul failed: {}", e)))?;
         stats.compute_time_us = compute_start.elapsed().as_micros() as u64;
 
@@ -521,10 +520,12 @@ where
         let k_t = k_full.t().to_owned();
 
         // 执行当前块的 GPU 矩阵乘法
-        let chunk_result = gpu.matmul(&q_chunk_owned, &k_t)
-            .map_err(|e| DSAError::ComputationError(
-                format!("GPU chunked matmul failed at chunk {}: {}", chunk_idx, e)
-            ))?;
+        let chunk_result = gpu.matmul(&q_chunk_owned, &k_t).map_err(|e| {
+            DSAError::ComputationError(format!(
+                "GPU chunked matmul failed at chunk {}: {}",
+                chunk_idx, e
+            ))
+        })?;
 
         // 写入结果
         for (i, row) in chunk_result.rows().into_iter().enumerate() {
@@ -641,17 +642,17 @@ where
 {
     let (q_len, _) = q.dim();
     let (k_len, _) = k_full.dim();
-    
+
     // 对于短序列，使用 CPU 避免 GPU 传输开销
     if q_len < 1024 || k_len < 1024 {
         return lightning_indexer(q, k_full);
     }
-    
+
     // 尝试使用 GPU
     if let Ok(result) = lightning_indexer_gpu(q, k_full) {
         return result;
     }
-    
+
     // GPU 失败，回退到 CPU
     lightning_indexer(q, k_full)
 }
@@ -687,21 +688,21 @@ where
     S2: ndarray::Data<Elem = f32>,
 {
     assert!(chunk_size > 0, "chunk_size must be > 0");
-    
+
     let (q_len, _) = q.dim();
     let (k_len, _) = k_full.dim();
-    
+
     // 预分配输出矩阵
     let mut result = Array2::<f32>::zeros((q_len, k_len));
-    
+
     // 分块计算
     for chunk_start in (0..q_len).step_by(chunk_size) {
         let chunk_end = (chunk_start + chunk_size).min(q_len);
         let q_chunk = q.slice(ndarray::s![chunk_start..chunk_end, ..]);
-        
+
         // 计算当前块的分数
         let chunk_scores = q_chunk.dot(&k_full.t());
-        
+
         // 写入结果
         for (i, row) in chunk_scores.rows().into_iter().enumerate() {
             for (j, &val) in row.iter().enumerate() {
@@ -709,7 +710,7 @@ where
             }
         }
     }
-    
+
     result
 }
 
@@ -748,9 +749,9 @@ where
     S2: ndarray::Data<Elem = f32>,
 {
     assert!(chunk_size > 0, "chunk_size must be > 0");
-    
+
     let (q_len, _) = q.dim();
-    
+
     (0..q_len).step_by(chunk_size).map(move |chunk_start| {
         let chunk_end = (chunk_start + chunk_size).min(q_len);
         let q_chunk = q.slice(ndarray::s![chunk_start..chunk_end, ..]);
@@ -773,35 +774,35 @@ pub fn top_k_selection(scores: &Array2<f32>, k: usize) -> Vec<Vec<usize>> {
 }
 
 /// 为单个查询选择 Top-K
-pub fn select_top_k_for_query(
-    scores: &Array2<f32>,
-    query_idx: usize,
-    k: usize,
-) -> Vec<usize> {
+pub fn select_top_k_for_query(scores: &Array2<f32>, query_idx: usize, k: usize) -> Vec<usize> {
     let row = scores.row(query_idx);
     let row_len = row.len();
     let actual_k = k.min(row_len);
-    
+
     if actual_k == 0 {
         return Vec::new();
     }
-    
+
     // 使用部分排序优化性能
     let mut indices: Vec<usize> = (0..row_len).collect();
-    
+
     // select_nth_unstable_by 的参数是索引，不是数量
     // 当 actual_k == row_len 时，不需要调用 select_nth_unstable_by
     if actual_k < row_len {
         indices.select_nth_unstable_by(actual_k, |&a, &b| {
-            row[b].partial_cmp(&row[a]).unwrap_or(std::cmp::Ordering::Equal)
+            row[b]
+                .partial_cmp(&row[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
     } else {
         // 如果 k >= row_len，直接完全排序
         indices.sort_by(|&a, &b| {
-            row[b].partial_cmp(&row[a]).unwrap_or(std::cmp::Ordering::Equal)
+            row[b]
+                .partial_cmp(&row[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
-    
+
     indices.truncate(actual_k);
     indices
 }
@@ -830,7 +831,7 @@ pub fn should_use_dsa(seq_len: usize, config: &DSATopKConfig) -> bool {
 pub fn softmax_rows(scores: &Array2<f32>) -> Array2<f32> {
     let (rows, cols) = scores.dim();
     let simd = get_simd_ops();
-    
+
     let results: Vec<Vec<f32>> = (0..rows)
         .into_par_iter()
         .map(|i| {
@@ -1790,7 +1791,10 @@ impl DSAMemoryPool {
     /// 若缓冲区超过单 buffer 大小限制，则静默释放（不缓存）。
     pub fn release_f32(&mut self, mut buffer: Vec<f32>) {
         let byte_size = buffer.capacity() * std::mem::size_of::<f32>();
-        self.used_bytes.fetch_sub(byte_size.min(self.used_bytes.load(Ordering::Relaxed)), Ordering::Relaxed);
+        self.used_bytes.fetch_sub(
+            byte_size.min(self.used_bytes.load(Ordering::Relaxed)),
+            Ordering::Relaxed,
+        );
 
         if byte_size > self.max_buffer_size_bytes {
             return;
@@ -1802,7 +1806,10 @@ impl DSAMemoryPool {
     /// 归还 usize 缓冲区到池中
     pub fn release_usize(&mut self, mut buffer: Vec<usize>) {
         let byte_size = buffer.capacity() * std::mem::size_of::<usize>();
-        self.used_bytes.fetch_sub(byte_size.min(self.used_bytes.load(Ordering::Relaxed)), Ordering::Relaxed);
+        self.used_bytes.fetch_sub(
+            byte_size.min(self.used_bytes.load(Ordering::Relaxed)),
+            Ordering::Relaxed,
+        );
 
         if byte_size > self.max_buffer_size_bytes {
             return;
@@ -2232,7 +2239,10 @@ impl DSATempBuffers {
     pub fn get_scores_buffer(&mut self, seq_len: usize, k: usize) -> &mut [f32] {
         let required = seq_len * k;
         // 阶段1：查找合适缓冲区的索引
-        let idx = self.score_buffers.iter().position(|buf| buf.capacity() >= required);
+        let idx = self
+            .score_buffers
+            .iter()
+            .position(|buf| buf.capacity() >= required);
         match idx {
             Some(i) => {
                 self.score_buffers[i].resize(required, 0.0);
@@ -2248,7 +2258,10 @@ impl DSATempBuffers {
 
     /// 获取或创建指定长度的索引缓冲区
     pub fn get_indices_buffer(&mut self, k: usize) -> &mut [usize] {
-        let idx = self.index_buffers.iter().position(|buf| buf.capacity() >= k);
+        let idx = self
+            .index_buffers
+            .iter()
+            .position(|buf| buf.capacity() >= k);
         match idx {
             Some(i) => {
                 self.index_buffers[i].resize(k, 0);
@@ -2264,7 +2277,8 @@ impl DSATempBuffers {
 
     /// 获取或创建指定长度的输出行缓冲区
     pub fn get_output_buffer(&mut self, hidden_size: usize) -> &mut [f32] {
-        let idx = self.output_row_buffers
+        let idx = self
+            .output_row_buffers
             .iter()
             .position(|buf| buf.capacity() >= hidden_size);
         match idx {
@@ -2363,7 +2377,10 @@ impl PartialOrd for RevTopK {
 
 impl Ord for RevTopK {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.value.partial_cmp(&self.value).unwrap_or(std::cmp::Ordering::Equal)
+        other
+            .value
+            .partial_cmp(&self.value)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -2388,7 +2405,12 @@ pub fn top_k_heap(scores: &[f32], k: usize) -> Vec<usize> {
 
     if actual_k >= n {
         // 如果 k >= n，返回所有索引（按分数降序）
-        let mut indices: Vec<(f32, usize)> = scores.iter().cloned().enumerate().map(|(i, s)| (s, i)).collect();
+        let mut indices: Vec<(f32, usize)> = scores
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .collect();
         indices.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         indices.into_iter().map(|(_, i)| i).collect()
     } else {
@@ -2396,7 +2418,10 @@ pub fn top_k_heap(scores: &[f32], k: usize) -> Vec<usize> {
         let mut heap: BinaryHeap<RevTopK> = BinaryHeap::with_capacity(actual_k);
 
         for (idx, &score) in scores.iter().enumerate() {
-            let elem = RevTopK { value: score, index: idx };
+            let elem = RevTopK {
+                value: score,
+                index: idx,
+            };
 
             if heap.len() < actual_k {
                 heap.push(elem);
@@ -2410,7 +2435,11 @@ pub fn top_k_heap(scores: &[f32], k: usize) -> Vec<usize> {
 
         // 提取结果并按分数降序排序
         let mut result: Vec<_> = heap.into_iter().map(|elem| elem.index).collect();
-        result.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+        result.sort_by(|&a, &b| {
+            scores[b]
+                .partial_cmp(&scores[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         result
     }
 }
@@ -2516,7 +2545,12 @@ pub fn select_top_k_heap_for_query(row: &[f32], k: usize) -> Vec<usize> {
 
     if actual_k >= n {
         // 如果 k >= n，返回所有索引（按分数降序）
-        let mut indices: Vec<(f32, usize)> = row.iter().cloned().enumerate().map(|(i, s)| (s, i)).collect();
+        let mut indices: Vec<(f32, usize)> = row
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, s)| (s, i))
+            .collect();
         indices.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         indices.into_iter().map(|(_, i)| i).collect()
     } else {
@@ -2524,7 +2558,10 @@ pub fn select_top_k_heap_for_query(row: &[f32], k: usize) -> Vec<usize> {
         let mut heap: BinaryHeap<RevTopK> = BinaryHeap::with_capacity(actual_k);
 
         for (idx, &score) in row.iter().enumerate() {
-            let elem = RevTopK { value: score, index: idx };
+            let elem = RevTopK {
+                value: score,
+                index: idx,
+            };
 
             if heap.len() < actual_k {
                 heap.push(elem);
@@ -2538,7 +2575,11 @@ pub fn select_top_k_heap_for_query(row: &[f32], k: usize) -> Vec<usize> {
 
         // 提取结果并按分数降序排序
         let mut result: Vec<_> = heap.into_iter().map(|elem| elem.index).collect();
-        result.sort_by(|&a, &b| row[b].partial_cmp(&row[a]).unwrap_or(std::cmp::Ordering::Equal));
+        result.sort_by(|&a, &b| {
+            row[b]
+                .partial_cmp(&row[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         result
     }
 }
@@ -2583,9 +2624,7 @@ pub fn top_k_selection_batched(scores: &Array2<f32>, k: usize) -> Vec<Vec<usize>
     }
 
     // 批量处理：预分配所有结果向量
-    let mut results: Vec<Vec<usize>> = (0..q_len)
-        .map(|_| Vec::with_capacity(actual_k))
-        .collect();
+    let mut results: Vec<Vec<usize>> = (0..q_len).map(|_| Vec::with_capacity(actual_k)).collect();
 
     // 并行处理每一行
     results.par_iter_mut().enumerate().for_each(|(i, result)| {
@@ -2891,11 +2930,9 @@ pub async fn lightning_indexer_async_gpu(
     let k_owned = k.to_owned();
 
     // 使用 spawn_blocking 在线程池中执行 GPU 计算
-    tokio::task::spawn_blocking(move || {
-        lightning_indexer_gpu(&q_owned, &k_owned)
-    })
-    .await
-    .map_err(|e| DSAError::ComputationError(format!("Async task join error: {}", e)))?
+    tokio::task::spawn_blocking(move || lightning_indexer_gpu(&q_owned, &k_owned))
+        .await
+        .map_err(|e| DSAError::ComputationError(format!("Async task join error: {}", e)))?
 }
 
 /// 批量 GPU Lightning Indexer
@@ -2932,7 +2969,10 @@ pub fn lightning_indexer_batch_gpu(
     // 验证输入长度一致
     if queries.len() != keys.len() {
         return Err(DSAError::DimensionMismatch {
-            expected: format!("queries.len() == keys.len(), got queries.len()={}", queries.len()),
+            expected: format!(
+                "queries.len() == keys.len(), got queries.len()={}",
+                queries.len()
+            ),
             actual: format!("keys.len()={}", keys.len()),
         });
     }
@@ -3008,12 +3048,8 @@ pub fn lightning_indexer_mixed_precision(
     // 将输入转换为 FP16 以减少传输带宽
     // 注意：FP16 转换在此处用于模拟混合精度路径的开销。
     // 实际 GPU 后端应原生支持 FP16 计算，此处保留转换逻辑以供未来优化。
-    let _q_fp16: Vec<half::f16> = q.iter()
-        .map(|&v| half::f16::from_f32(v))
-        .collect();
-    let _k_fp16: Vec<half::f16> = k.iter()
-        .map(|&v| half::f16::from_f32(v))
-        .collect();
+    let _q_fp16: Vec<half::f16> = q.iter().map(|&v| half::f16::from_f32(v)).collect();
+    let _k_fp16: Vec<half::f16> = k.iter().map(|&v| half::f16::from_f32(v)).collect();
 
     // 转换回 FP32 数组用于 GPU 计算
     // 注意：实际生产环境应使用 GPU 原生 FP16 支持
@@ -3022,8 +3058,9 @@ pub fn lightning_indexer_mixed_precision(
     let k_t = k.t().to_owned();
 
     // 使用 GPU 执行矩阵乘法
-    let result = gpu.matmul(&q_owned, &k_t)
-        .map_err(|e| DSAError::ComputationError(format!("Mixed precision GPU matmul failed: {}", e)))?;
+    let result = gpu.matmul(&q_owned, &k_t).map_err(|e| {
+        DSAError::ComputationError(format!("Mixed precision GPU matmul failed: {}", e))
+    })?;
 
     Ok(result)
 }
@@ -3066,12 +3103,9 @@ pub fn lightning_indexer_mixed_precision(
 ///
 /// # Panics
 /// 当矩阵维度不匹配时 panic
-pub fn lightning_indexer_cache_optimized(
-    q: &Array2<f32>,
-    k: &Array2<f32>,
-) -> Array2<f32> {
-    let (m, n) = q.dim();      // m: 查询数量, n: 特征维度
-    let (p, _) = k.dim();      // p: 键数量
+pub fn lightning_indexer_cache_optimized(q: &Array2<f32>, k: &Array2<f32>) -> Array2<f32> {
+    let (m, n) = q.dim(); // m: 查询数量, n: 特征维度
+    let (p, _) = k.dim(); // p: 键数量
 
     assert_eq!(n, k.ncols(), "Q and K must have same feature dimension");
 
@@ -3116,7 +3150,10 @@ pub fn lightning_indexer_cache_optimized(
                         let q_slice = q_row.slice(ndarray::s![l0..l1]);
                         let k_slice = k_row.slice(ndarray::s![l0..l1]);
 
-                        let dot_product = simd.dot(q_slice.as_slice().unwrap_or(&[]), k_slice.as_slice().unwrap_or(&[]));
+                        let dot_product = simd.dot(
+                            q_slice.as_slice().unwrap_or(&[]),
+                            k_slice.as_slice().unwrap_or(&[]),
+                        );
                         result_row[j] += dot_product;
                     }
                 }
@@ -3158,10 +3195,7 @@ pub fn lightning_indexer_cache_optimized(
 ///
 /// # 错误
 /// 仅在严重错误时返回错误（如内存分配失败）
-pub fn lightning_indexer_auto(
-    q: &Array2<f32>,
-    k: &Array2<f32>,
-) -> Result<Array2<f32>, DSAError> {
+pub fn lightning_indexer_auto(q: &Array2<f32>, k: &Array2<f32>) -> Result<Array2<f32>, DSAError> {
     let (m, _) = q.dim();
     let (p, _) = k.dim();
     let max_dim = m.max(p);
@@ -3171,19 +3205,13 @@ pub fn lightning_indexer_auto(
 
     match (max_dim, gpu_available) {
         // 小矩阵：使用 CPU 缓存优化版本
-        (dim, _) if dim < 1024 => {
-            Ok(lightning_indexer_cache_optimized(q, k))
-        }
+        (dim, _) if dim < 1024 => Ok(lightning_indexer_cache_optimized(q, k)),
 
         // 中等矩阵 + GPU：使用 GPU 基础版
-        (dim, true) if (1024..=8192).contains(&dim) => {
-            lightning_indexer_gpu(q, k)
-        }
+        (dim, true) if (1024..=8192).contains(&dim) => lightning_indexer_gpu(q, k),
 
         // 大矩阵 + GPU：使用混合精度
-        (dim, true) if dim > 8192 && dim <= 65536 => {
-            lightning_indexer_mixed_precision(q, k)
-        }
+        (dim, true) if dim > 8192 && dim <= 65536 => lightning_indexer_mixed_precision(q, k),
 
         // 超大矩阵 + GPU：使用流式分块处理
         (dim, true) if dim > 65536 => {
@@ -3196,10 +3224,7 @@ pub fn lightning_indexer_auto(
                 let q_chunk = q.slice(ndarray::s![chunk_start..chunk_end, ..]);
 
                 // 尝试 GPU 混合精度
-                let chunk_result = match lightning_indexer_mixed_precision(
-                    &q_chunk.to_owned(),
-                    k,
-                ) {
+                let chunk_result = match lightning_indexer_mixed_precision(&q_chunk.to_owned(), k) {
                     Ok(r) => r,
                     Err(_) => {
                         // 回退到 GPU 基础版
@@ -3271,8 +3296,13 @@ mod tests {
 
     #[test]
     fn test_lightning_indexer() {
-        let q = Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0]).unwrap();
+        let q =
+            Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
 
         let scores = lightning_indexer(&q, &k);
         assert_eq!(scores.dim(), (2, 3));
@@ -3280,51 +3310,59 @@ mod tests {
 
     #[test]
     fn test_lightning_indexer_chunked() {
-        let q = Array2::from_shape_vec((4, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
-        ]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.5, 0.5, 0.0, 0.0,
-        ]).unwrap();
-        
+        let q = Array2::from_shape_vec(
+            (4, 4),
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        )
+        .unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
+
         let scores_chunked = lightning_indexer_chunked(&q, &k, 2);
         let scores_standard = lightning_indexer(&q, &k);
-        
+
         assert_eq!(scores_standard.dim(), scores_chunked.dim());
-        
+
         for i in 0..4 {
             for j in 0..3 {
                 let diff = (scores_standard[[i, j]] - scores_chunked[[i, j]]).abs();
-                assert!(diff < 1e-5, "Mismatch at [{}, {}]: standard={}, chunked={}", 
-                    i, j, scores_standard[[i, j]], scores_chunked[[i, j]]);
+                assert!(
+                    diff < 1e-5,
+                    "Mismatch at [{}, {}]: standard={}, chunked={}",
+                    i,
+                    j,
+                    scores_standard[[i, j]],
+                    scores_chunked[[i, j]]
+                );
             }
         }
     }
 
     #[test]
     fn test_lightning_indexer_streaming() {
-        let q = Array2::from_shape_vec((4, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
-        ]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.5, 0.5, 0.0, 0.0,
-        ]).unwrap();
-        
+        let q = Array2::from_shape_vec(
+            (4, 4),
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        )
+        .unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
+
         let streaming_results: Vec<_> = lightning_indexer_streaming(&q, &k, 2).collect();
         assert_eq!(streaming_results.len(), 2);
-        
+
         let scores_standard = lightning_indexer(&q, &k);
-        
+
         for (chunk_start, scores_chunk) in streaming_results {
             for (i, row) in scores_chunk.rows().into_iter().enumerate() {
                 for (j, &val) in row.iter().enumerate() {
@@ -3340,13 +3378,14 @@ mod tests {
     fn test_chunk_size_zero_panics() {
         let q = Array2::zeros((2, 4));
         let k = Array2::zeros((3, 4));
-        
+
         lightning_indexer_chunked(&q, &k, 0);
     }
 
     #[test]
     fn test_top_k_selection_parallel() {
-        let scores = Array2::from_shape_vec((2, 4), vec![0.1, 0.5, 0.3, 0.2, 0.4, 0.1, 0.3, 0.2]).unwrap();
+        let scores =
+            Array2::from_shape_vec((2, 4), vec![0.1, 0.5, 0.3, 0.2, 0.4, 0.1, 0.3, 0.2]).unwrap();
 
         let top_k = top_k_selection(&scores, 2);
         assert_eq!(top_k.len(), 2);
@@ -3402,22 +3441,24 @@ mod tests {
     #[test]
     fn test_causal_mask_single_query() {
         let q = Array2::from_shape_vec((1, 4), vec![1.0, 0.0, 0.0, 0.0]).unwrap();
-        let k = Array2::from_shape_vec((4, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
-        ]).unwrap();
-        let v = Array2::from_shape_vec((4, 4), vec![
-            1.0, 1.0, 1.0, 1.0,
-            2.0, 2.0, 2.0, 2.0,
-            3.0, 3.0, 3.0, 3.0,
-            4.0, 4.0, 4.0, 4.0,
-        ]).unwrap();
+        let k = Array2::from_shape_vec(
+            (4, 4),
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        )
+        .unwrap();
+        let v = Array2::from_shape_vec(
+            (4, 4),
+            vec![
+                1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0,
+            ],
+        )
+        .unwrap();
 
         let config = DSATopKConfig::new().with_top_k(4);
         let result = sparse_attention_forward(&q, &k, &v, 4, &config, true).unwrap();
-        
+
         assert_eq!(result.dim(), (1, 4));
         for val in result.row(0).iter() {
             assert!(val.is_finite());
@@ -3428,19 +3469,21 @@ mod tests {
     fn test_causal_mask_blocks_future_positions() {
         let seq_len = 4;
         let head_dim = 4;
-        
+
         let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| (i + j) as f32);
         let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| (i * j) as f32 + 1.0);
         let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| (i + 1) as f32);
 
         let config = DSATopKConfig::new().with_top_k(seq_len);
-        
-        let result_with_mask = sparse_attention_forward(&q, &k, &v, head_dim, &config, true).unwrap();
-        let result_no_mask = sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
-        
+
+        let result_with_mask =
+            sparse_attention_forward(&q, &k, &v, head_dim, &config, true).unwrap();
+        let result_no_mask =
+            sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
+
         assert_eq!(result_with_mask.dim(), (seq_len, head_dim));
         assert_eq!(result_no_mask.dim(), (seq_len, head_dim));
-        
+
         for i in 0..seq_len {
             for _j in 0..head_dim {
                 assert!(result_with_mask[[i, i]].is_finite());
@@ -3453,27 +3496,39 @@ mod tests {
     fn test_causal_mask_position_0_only_attends_to_itself() {
         let head_dim = 4;
         let q = Array2::from_shape_vec((1, head_dim), vec![1.0, 0.0, 0.0, 0.0]).unwrap();
-        let k = Array2::from_shape_vec((3, head_dim), vec![
-            1.0, 0.0, 0.0, 0.0,
-            100.0, 0.0, 0.0, 0.0,
-            100.0, 0.0, 0.0, 0.0,
-        ]).unwrap();
-        let v = Array2::from_shape_vec((3, head_dim), vec![
-            1.0, 1.0, 1.0, 1.0,
-            100.0, 100.0, 100.0, 100.0,
-            100.0, 100.0, 100.0, 100.0,
-        ]).unwrap();
+        let k = Array2::from_shape_vec(
+            (3, head_dim),
+            vec![
+                1.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0,
+            ],
+        )
+        .unwrap();
+        let v = Array2::from_shape_vec(
+            (3, head_dim),
+            vec![
+                1.0, 1.0, 1.0, 1.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+            ],
+        )
+        .unwrap();
 
         let config = DSATopKConfig::new().with_top_k(3);
         let result = sparse_attention_forward(&q, &k, &v, head_dim, &config, true).unwrap();
-        
+
         assert_eq!(result.dim(), (1, head_dim));
         for val in result.row(0).iter() {
-            assert!((val - 1.0).abs() < 0.5, "Position 0 should only attend to itself");
+            assert!(
+                (val - 1.0).abs() < 0.5,
+                "Position 0 should only attend to itself"
+            );
         }
     }
 
-    fn standard_attention(q: &Array2<f32>, k: &Array2<f32>, v: &Array2<f32>, head_dim: usize) -> Array2<f32> {
+    fn standard_attention(
+        q: &Array2<f32>,
+        k: &Array2<f32>,
+        v: &Array2<f32>,
+        head_dim: usize,
+    ) -> Array2<f32> {
         let scale = 1.0 / (head_dim as f32).sqrt();
         let scores = q.dot(&k.t()) * scale;
         let attn_weights = softmax_rows(&scores);
@@ -3484,23 +3539,32 @@ mod tests {
     fn test_sparse_vs_standard_attention_small_sequence() {
         let seq_len = 8;
         let head_dim = 4;
-        
+
         let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j + 1) as f32 * 0.1));
         let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i * j + 1) as f32 * 0.1));
         let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| ((i + 1) as f32 * 0.1));
 
-        let config = DSATopKConfig::new().with_top_k(seq_len).with_dynamic_k(false);
-        
+        let config = DSATopKConfig::new()
+            .with_top_k(seq_len)
+            .with_dynamic_k(false);
+
         let sparse_result = sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
         let standard_result = standard_attention(&q, &k, &v, head_dim);
-        
+
         assert_eq!(sparse_result.dim(), standard_result.dim());
-        
+
         for i in 0..seq_len {
             for j in 0..head_dim {
                 let diff = (sparse_result[[i, j]] - standard_result[[i, j]]).abs();
-                assert!(diff < 0.1, "Mismatch at [{}, {}]: sparse={}, standard={}, diff={}",
-                    i, j, sparse_result[[i, j]], standard_result[[i, j]], diff);
+                assert!(
+                    diff < 0.1,
+                    "Mismatch at [{}, {}]: sparse={}, standard={}, diff={}",
+                    i,
+                    j,
+                    sparse_result[[i, j]],
+                    standard_result[[i, j]],
+                    diff
+                );
             }
         }
     }
@@ -3509,20 +3573,30 @@ mod tests {
     fn test_sparse_attention_output_validity() {
         let seq_len = 16;
         let head_dim = 8;
-        
+
         let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j + 1) as f32 * 0.1));
         let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i * j + 1) as f32 * 0.1));
         let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| ((i + 1) as f32 * 0.1));
 
         let config = DSATopKConfig::new().with_top_k(8);
         let result = sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
-        
+
         assert_eq!(result.dim(), (seq_len, head_dim));
-        
+
         for i in 0..seq_len {
             for j in 0..head_dim {
-                assert!(result[[i, j]].is_finite(), "Output should be finite at [{}, {}]", i, j);
-                assert!(!result[[i, j]].is_nan(), "Output should not be NaN at [{}, {}]", i, j);
+                assert!(
+                    result[[i, j]].is_finite(),
+                    "Output should be finite at [{}, {}]",
+                    i,
+                    j
+                );
+                assert!(
+                    !result[[i, j]].is_nan(),
+                    "Output should not be NaN at [{}, {}]",
+                    i,
+                    j
+                );
             }
         }
     }
@@ -3533,17 +3607,20 @@ mod tests {
         let num_heads = 2;
         let head_dim = 4;
         let hidden_size = num_heads * head_dim;
-        
+
         let q = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| ((i + j + 1) as f32 * 0.1));
         let k = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| ((i * j + 1) as f32 * 0.1));
         let v = Array2::from_shape_fn((seq_len, hidden_size), |(i, _j)| ((i + 1) as f32 * 0.1));
 
-        let config = DSATopKConfig::new().with_top_k(seq_len).with_dynamic_k(false);
-        
-        let multihead_result = multihead_sparse_attention(&q, &k, &v, num_heads, head_dim, &config, false).unwrap();
-        
+        let config = DSATopKConfig::new()
+            .with_top_k(seq_len)
+            .with_dynamic_k(false);
+
+        let multihead_result =
+            multihead_sparse_attention(&q, &k, &v, num_heads, head_dim, &config, false).unwrap();
+
         assert_eq!(multihead_result.dim(), (seq_len, hidden_size));
-        
+
         for i in 0..seq_len {
             for _j in 0..hidden_size {
                 assert!(multihead_result[[i, i]].is_finite());
@@ -3559,7 +3636,7 @@ mod tests {
 
         let config = DSATopKConfig::new().with_top_k(0);
         let result = sparse_attention_forward(&q, &k, &v, 4, &config, false);
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output.dim(), (2, 4));
@@ -3573,7 +3650,7 @@ mod tests {
 
         let config = DSATopKConfig::new().with_top_k(1);
         let result = sparse_attention_forward(&q, &k, &v, 4, &config, false).unwrap();
-        
+
         assert_eq!(result.dim(), (1, 4));
         for val in result.row(0).iter() {
             assert!(val.is_finite());
@@ -3587,7 +3664,7 @@ mod tests {
             actual: "3x3".to_string(),
         };
         assert!(err.to_string().contains("Dimension mismatch"));
-        
+
         let err = DSAError::InvalidConfig("test".to_string());
         assert!(err.to_string().contains("Invalid configuration"));
     }
@@ -3595,15 +3672,20 @@ mod tests {
     #[test]
     fn test_lightning_indexer_gpu_fallback() {
         // 测试 GPU 不可用时的回退行为
-        let q = Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0]).unwrap();
+        let q =
+            Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
 
         // 自适应版本应该总是成功（回退到 CPU）
         let scores_adaptive = lightning_indexer_adaptive(&q, &k);
         let scores_cpu = lightning_indexer(&q, &k);
-        
+
         assert_eq!(scores_adaptive.dim(), scores_cpu.dim());
-        
+
         // 验证结果一致
         for i in 0..2 {
             for j in 0..3 {
@@ -3616,8 +3698,13 @@ mod tests {
     #[test]
     fn test_lightning_indexer_adaptive_short_sequence() {
         // 短序列应该使用 CPU
-        let q = Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0]).unwrap();
+        let q =
+            Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
 
         let scores = lightning_indexer_adaptive(&q, &k);
         assert_eq!(scores.dim(), (2, 3));
@@ -3644,7 +3731,7 @@ mod tests {
 
         let config = DSATopKConfig::new().with_top_k(2);
         let result = sparse_attention_forward(&q, &k, &v, 8, &config, false);
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Dimension mismatch"));
@@ -3658,7 +3745,7 @@ mod tests {
 
         let config = DSATopKConfig::new().with_top_k(2);
         let result = sparse_attention_forward(&q, &k, &v, 4, &config, false);
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Dimension mismatch"));
@@ -3708,7 +3795,11 @@ mod tests {
 
         // 检查统计：至少有 1 次命中
         let stats = pool.stats();
-        assert!(stats.hit_count >= 1, "Expected at least 1 hit, got {}", stats.hit_count);
+        assert!(
+            stats.hit_count >= 1,
+            "Expected at least 1 hit, got {}",
+            stats.hit_count
+        );
     }
 
     #[test]
@@ -3844,11 +3935,11 @@ mod tests {
 
     #[test]
     fn test_top_k_selection_optimized() {
-        let scores = Array2::from_shape_vec((3, 4), vec![
-            0.1, 0.5, 0.3, 0.2,
-            0.4, 0.1, 0.3, 0.2,
-            0.9, 0.8, 0.7, 0.6,
-        ]).unwrap();
+        let scores = Array2::from_shape_vec(
+            (3, 4),
+            vec![0.1, 0.5, 0.3, 0.2, 0.4, 0.1, 0.3, 0.2, 0.9, 0.8, 0.7, 0.6],
+        )
+        .unwrap();
 
         let top_k = top_k_selection_optimized(&scores, 2);
 
@@ -3860,9 +3951,7 @@ mod tests {
 
     #[test]
     fn test_top_k_heap_vs_standard_selection() {
-        let scores = Array2::from_shape_fn((10, 20), |(i, j)| {
-            ((i * j + 1) as f32 * 0.1) % 1.0
-        });
+        let scores = Array2::from_shape_fn((10, 20), |(i, j)| ((i * j + 1) as f32 * 0.1) % 1.0);
 
         let k = 5;
 
@@ -3910,8 +3999,13 @@ mod tests {
     #[tokio::test]
     async fn test_lightning_indexer_async_gpu_basic() {
         // 测试异步 GPU Lightning Indexer 基本功能
-        let q = Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0]).unwrap();
+        let q =
+            Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
 
         let result = lightning_indexer_async_gpu(&q, &k).await;
 
@@ -3924,7 +4018,13 @@ mod tests {
                 for i in 0..2 {
                     for j in 0..3 {
                         let diff = (scores[[i, j]] - cpu_scores[[i, j]]).abs();
-                        assert!(diff < 1e-4, "Async GPU result mismatch at [{}, {}]: {}", i, j, diff);
+                        assert!(
+                            diff < 1e-4,
+                            "Async GPU result mismatch at [{}, {}]: {}",
+                            i,
+                            j,
+                            diff
+                        );
                     }
                 }
             }
@@ -3964,8 +4064,10 @@ mod tests {
 
     #[test]
     fn test_lightning_indexer_cache_optimized_correctness() {
-        let q = Array2::from_shape_vec((8, 16), (0..128).map(|i| i as f32 * 0.1).collect()).unwrap();
-        let k = Array2::from_shape_vec((12, 16), (0..192).map(|i| i as f32 * 0.05).collect()).unwrap();
+        let q =
+            Array2::from_shape_vec((8, 16), (0..128).map(|i| i as f32 * 0.1).collect()).unwrap();
+        let k =
+            Array2::from_shape_vec((12, 16), (0..192).map(|i| i as f32 * 0.05).collect()).unwrap();
 
         let standard_result = lightning_indexer(&q, &k);
         let cache_optimized_result = lightning_indexer_cache_optimized(&q, &k);
@@ -3975,8 +4077,15 @@ mod tests {
         for i in 0..8 {
             for j in 0..12 {
                 let diff = (standard_result[[i, j]] - cache_optimized_result[[i, j]]).abs();
-                assert!(diff < 1e-2, "Cache optimized mismatch at [{}, {}]: standard={}, optimized={}, diff={}",
-                    i, j, standard_result[[i, j]], cache_optimized_result[[i, j]], diff);
+                assert!(
+                    diff < 1e-2,
+                    "Cache optimized mismatch at [{}, {}]: standard={}, optimized={}, diff={}",
+                    i,
+                    j,
+                    standard_result[[i, j]],
+                    cache_optimized_result[[i, j]],
+                    diff
+                );
             }
         }
     }
@@ -3984,17 +4093,18 @@ mod tests {
     #[test]
     fn test_lightning_indexer_cache_optimized_small_matrix() {
         // 测试小矩阵的缓存优化版本
-        let q = Array2::from_shape_vec((4, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
-        ]).unwrap();
-        let k = Array2::from_shape_vec((3, 4), vec![
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.5, 0.5, 0.0, 0.0,
-        ]).unwrap();
+        let q = Array2::from_shape_vec(
+            (4, 4),
+            vec![
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        )
+        .unwrap();
+        let k = Array2::from_shape_vec(
+            (3, 4),
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0],
+        )
+        .unwrap();
 
         let result = lightning_indexer_cache_optimized(&q, &k);
         assert_eq!(result.dim(), (4, 3));
@@ -4007,8 +4117,10 @@ mod tests {
     #[test]
     fn test_lightning_indexer_auto_small_matrix_uses_cpu() {
         // 测试自适应选择器对小矩阵使用 CPU 缓存优化版本
-        let q = Array2::from_shape_vec((64, 64), (0..4096).map(|i| i as f32 * 0.01).collect()).unwrap();
-        let k = Array2::from_shape_vec((64, 64), (0..4096).map(|i| i as f32 * 0.02).collect()).unwrap();
+        let q =
+            Array2::from_shape_vec((64, 64), (0..4096).map(|i| i as f32 * 0.01).collect()).unwrap();
+        let k =
+            Array2::from_shape_vec((64, 64), (0..4096).map(|i| i as f32 * 0.02).collect()).unwrap();
 
         let result = lightning_indexer_auto(&q, &k);
         assert!(result.is_ok());
@@ -4019,7 +4131,12 @@ mod tests {
         // 验证所有值都是有限的
         for i in 0..64 {
             for j in 0..64 {
-                assert!(scores[[i, j]].is_finite(), "Auto indexer produced non-finite value at [{}, {}]", i, j);
+                assert!(
+                    scores[[i, j]].is_finite(),
+                    "Auto indexer produced non-finite value at [{}, {}]",
+                    i,
+                    j
+                );
             }
         }
     }
@@ -4037,7 +4154,13 @@ mod tests {
         for i in 0..16 {
             for j in 0..24 {
                 let diff = (standard_result[[i, j]] - auto_result[[i, j]]).abs();
-                assert!(diff < 1e-2, "Auto vs Standard mismatch at [{}, {}]: diff={}", i, j, diff);
+                assert!(
+                    diff < 1e-2,
+                    "Auto vs Standard mismatch at [{}, {}]: diff={}",
+                    i,
+                    j,
+                    diff
+                );
             }
         }
     }
@@ -4045,19 +4168,21 @@ mod tests {
     #[test]
     fn test_mixed_precision_dimension_check() {
         // 测试混合精度版本的维度检查
-        let q = Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        let q =
+            Array2::from_shape_vec((2, 4), vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
         let k = Array2::from_shape_vec((3, 8), vec![0.0; 24]).unwrap(); // 维度不匹配
 
         let result = lightning_indexer_mixed_precision(&q, &k);
-        
+
         // 应该返回维度错误或 GPU 不可用错误
         if let Err(e) = result {
             // 任何错误都是可接受的（GPU不可用 或 维度不匹配）
             assert!(
-                e.to_string().contains("dimension") || 
-                e.to_string().contains("GPU") ||
-                e.to_string().contains("cols"),
-                "Unexpected error: {}", e
+                e.to_string().contains("dimension")
+                    || e.to_string().contains("GPU")
+                    || e.to_string().contains("cols"),
+                "Unexpected error: {}",
+                e
             );
         }
         // 如果 GPU 可用且维度通过，这里不应该发生因为维度确实不匹配
@@ -4066,7 +4191,8 @@ mod tests {
     #[test]
     fn test_cache_optimized_non_square_matrices() {
         let q = Array2::from_shape_vec((10, 8), (0..80).map(|i| i as f32 * 0.1).collect()).unwrap();
-        let k = Array2::from_shape_vec((20, 8), (0..160).map(|i| i as f32 * 0.15).collect()).unwrap();
+        let k =
+            Array2::from_shape_vec((20, 8), (0..160).map(|i| i as f32 * 0.15).collect()).unwrap();
 
         let standard_result = lightning_indexer(&q, &k);
         let cache_result = lightning_indexer_cache_optimized(&q, &k);
@@ -4117,7 +4243,12 @@ mod tests {
         // 验证结果有限
         for i in 0..256.min(10) {
             for j in 0..512.min(10) {
-                assert!(result[[i, j]].is_finite(), "Non-finite value at [{}, {}]", i, j);
+                assert!(
+                    result[[i, j]].is_finite(),
+                    "Non-finite value at [{}, {}]",
+                    i,
+                    j
+                );
             }
         }
     }
@@ -4132,7 +4263,7 @@ mod tests {
         let v = Array2::from_shape_fn((6, 8), |(i, j)| (i + j) as f32);
         let config = DSATopKConfig::new().with_top_k(0);
         let result = sparse_attention_forward(&q, &k, &v, 8, &config, false);
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output.dim(), (4, 8));
@@ -4150,7 +4281,7 @@ mod tests {
         let v = Array2::from_shape_fn((3, 8), |(i, j)| (i + j) as f32);
         let config = DSATopKConfig::new().with_top_k(100); // > kv_len
         let result = sparse_attention_forward(&q, &k, &v, 8, &config, false);
-        
+
         assert!(result.is_ok());
         let output = result.unwrap();
         assert_eq!(output.dim(), (2, 8));
@@ -4167,7 +4298,7 @@ mod tests {
         let k = Array2::zeros((8, 10));
         let v = Array2::zeros((8, 10));
         let config = DSATopKConfig::new();
-        
+
         // heads=2, head_dim=6 => hidden_size应为12，但实际是10
         let result = multihead_sparse_attention(&q, &k, &v, 2, 6, &config, false);
         assert!(result.is_err());
@@ -4182,7 +4313,7 @@ mod tests {
         let k = Array2::zeros((8, 8));
         let v = Array2::zeros((8, 8));
         let config = DSATopKConfig::new();
-        
+
         let result = multihead_sparse_attention(&q, &k, &v, 0, 4, &config, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -4196,7 +4327,7 @@ mod tests {
         let k = Array2::zeros((8, 8));
         let v = Array2::zeros((8, 8));
         let config = DSATopKConfig::new();
-        
+
         let result = multihead_sparse_attention(&q, &k, &v, 2, 0, &config, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -4210,7 +4341,7 @@ mod tests {
         let k = Array2::zeros((4, 4));
         let v = Array2::zeros((6, 4)); // v 的行数 != k 的行数
         let config = DSATopKConfig::new();
-        
+
         let result = sparse_attention_forward(&q, &k, &v, 4, &config, false);
         assert!(result.is_err());
     }
@@ -4222,7 +4353,7 @@ mod tests {
         let k = Array2::zeros((4, 4));
         let v = Array2::zeros((4, 4));
         let config = DSATopKConfig::new();
-        
+
         let result = sparse_attention_forward(&q, &k, &v, 0, &config, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -4245,7 +4376,10 @@ mod tests {
         pool.release_f32(large); // 应被丢弃而非缓存
 
         let stats = pool.stats();
-        assert_eq!(stats.free_buffers_count, 1, "Only the empty vec should be cached");
+        assert_eq!(
+            stats.free_buffers_count, 1,
+            "Only the empty vec should be cached"
+        );
     }
 
     #[test]
@@ -4257,7 +4391,10 @@ mod tests {
         pool.release_f32(large);
 
         let stats = pool.stats();
-        assert_eq!(stats.free_buffers_count, 0, "Large buffer should not be cached");
+        assert_eq!(
+            stats.free_buffers_count, 0,
+            "Large buffer should not be cached"
+        );
     }
 
     #[test]
@@ -4296,16 +4433,16 @@ mod tests {
     fn test_top_k_heap_edge_cases() {
         // 空数组
         assert!(top_k_heap(&[], 5).is_empty());
-        
+
         // k=0
         let data = vec![1.0, 2.0, 3.0];
         assert!(top_k_heap(&data, 0).is_empty());
-        
+
         // 所有元素相同
         let same = vec![5.0; 100];
         let result = top_k_heap(&same, 10);
         assert_eq!(result.len(), 10);
-        
+
         // 单元素
         let single = vec![42.0];
         assert_eq!(top_k_heap(&single, 1)[0], 0);
@@ -4316,7 +4453,7 @@ mod tests {
         // 包含负值的测试
         let data = vec![-1.0, -5.0, -3.0, -2.0, -4.0];
         let top_k = top_k_heap(&data, 3);
-        
+
         assert_eq!(top_k.len(), 3);
         // 应该选择最大的三个负数（最接近0）
         assert_eq!(data[top_k[0]], -1.0); // 最大
@@ -4329,7 +4466,7 @@ mod tests {
         // 包含 NaN 和 Inf 的测试
         let data = vec![1.0, f32::NAN, f32::INFINITY, 2.0, f32::NEG_INFINITY];
         let top_k = top_k_heap(&data, 3);
-        
+
         assert_eq!(top_k.len(), 3);
         // Inf 应该是最大的
         assert_eq!(data[top_k[0]], f32::INFINITY);
@@ -4342,10 +4479,10 @@ mod tests {
         // 当GPU不可用时的回退行为
         let q = Array2::from_shape_fn((4, 8), |(i, _j)| i as f32);
         let k = Array2::from_shape_fn((6, 8), |(_i, j)| j as f32);
-        
+
         // 即使没有GPU，也不应panic
         let result = lightning_indexer_gpu(&q, &k);
-        
+
         match result {
             Ok(scores) => {
                 // GPU 可用时验证维度正确
@@ -4353,7 +4490,9 @@ mod tests {
             }
             Err(e) => {
                 // GPU 不可用时应该返回错误
-                assert!(e.to_string().contains("GPU") || e.to_string().contains("ComputationError"));
+                assert!(
+                    e.to_string().contains("GPU") || e.to_string().contains("ComputationError")
+                );
             }
         }
     }
@@ -4364,7 +4503,7 @@ mod tests {
         // 这里只验证函数签名和基本行为
         let q = Array2::from_shape_fn((2, 4), |(i, _j)| i as f32);
         let k = Array2::from_shape_fn((3, 4), |(_i, j)| j as f32);
-        
+
         // 验证输入有效性（异步测试在下面单独定义）
         assert_eq!(q.dim(), (2, 4));
         assert_eq!(k.dim(), (3, 4));
@@ -4374,9 +4513,9 @@ mod tests {
     async fn test_lightning_indexer_async_gpu_basic_error_path() {
         let q = Array2::from_shape_fn((2, 4), |(i, _j)| i as f32);
         let k = Array2::from_shape_fn((3, 4), |(_i, j)| j as f32);
-        
+
         let result = lightning_indexer_async_gpu(&q, &k).await;
-        
+
         // 验证异步版本不会死锁或panic
         match result {
             Ok(scores) => {
@@ -4385,10 +4524,11 @@ mod tests {
             Err(e) => {
                 // GPU 不可用时的错误处理
                 assert!(
-                    e.to_string().contains("GPU") || 
-                    e.to_string().contains("Async") ||
-                    e.to_string().contains("ComputationError"),
-                    "Unexpected error: {}", e
+                    e.to_string().contains("GPU")
+                        || e.to_string().contains("Async")
+                        || e.to_string().contains("ComputationError"),
+                    "Unexpected error: {}",
+                    e
                 );
             }
         }
@@ -4399,7 +4539,7 @@ mod tests {
     #[test]
     fn test_calculate_dynamic_k_boundary_values() {
         // 测试边界值
-        assert_eq!(calculate_dynamic_k(0), 512);   // <= 1024
+        assert_eq!(calculate_dynamic_k(0), 512); // <= 1024
         assert_eq!(calculate_dynamic_k(1), 512);
         assert_eq!(calculate_dynamic_k(1024), 512);
         assert_eq!(calculate_dynamic_k(1025), 1024); // 1025-4096
@@ -4415,23 +4555,22 @@ mod tests {
     #[test]
     fn test_dsa_config_get_actual_k_branches() {
         // 测试动态 K 开关的不同行为
-        let config_dynamic = DSATopKConfig::new()
-            .with_top_k(100)
-            .with_dynamic_k(true);
-        
-        let config_static = DSATopKConfig::new()
-            .with_top_k(100)
-            .with_dynamic_k(false);
-        
+        let config_dynamic = DSATopKConfig::new().with_top_k(100).with_dynamic_k(true);
+
+        let config_static = DSATopKConfig::new().with_top_k(100).with_dynamic_k(false);
+
         // 动态 K：应该根据 seq_len 返回不同的值
         let k_dyn_small = config_dynamic.get_actual_k(512);
         let k_dyn_large = config_dynamic.get_actual_k(8000);
-        assert_ne!(k_dyn_small, k_dyn_large, "Dynamic K should vary with seq_len");
-        
+        assert_ne!(
+            k_dyn_small, k_dyn_large,
+            "Dynamic K should vary with seq_len"
+        );
+
         // 静态 K：应该始终返回 min(top_k, seq_len)
         let k_stat_small = config_static.get_actual_k(50);
         let k_stat_large = config_static.get_actual_k(200);
-        assert_eq!(k_stat_small, 50);  // min(100, 50)
+        assert_eq!(k_stat_small, 50); // min(100, 50)
         assert_eq!(k_stat_large, 100); // min(100, 200)
     }
 
@@ -4442,7 +4581,7 @@ mod tests {
         // 当 k == row_len 时，应该完全排序
         let scores = Array2::from_shape_vec((1, 4), vec![0.1, 0.5, 0.3, 0.9]).unwrap();
         let indices = select_top_k_for_query(&scores, 0, 4); // k == row_len
-        
+
         assert_eq!(indices.len(), 4);
         // 验证按降序排列 - 使用正确的二维数组索引方式
         assert_eq!(scores[[0, indices[0]]], 0.9);
@@ -4456,7 +4595,7 @@ mod tests {
         // 当 k > row_len 时，应该返回所有索引
         let scores = Array2::from_shape_vec((1, 3), vec![0.1, 0.5, 0.3]).unwrap();
         let indices = select_top_k_for_query(&scores, 0, 100); // k >> row_len
-        
+
         assert_eq!(indices.len(), 3);
     }
 
@@ -4467,7 +4606,7 @@ mod tests {
         // 测试两个维度都小于阈值的情况
         let q = Array2::from_shape_fn((100, 64), |(i, _j)| i as f32);
         let k = Array2::from_shape_fn((100, 64), |(_i, j)| j as f32);
-        
+
         let result = lightning_indexer_adaptive(&q, &k);
         assert_eq!(result.dim(), (100, 100));
     }
@@ -4479,10 +4618,10 @@ mod tests {
         // chunk_size == q_len 时应该正常工作
         let q = Array2::from_shape_fn((4, 4), |(i, j)| ((i + j) as f32 * 0.1));
         let k = Array2::from_shape_fn((3, 4), |(i, j)| ((i * j) as f32 * 0.1));
-        
+
         let result = lightning_indexer_chunked(&q, &k, 4); // chunk_size == q_len
         let expected = lightning_indexer(&q, &k);
-        
+
         assert_eq!(result.dim(), expected.dim());
         for i in 0..4 {
             for j in 0..3 {
@@ -4497,10 +4636,10 @@ mod tests {
         // chunk_size > q_len 时应该只产生一个块
         let q = Array2::from_shape_fn((4, 4), |(i, j)| ((i + j) as f32 * 0.1));
         let k = Array2::from_shape_fn((3, 4), |(i, j)| ((i * j) as f32 * 0.1));
-        
+
         let results: Vec<_> = lightning_indexer_streaming(&q, &k, 100).collect();
         assert_eq!(results.len(), 1); // 只有一个块
-        
+
         let (chunk_start, chunk_scores) = &results[0];
         assert_eq!(*chunk_start, 0);
         assert_eq!(chunk_scores.dim(), (4, 3));
@@ -4513,7 +4652,7 @@ mod tests {
         // 单元素行的 softmax
         let scores = Array2::from_shape_vec((1, 1), vec![5.0]).unwrap();
         let result = softmax_rows(&scores);
-        
+
         assert_eq!(result[[0, 0]], 1.0); // 单元素的 softmax 总是 1.0
     }
 
@@ -4532,7 +4671,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![2.0, 3.0, 4.0, 5.0];
         let dot = simd_dot(&a, &b);
-        
+
         // 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
         assert!((dot - 40.0).abs() < 1e-6);
     }
@@ -4542,7 +4681,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
         let result = simd_add(&a, &b);
-        
+
         assert_eq!(result.len(), 4);
         assert!((result[0] - 6.0).abs() < 1e-6);
         assert!((result[1] - 8.0).abs() < 1e-6);
@@ -4554,7 +4693,7 @@ mod tests {
     fn test_simd_scale_basic() {
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let result = simd_scale(&a, 2.0);
-        
+
         assert_eq!(result.len(), 4);
         assert!((result[0] - 2.0).abs() < 1e-6);
         assert!((result[1] - 4.0).abs() < 1e-6);
@@ -4657,11 +4796,7 @@ mod tests {
             }
             Err(e) => {
                 // GPU 不可用时返回错误也是可接受的
-                assert!(
-                    e.to_string().contains("GPU"),
-                    "错误应与 GPU 相关: {}",
-                    e
-                );
+                assert!(e.to_string().contains("GPU"), "错误应与 GPU 相关: {}", e);
             }
         }
     }
@@ -4805,10 +4940,8 @@ mod tests {
 
     #[test]
     fn test_top_k_selection_heap_basic() {
-        let scores = Array2::from_shape_vec((2, 4), vec![
-            0.1, 0.5, 0.3, 0.9,
-            0.4, 0.1, 0.3, 0.2,
-        ]).unwrap();
+        let scores =
+            Array2::from_shape_vec((2, 4), vec![0.1, 0.5, 0.3, 0.9, 0.4, 0.1, 0.3, 0.2]).unwrap();
 
         let top_k = top_k_selection_heap(&scores, 2);
 
@@ -4885,9 +5018,7 @@ mod tests {
 
     #[test]
     fn test_top_k_selection_batched_basic() {
-        let scores = Array2::from_shape_fn((10, 20), |(i, j)| {
-            ((i * j + 1) as f32 * 0.1) % 1.0
-        });
+        let scores = Array2::from_shape_fn((10, 20), |(i, j)| ((i * j + 1) as f32 * 0.1) % 1.0);
 
         let top_k = top_k_selection_batched(&scores, 5);
 
@@ -4900,10 +5031,7 @@ mod tests {
     #[test]
     fn test_top_k_selection_batched_small_matrix_fallback() {
         // 小矩阵应该回退到 top_k_selection_heap
-        let scores = Array2::from_shape_vec((2, 3), vec![
-            0.1, 0.5, 0.3,
-            0.4, 0.1, 0.2,
-        ]).unwrap();
+        let scores = Array2::from_shape_vec((2, 3), vec![0.1, 0.5, 0.3, 0.4, 0.1, 0.2]).unwrap();
 
         let batched_result = top_k_selection_batched(&scores, 2);
         let heap_result = top_k_selection_heap(&scores, 2);
@@ -4918,9 +5046,7 @@ mod tests {
     #[test]
     fn test_top_k_selection_heap_vs_standard() {
         // 对比堆算法和标准算法的结果一致性
-        let scores = Array2::from_shape_fn((8, 16), |(i, j)| {
-            ((i * j + 1) as f32 * 0.05) % 1.0
-        });
+        let scores = Array2::from_shape_fn((8, 16), |(i, j)| ((i * j + 1) as f32 * 0.05) % 1.0);
 
         let k = 6;
 
@@ -4937,16 +5063,19 @@ mod tests {
                 .iter()
                 .map(|&idx| scores[[i, idx]])
                 .collect();
-            let mut heap_scores: Vec<f32> = heap_result[i]
-                .iter()
-                .map(|&idx| scores[[i, idx]])
-                .collect();
+            let mut heap_scores: Vec<f32> =
+                heap_result[i].iter().map(|&idx| scores[[i, idx]]).collect();
 
             standard_scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
             heap_scores.sort_by(|a, b| b.partial_cmp(a).unwrap());
 
             for (s, h) in standard_scores.iter().zip(heap_scores.iter()) {
-                assert!((s - h).abs() < 1e-6, "Score mismatch: std={}, heap={}", s, h);
+                assert!(
+                    (s - h).abs() < 1e-6,
+                    "Score mismatch: std={}, heap={}",
+                    s,
+                    h
+                );
             }
         }
     }
@@ -4994,9 +5123,7 @@ mod tests {
     #[test]
     fn test_top_k_selection_adaptive_medium_matrix() {
         // 中等矩阵应该使用 batched_cpu 算法
-        let scores = Array2::from_shape_fn((16, 2048), |(i, j)| {
-            ((i * j + 1) as f32 * 0.01) % 1.0
-        });
+        let scores = Array2::from_shape_fn((16, 2048), |(i, j)| ((i * j + 1) as f32 * 0.01) % 1.0);
 
         let (result, stats) = top_k_selection_adaptive(&scores, 64);
 
@@ -5049,20 +5176,29 @@ mod tests {
         let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i * j + 1) as f32 * 0.1));
         let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| ((i + 1) as f32 * 0.1));
 
-        let config = DSATopKConfig::new().with_top_k(seq_len).with_dynamic_k(false);
+        let config = DSATopKConfig::new()
+            .with_top_k(seq_len)
+            .with_dynamic_k(false);
 
         // 原始版本
-        let standard_result = sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
+        let standard_result =
+            sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
 
         // 优化版本
-        let optimized_result = sparse_attention_forward_optimized(&q, &k, &v, head_dim, &config, false).unwrap();
+        let optimized_result =
+            sparse_attention_forward_optimized(&q, &k, &v, head_dim, &config, false).unwrap();
 
         assert_eq!(standard_result.dim(), optimized_result.0.dim());
 
         // 验证输出有限且合理
         for i in 0..seq_len {
             for j in 0..head_dim {
-                assert!(optimized_result.0[[i, j]].is_finite(), "Output should be finite at [{}, {}]", i, j);
+                assert!(
+                    optimized_result.0[[i, j]].is_finite(),
+                    "Output should be finite at [{}, {}]",
+                    i,
+                    j
+                );
             }
         }
     }
@@ -5087,7 +5223,10 @@ mod tests {
         // 验证因果掩码下输出仍然有效
         for i in 0..seq_len {
             for j in 0..head_dim {
-                assert!(output[[i, j]].is_finite(), "Causal mask output should be finite");
+                assert!(
+                    output[[i, j]].is_finite(),
+                    "Causal mask output should be finite"
+                );
             }
         }
     }
@@ -5115,16 +5254,11 @@ mod tests {
         use std::time::Instant;
 
         // 测试不同序列长度下的性能对比
-        let test_cases = vec![
-            (64, 16),
-            (256, 64),
-            (1024, 256),
-        ];
+        let test_cases = vec![(64, 16), (256, 64), (1024, 256)];
 
         for (seq_len, k) in test_cases {
-            let scores = Array2::from_shape_fn((4, seq_len), |(i, j)| {
-                ((i * j + 1) as f32 * 0.01) % 1.0
-            });
+            let scores =
+                Array2::from_shape_fn((4, seq_len), |(i, j)| ((i * j + 1) as f32 * 0.01) % 1.0);
 
             // 标准版性能
             let start_std = Instant::now();
@@ -5138,7 +5272,8 @@ mod tests {
 
             println!(
                 "seq_len={}, k={}: std={}μs, heap={}μs",
-                seq_len, k,
+                seq_len,
+                k,
                 std_time.as_micros(),
                 heap_time.as_micros()
             );
@@ -5150,9 +5285,8 @@ mod tests {
         use std::time::Instant;
 
         let seq_len = 1024;
-        let scores = Array2::from_shape_fn((2, seq_len), |(i, j)| {
-            ((i * j + 1) as f32 * 0.001) % 1.0
-        });
+        let scores =
+            Array2::from_shape_fn((2, seq_len), |(i, j)| ((i * j + 1) as f32 * 0.001) % 1.0);
 
         let k_values = [16, 64, 256, 1024];
 
@@ -5177,9 +5311,8 @@ mod tests {
         let k_len = 8192;
         let k = 512;
 
-        let scores = Array2::from_shape_fn((q_len, k_len), |(i, j)| {
-            ((i * j + 1) as f32 * 0.0001) % 1.0
-        });
+        let scores =
+            Array2::from_shape_fn((q_len, k_len), |(i, j)| ((i * j + 1) as f32 * 0.0001) % 1.0);
 
         let start = Instant::now();
         let result = top_k_selection_batched(&scores, k);
@@ -5190,7 +5323,13 @@ mod tests {
             assert_eq!(row_topk.len(), k);
         }
 
-        println!("Large matrix ({}x{}) top-{}: {}μs", q_len, k_len, k, elapsed.as_micros());
+        println!(
+            "Large matrix ({}x{}) top-{}: {}μs",
+            q_len,
+            k_len,
+            k,
+            elapsed.as_micros()
+        );
     }
 
     #[test]
@@ -5217,9 +5356,7 @@ mod tests {
         let k = Array2::from_shape_fn((kv_len, head_dim), |(i, j)| {
             ((i * head_dim + j) as f32 * 0.02).cos() + 0.3
         });
-        let v = Array2::from_shape_fn((kv_len, head_dim), |(i, _j)| {
-            (i + 1) as f32 * 0.1
-        });
+        let v = Array2::from_shape_fn((kv_len, head_dim), |(i, _j)| (i + 1) as f32 * 0.1);
 
         let config = DSATopKConfig::new().with_top_k(8).with_dynamic_k(false);
         let result = sparse_attention_forward(&q, &k, &v, head_dim, &config, false);
@@ -5266,7 +5403,9 @@ mod tests {
         });
         let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| (i + 1) as f32);
 
-        let config = DSATopKConfig::new().with_top_k(seq_len).with_dynamic_k(false);
+        let config = DSATopKConfig::new()
+            .with_top_k(seq_len)
+            .with_dynamic_k(false);
 
         // 无因果掩码
         let result_no_mask =
@@ -5306,11 +5445,7 @@ mod tests {
     /// 标准版 vs 优化版一致性验证：误差 < 1e-5
     #[test]
     fn test_e2e_consistency_standard_vs_optimized() {
-        let test_cases = vec![
-            (4, 64, 8),
-            (8, 128, 16),
-            (16, 64, 12),
-        ];
+        let test_cases = vec![(4, 64, 8), (8, 128, 16), (16, 64, 12)];
 
         for (seq_len, head_dim, top_k) in test_cases {
             let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| {
@@ -5319,17 +5454,13 @@ mod tests {
             let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| {
                 ((i * head_dim + j) as f32 * 0.02).cos()
             });
-            let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| {
-                (i + 1) as f32 * 0.1
-            });
+            let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| (i + 1) as f32 * 0.1);
 
-            let config =
-                DSATopKConfig::new().with_top_k(top_k).with_dynamic_k(false);
+            let config = DSATopKConfig::new().with_top_k(top_k).with_dynamic_k(false);
 
             // 标准版
-            let standard_result =
-                sparse_attention_forward(&q, &k, &v, head_dim, &config, false)
-                    .expect("standard version should succeed");
+            let standard_result = sparse_attention_forward(&q, &k, &v, head_dim, &config, false)
+                .expect("standard version should succeed");
 
             // 优化版
             let optimized_result =
@@ -5364,7 +5495,7 @@ mod tests {
     /// 长序列压力测试：32K 序列不 OOM、不 panic、结果有限
     #[test]
     fn test_e2e_stress_long_sequence() {
-        let q_len = 4;       // 查询长度较小
+        let q_len = 4; // 查询长度较小
         let kv_len = 32_768; // 32K 键值长度
         let head_dim = 128;
 
@@ -5376,9 +5507,7 @@ mod tests {
         let k = Array2::from_shape_fn((kv_len, head_dim), |(i, j)| {
             ((i * head_dim + j) as f32 * 0.0005).cos()
         });
-        let v = Array2::from_shape_fn((kv_len, head_dim), |(i, _j)| {
-            ((i % 100) as f32) * 0.01
-        });
+        let v = Array2::from_shape_fn((kv_len, head_dim), |(i, _j)| ((i % 100) as f32) * 0.01);
 
         let config = DSATopKConfig::new().with_top_k(256).with_dynamic_k(true);
 
@@ -5393,7 +5522,11 @@ mod tests {
                 assert_eq!(output.dim(), (q_len, head_dim));
                 // 验证所有输出有限
                 for val in output.iter() {
-                    assert!(val.is_finite(), "Long sequence output contains non-finite value: {}", val);
+                    assert!(
+                        val.is_finite(),
+                        "Long sequence output contains non-finite value: {}",
+                        val
+                    );
                 }
                 println!("[Stress Test] PASSED: 32K sequence processed successfully");
             }
@@ -5419,7 +5552,7 @@ mod tests {
 
         // lightning_indexer_gpu 应该总是返回 Result（GPU不可用时为 Err）
         let gpu_result = lightning_indexer_gpu(&q, &k);
-        
+
         // 自适应版本应该总是成功（自动回退到 CPU）
         let adaptive_result = lightning_indexer_adaptive(&q, &k);
         let cpu_result = lightning_indexer(&q, &k);
@@ -5445,14 +5578,23 @@ mod tests {
         for i in 0..8 {
             for j in 0..16 {
                 let diff = (adaptive_result[[i, j]] - cpu_result[[i, j]]).abs();
-                assert!(diff < 1e-5, "Adaptive vs CPU mismatch at [{},{}]: {}", i, j, diff);
+                assert!(
+                    diff < 1e-5,
+                    "Adaptive vs CPU mismatch at [{},{}]: {}",
+                    i,
+                    j,
+                    diff
+                );
             }
         }
 
         // Top-K Metal 回退路径测试
         let scores = Array2::from_shape_fn((4, 32), |(i, j)| ((i * j) as f32 * 0.1));
         let top_k_result = top_k_selection_metal(&scores, 4);
-        assert!(top_k_result.is_ok(), "top_k_selection_metal should not panic on fallback");
+        assert!(
+            top_k_result.is_ok(),
+            "top_k_selection_metal should not panic on fallback"
+        );
         let (top_k_indices, _stats) = top_k_result.unwrap();
         assert_eq!(top_k_indices.len(), 4); // 4 行
         for row_indices in &top_k_indices {
@@ -5541,9 +5683,7 @@ mod tests {
         let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| {
             ((i * head_dim + j) as f32 * 0.02).cos()
         });
-        let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| {
-            (i + 1) as f32 * 0.1
-        });
+        let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| (i + 1) as f32 * 0.1);
 
         let config = DSATopKConfig::new().with_top_k(top_k).with_dynamic_k(false);
 
@@ -5606,7 +5746,9 @@ mod tests {
         }
 
         for handle in handles {
-            handle.join().expect("High concurrency stress test should not panic");
+            handle
+                .join()
+                .expect("High concurrency stress test should not panic");
         }
 
         let stats = pool.lock().unwrap().stats();
@@ -5630,11 +5772,11 @@ mod tests {
         let k = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| {
             ((i * hidden_size + j) as f32 * 0.02).cos()
         });
-        let v = Array2::from_shape_fn((seq_len, hidden_size), |(i, _j)| {
-            (i + 1) as f32 * 0.1
-        });
+        let v = Array2::from_shape_fn((seq_len, hidden_size), |(i, _j)| (i + 1) as f32 * 0.1);
 
-        let config = DSATopKConfig::new().with_top_k(seq_len / 2).with_dynamic_k(false);
+        let config = DSATopKConfig::new()
+            .with_top_k(seq_len / 2)
+            .with_dynamic_k(false);
 
         // 测试多头稀疏注意力
         let result = multihead_sparse_attention(&q, &k, &v, num_heads, head_dim, &config, false);
@@ -5663,7 +5805,10 @@ mod tests {
 
         println!(
             "[Multi-head E2E] seq_len={}, heads={}, head_dim={} -> output {:?}",
-            seq_len, num_heads, head_dim, output.dim()
+            seq_len,
+            num_heads,
+            head_dim,
+            output.dim()
         );
     }
 

@@ -152,31 +152,32 @@ impl CudaContext {
     #[cfg(feature = "cuda")]
     fn query_device_properties_cuda(device_id: i32) -> Result<CudaDeviceProp> {
         use cudarc::driver::result;
-        
-        let device = CudaDevice::new(device_id as usize).map_err(|e| {
-            anyhow::anyhow!("获取 CUDA 设备失败: {:?}", e)
-        })?;
-        
-        let name = device.name().map_err(|e| {
-            anyhow::anyhow!("获取设备名称失败: {:?}", e)
-        })?;
-        
+
+        let device = CudaDevice::new(device_id as usize)
+            .map_err(|e| anyhow::anyhow!("获取 CUDA 设备失败: {:?}", e))?;
+
+        let name = device
+            .name()
+            .map_err(|e| anyhow::anyhow!("获取设备名称失败: {:?}", e))?;
+
         let get_attr = |attr| -> Result<i32> {
-            device.attribute(attr).map_err(|e| {
-                anyhow::anyhow!("获取设备属性失败: {:?}", e)
-            })
+            device
+                .attribute(attr)
+                .map_err(|e| anyhow::anyhow!("获取设备属性失败: {:?}", e))
         };
-        
+
         use cudarc::driver::sys::CUdevice_attribute_enum as Attr;
-        
+
         Ok(CudaDeviceProp {
             name,
             major: get_attr(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?,
             minor: get_attr(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?,
-            total_global_mem: unsafe { result::device::total_mem(*device.cu_device()).map_err(|e| {
-                anyhow::anyhow!("获取设备内存失败: {:?}", e)
-            })? },
-            shared_mem_per_block: get_attr(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)? as usize,
+            total_global_mem: unsafe {
+                result::device::total_mem(*device.cu_device())
+                    .map_err(|e| anyhow::anyhow!("获取设备内存失败: {:?}", e))?
+            },
+            shared_mem_per_block: get_attr(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)?
+                as usize,
             max_threads_per_block: get_attr(Attr::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK)?,
             max_threads_dim: [
                 get_attr(Attr::CU_DEVICE_ATTRIBUTE_MAX_THREADS_DIMENSION)?,
@@ -191,7 +192,9 @@ impl CudaContext {
             clock_rate: get_attr(Attr::CU_DEVICE_ATTRIBUTE_CLOCK_RATE)?,
             multi_processor_count: get_attr(Attr::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)?,
             warp_size: get_attr(Attr::CU_DEVICE_ATTRIBUTE_WARP_SIZE)?,
-            max_shared_memory_per_multiprocessor: get_attr(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR)? as usize,
+            max_shared_memory_per_multiprocessor: get_attr(
+                Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR,
+            )? as usize,
             unified_addressing: get_attr(Attr::CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING)? != 0,
             concurrent_kernels: get_attr(Attr::CU_DEVICE_ATTRIBUTE_CONCURRENT_KERNELS)? != 0,
         })
@@ -296,9 +299,9 @@ impl CudaContext {
         #[cfg(feature = "cuda")]
         {
             if let Ok(device) = CudaDevice::new(self.device_id as usize) {
-                device.synchronize().map_err(|e| {
-                    anyhow::anyhow!("设备同步失败: {:?}", e)
-                })?;
+                device
+                    .synchronize()
+                    .map_err(|e| anyhow::anyhow!("设备同步失败: {:?}", e))?;
             }
         }
         Ok(())
@@ -349,9 +352,7 @@ impl CudaStreamWrapper {
 
 impl Clone for CudaStreamWrapper {
     fn clone(&self) -> Self {
-        Self {
-            owned: false,
-        }
+        Self { owned: false }
     }
 }
 
@@ -568,7 +569,8 @@ extern "C" __global__ void matmul_kernel(
 "#;
 
 /// 合并的 Softmax/LayerNorm PTX
-const PTX_SOFTMAX_LAYERNORM: &str = concat!(MATMUL_KERNEL, "\n", SOFTMAX_KERNEL, "\n", LAYERNORM_KERNEL);
+const PTX_SOFTMAX_LAYERNORM: &str =
+    concat!(MATMUL_KERNEL, "\n", SOFTMAX_KERNEL, "\n", LAYERNORM_KERNEL);
 
 /// 合并的 Attention PTX
 const PTX_ATTENTION: &str = concat!(MATMUL_KERNEL, "\n", FLASH_ATTENTION_KERNEL);
@@ -606,14 +608,12 @@ impl CudaBackend {
 
         #[cfg(feature = "cuda")]
         {
-            let device = CudaDevice::new(device_id as usize).map_err(|e| {
-                anyhow::anyhow!("创建 CUDA 设备失败: {:?}", e)
-            })?;
-            
-            let cublas = CudaBlas::new(device.clone()).map_err(|e| {
-                anyhow::anyhow!("创建 cuBLAS 句柄失败: {:?}", e)
-            })?;
-            
+            let device = CudaDevice::new(device_id as usize)
+                .map_err(|e| anyhow::anyhow!("创建 CUDA 设备失败: {:?}", e))?;
+
+            let cublas = CudaBlas::new(device.clone())
+                .map_err(|e| anyhow::anyhow!("创建 cuBLAS 句柄失败: {:?}", e))?;
+
             Ok(Self {
                 context,
                 stream,
@@ -625,10 +625,7 @@ impl CudaBackend {
 
         #[cfg(not(feature = "cuda"))]
         {
-            Ok(Self {
-                context,
-                stream,
-            })
+            Ok(Self { context, stream })
         }
     }
 
@@ -651,15 +648,16 @@ impl CudaBackend {
                 return Ok(());
             }
         }
-        
-        let device = self.device.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("CUDA 设备未初始化")
-        })?;
-        
-        device.load_ptx(ptx.into(), module_name, kernels).map_err(|e| {
-            anyhow::anyhow!("加载 PTX 模块 {} 失败: {:?}", module_name, e)
-        })?;
-        
+
+        let device = self
+            .device
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("CUDA 设备未初始化"))?;
+
+        device
+            .load_ptx(ptx.into(), module_name, kernels)
+            .map_err(|e| anyhow::anyhow!("加载 PTX 模块 {} 失败: {:?}", module_name, e))?;
+
         let mut loaded = self.ptx_loaded.write().unwrap();
         loaded.insert(module_name.to_string());
         Ok(())
@@ -681,28 +679,34 @@ impl CudaBackend {
             use cudarc::cublas::safe::{Gemm, GemmConfig};
             use cudarc::cublas::sys::cublasOperation_t;
 
-            let device = self.device.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("CUDA 设备未初始化")
-            })?;
-            
-            let cublas = self.cublas.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("cuBLAS 未初始化")
-            })?;
+            let device = self
+                .device
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CUDA 设备未初始化"))?;
 
-            let a_slice = a.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
-            let b_slice = b.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 B 不是连续存储"))?;
-            
-            let a_dev = device.htod_copy(a_slice).map_err(|e| {
-                anyhow::anyhow!("复制 A 到设备失败: {:?}", e)
-            })?;
-            
-            let b_dev = device.htod_copy(b_slice).map_err(|e| {
-                anyhow::anyhow!("复制 B 到设备失败: {:?}", e)
-            })?;
-            
-            let mut c_dev = device.alloc_zeros::<f32>(m * n).map_err(|e| {
-                anyhow::anyhow!("分配 C 内存失败: {:?}", e)
-            })?;
+            let cublas = self
+                .cublas
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("cuBLAS 未初始化"))?;
+
+            let a_slice = a
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
+            let b_slice = b
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵 B 不是连续存储"))?;
+
+            let a_dev = device
+                .htod_copy(a_slice)
+                .map_err(|e| anyhow::anyhow!("复制 A 到设备失败: {:?}", e))?;
+
+            let b_dev = device
+                .htod_copy(b_slice)
+                .map_err(|e| anyhow::anyhow!("复制 B 到设备失败: {:?}", e))?;
+
+            let mut c_dev = device
+                .alloc_zeros::<f32>(m * n)
+                .map_err(|e| anyhow::anyhow!("分配 C 内存失败: {:?}", e))?;
 
             let cfg = GemmConfig {
                 transa: cublasOperation_t::CUBLAS_OP_N,
@@ -718,14 +722,14 @@ impl CudaBackend {
             };
 
             unsafe {
-                cublas.gemm(cfg, &b_dev, &a_dev, &mut c_dev).map_err(|e| {
-                    anyhow::anyhow!("GEMM 失败: {:?}", e)
-                })?;
+                cublas
+                    .gemm(cfg, &b_dev, &a_dev, &mut c_dev)
+                    .map_err(|e| anyhow::anyhow!("GEMM 失败: {:?}", e))?;
             }
 
-            let result_vec = device.dtoh_sync_copy(&c_dev).map_err(|e| {
-                anyhow::anyhow!("复制结果到主机失败: {:?}", e)
-            })?;
+            let result_vec = device
+                .dtoh_sync_copy(&c_dev)
+                .map_err(|e| anyhow::anyhow!("复制结果到主机失败: {:?}", e))?;
 
             Ok(Array2::from_shape_vec((m, n), result_vec)?)
         }
@@ -767,24 +771,27 @@ impl CudaBackend {
 
         #[cfg(feature = "cuda")]
         {
-            let device = self.device.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("CUDA 设备未初始化")
-            })?;
+            let device = self
+                .device
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CUDA 设备未初始化"))?;
 
-            let input_slice = input.as_slice().ok_or_else(|| anyhow::anyhow!("输入矩阵不是连续存储"))?;
-            let input_dev = device.htod_copy(input_slice).map_err(|e| {
-                anyhow::anyhow!("复制输入到设备失败: {:?}", e)
-            })?;
-            
-            let mut output_dev = device.alloc_zeros::<f32>(rows * cols).map_err(|e| {
-                anyhow::anyhow!("分配输出内存失败: {:?}", e)
-            })?;
+            let input_slice = input
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("输入矩阵不是连续存储"))?;
+            let input_dev = device
+                .htod_copy(input_slice)
+                .map_err(|e| anyhow::anyhow!("复制输入到设备失败: {:?}", e))?;
+
+            let mut output_dev = device
+                .alloc_zeros::<f32>(rows * cols)
+                .map_err(|e| anyhow::anyhow!("分配输出内存失败: {:?}", e))?;
 
             self.ensure_ptx_loaded("softmax_module", PTX_SOFTMAX_LAYERNORM, &["softmax_kernel"])?;
-            
-            let func = device.get_func("softmax_module", "softmax_kernel").ok_or_else(|| {
-                anyhow::anyhow!("获取 kernel 函数失败")
-            })?;
+
+            let func = device
+                .get_func("softmax_module", "softmax_kernel")
+                .ok_or_else(|| anyhow::anyhow!("获取 kernel 函数失败"))?;
 
             let cfg = LaunchConfig {
                 grid_dim: ((rows + 255) / 256, 1, 1),
@@ -798,14 +805,14 @@ impl CudaBackend {
                 builder.arg(&mut output_dev);
                 builder.arg(&(rows as i32));
                 builder.arg(&(cols as i32));
-                builder.launch().map_err(|e| {
-                    anyhow::anyhow!("启动 kernel 失败: {:?}", e)
-                })?;
+                builder
+                    .launch()
+                    .map_err(|e| anyhow::anyhow!("启动 kernel 失败: {:?}", e))?;
             }
 
-            let result_vec = device.dtoh_sync_copy(&output_dev).map_err(|e| {
-                anyhow::anyhow!("复制结果到主机失败: {:?}", e)
-            })?;
+            let result_vec = device
+                .dtoh_sync_copy(&output_dev)
+                .map_err(|e| anyhow::anyhow!("复制结果到主机失败: {:?}", e))?;
 
             Ok(Array2::from_shape_vec((rows, cols), result_vec)?)
         }
@@ -852,32 +859,39 @@ impl CudaBackend {
 
         #[cfg(feature = "cuda")]
         {
-            let device = self.device.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("CUDA 设备未初始化")
-            })?;
+            let device = self
+                .device
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CUDA 设备未初始化"))?;
 
-            let input_slice = input.as_slice().ok_or_else(|| anyhow::anyhow!("输入矩阵不是连续存储"))?;
-            let input_dev = device.htod_copy(input_slice).map_err(|e| {
-                anyhow::anyhow!("复制输入到设备失败: {:?}", e)
-            })?;
-            
-            let gamma_dev = device.htod_copy(gamma).map_err(|e| {
-                anyhow::anyhow!("复制 gamma 到设备失败: {:?}", e)
-            })?;
-            
-            let beta_dev = device.htod_copy(beta).map_err(|e| {
-                anyhow::anyhow!("复制 beta 到设备失败: {:?}", e)
-            })?;
-            
-            let mut output_dev = device.alloc_zeros::<f32>(rows * cols).map_err(|e| {
-                anyhow::anyhow!("分配输出内存失败: {:?}", e)
-            })?;
+            let input_slice = input
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("输入矩阵不是连续存储"))?;
+            let input_dev = device
+                .htod_copy(input_slice)
+                .map_err(|e| anyhow::anyhow!("复制输入到设备失败: {:?}", e))?;
 
-            self.ensure_ptx_loaded("layernorm_module", PTX_SOFTMAX_LAYERNORM, &["layer_norm_kernel"])?;
-            
-            let func = device.get_func("layernorm_module", "layer_norm_kernel").ok_or_else(|| {
-                anyhow::anyhow!("获取 kernel 函数失败")
-            })?;
+            let gamma_dev = device
+                .htod_copy(gamma)
+                .map_err(|e| anyhow::anyhow!("复制 gamma 到设备失败: {:?}", e))?;
+
+            let beta_dev = device
+                .htod_copy(beta)
+                .map_err(|e| anyhow::anyhow!("复制 beta 到设备失败: {:?}", e))?;
+
+            let mut output_dev = device
+                .alloc_zeros::<f32>(rows * cols)
+                .map_err(|e| anyhow::anyhow!("分配输出内存失败: {:?}", e))?;
+
+            self.ensure_ptx_loaded(
+                "layernorm_module",
+                PTX_SOFTMAX_LAYERNORM,
+                &["layer_norm_kernel"],
+            )?;
+
+            let func = device
+                .get_func("layernorm_module", "layer_norm_kernel")
+                .ok_or_else(|| anyhow::anyhow!("获取 kernel 函数失败"))?;
 
             let cfg = LaunchConfig {
                 grid_dim: ((rows + 255) / 256, 1, 1),
@@ -894,14 +908,14 @@ impl CudaBackend {
                 builder.arg(&(rows as i32));
                 builder.arg(&(cols as i32));
                 builder.arg(&eps);
-                builder.launch().map_err(|e| {
-                    anyhow::anyhow!("启动 kernel 失败: {:?}", e)
-                })?;
+                builder
+                    .launch()
+                    .map_err(|e| anyhow::anyhow!("启动 kernel 失败: {:?}", e))?;
             }
 
-            let result_vec = device.dtoh_sync_copy(&output_dev).map_err(|e| {
-                anyhow::anyhow!("复制结果到主机失败: {:?}", e)
-            })?;
+            let result_vec = device
+                .dtoh_sync_copy(&output_dev)
+                .map_err(|e| anyhow::anyhow!("复制结果到主机失败: {:?}", e))?;
 
             Ok(Array2::from_shape_vec((rows, cols), result_vec)?)
         }
@@ -951,28 +965,35 @@ impl CudaBackend {
 
         #[cfg(feature = "cuda")]
         {
-            let device = self.device.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("CUDA 设备未初始化")
-            })?;
+            let device = self
+                .device
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CUDA 设备未初始化"))?;
 
-            let input_slice = input.as_slice().ok_or_else(|| anyhow::anyhow!("输入矩阵不是连续存储"))?;
-            let input_dev = device.htod_copy(input_slice).map_err(|e| {
-                anyhow::anyhow!("复制输入到设备失败: {:?}", e)
-            })?;
-            
-            let gamma_dev = device.htod_copy(gamma).map_err(|e| {
-                anyhow::anyhow!("复制 gamma 到设备失败: {:?}", e)
-            })?;
-            
-            let mut output_dev = device.alloc_zeros::<f32>(rows * cols).map_err(|e| {
-                anyhow::anyhow!("分配输出内存失败: {:?}", e)
-            })?;
+            let input_slice = input
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("输入矩阵不是连续存储"))?;
+            let input_dev = device
+                .htod_copy(input_slice)
+                .map_err(|e| anyhow::anyhow!("复制输入到设备失败: {:?}", e))?;
 
-            self.ensure_ptx_loaded("rmsnorm_module", PTX_SOFTMAX_LAYERNORM, &["rms_norm_kernel"])?;
-            
-            let func = device.get_func("rmsnorm_module", "rms_norm_kernel").ok_or_else(|| {
-                anyhow::anyhow!("获取 kernel 函数失败")
-            })?;
+            let gamma_dev = device
+                .htod_copy(gamma)
+                .map_err(|e| anyhow::anyhow!("复制 gamma 到设备失败: {:?}", e))?;
+
+            let mut output_dev = device
+                .alloc_zeros::<f32>(rows * cols)
+                .map_err(|e| anyhow::anyhow!("分配输出内存失败: {:?}", e))?;
+
+            self.ensure_ptx_loaded(
+                "rmsnorm_module",
+                PTX_SOFTMAX_LAYERNORM,
+                &["rms_norm_kernel"],
+            )?;
+
+            let func = device
+                .get_func("rmsnorm_module", "rms_norm_kernel")
+                .ok_or_else(|| anyhow::anyhow!("获取 kernel 函数失败"))?;
 
             let cfg = LaunchConfig {
                 grid_dim: ((rows + 255) / 256, 1, 1),
@@ -988,14 +1009,14 @@ impl CudaBackend {
                 builder.arg(&(rows as i32));
                 builder.arg(&(cols as i32));
                 builder.arg(&eps);
-                builder.launch().map_err(|e| {
-                    anyhow::anyhow!("启动 kernel 失败: {:?}", e)
-                })?;
+                builder
+                    .launch()
+                    .map_err(|e| anyhow::anyhow!("启动 kernel 失败: {:?}", e))?;
             }
 
-            let result_vec = device.dtoh_sync_copy(&output_dev).map_err(|e| {
-                anyhow::anyhow!("复制结果到主机失败: {:?}", e)
-            })?;
+            let result_vec = device
+                .dtoh_sync_copy(&output_dev)
+                .map_err(|e| anyhow::anyhow!("复制结果到主机失败: {:?}", e))?;
 
             Ok(Array2::from_shape_vec((rows, cols), result_vec)?)
         }
@@ -1033,47 +1054,60 @@ impl CudaBackend {
 
         #[cfg(feature = "cuda")]
         {
-            let device = self.device.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("CUDA 设备未初始化")
-            })?;
+            let device = self
+                .device
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CUDA 设备未初始化"))?;
 
-            let query_slice = query.as_slice().ok_or_else(|| anyhow::anyhow!("query 矩阵不是连续存储"))?;
-            let key_slice = key.as_slice().ok_or_else(|| anyhow::anyhow!("key 矩阵不是连续存储"))?;
-            let value_slice = value.as_slice().ok_or_else(|| anyhow::anyhow!("value 矩阵不是连续存储"))?;
-            
-            let query_dev = device.htod_copy(query_slice).map_err(|e| {
-                anyhow::anyhow!("复制 query 到设备失败: {:?}", e)
-            })?;
-            
-            let key_dev = device.htod_copy(key_slice).map_err(|e| {
-                anyhow::anyhow!("复制 key 到设备失败: {:?}", e)
-            })?;
-            
-            let value_dev = device.htod_copy(value_slice).map_err(|e| {
-                anyhow::anyhow!("复制 value 到设备失败: {:?}", e)
-            })?;
-            
-            let mut output_dev = device.alloc_zeros::<f32>(seq_len * head_dim).map_err(|e| {
-                anyhow::anyhow!("分配输出内存失败: {:?}", e)
-            })?;
+            let query_slice = query
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("query 矩阵不是连续存储"))?;
+            let key_slice = key
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("key 矩阵不是连续存储"))?;
+            let value_slice = value
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("value 矩阵不是连续存储"))?;
+
+            let query_dev = device
+                .htod_copy(query_slice)
+                .map_err(|e| anyhow::anyhow!("复制 query 到设备失败: {:?}", e))?;
+
+            let key_dev = device
+                .htod_copy(key_slice)
+                .map_err(|e| anyhow::anyhow!("复制 key 到设备失败: {:?}", e))?;
+
+            let value_dev = device
+                .htod_copy(value_slice)
+                .map_err(|e| anyhow::anyhow!("复制 value 到设备失败: {:?}", e))?;
+
+            let mut output_dev = device
+                .alloc_zeros::<f32>(seq_len * head_dim)
+                .map_err(|e| anyhow::anyhow!("分配输出内存失败: {:?}", e))?;
 
             let has_mask: i32 = if mask.is_some() { 1 } else { 0 };
             let mask_dev = if let Some(m) = mask {
-                let mask_slice = m.as_slice().ok_or_else(|| anyhow::anyhow!("mask 矩阵不是连续存储"))?;
-                device.htod_copy(mask_slice).map_err(|e| {
-                    anyhow::anyhow!("复制 mask 到设备失败: {:?}", e)
-                })?
+                let mask_slice = m
+                    .as_slice()
+                    .ok_or_else(|| anyhow::anyhow!("mask 矩阵不是连续存储"))?;
+                device
+                    .htod_copy(mask_slice)
+                    .map_err(|e| anyhow::anyhow!("复制 mask 到设备失败: {:?}", e))?
             } else {
-                device.alloc_zeros::<f32>(seq_len * kv_len).map_err(|e| {
-                    anyhow::anyhow!("分配 mask 内存失败: {:?}", e)
-                })?
+                device
+                    .alloc_zeros::<f32>(seq_len * kv_len)
+                    .map_err(|e| anyhow::anyhow!("分配 mask 内存失败: {:?}", e))?
             };
 
-            self.ensure_ptx_loaded("attention_module", PTX_ATTENTION, &["flash_attention_kernel"])?;
-            
-            let func = device.get_func("attention_module", "flash_attention_kernel").ok_or_else(|| {
-                anyhow::anyhow!("获取 kernel 函数失败")
-            })?;
+            self.ensure_ptx_loaded(
+                "attention_module",
+                PTX_ATTENTION,
+                &["flash_attention_kernel"],
+            )?;
+
+            let func = device
+                .get_func("attention_module", "flash_attention_kernel")
+                .ok_or_else(|| anyhow::anyhow!("获取 kernel 函数失败"))?;
 
             let cfg = LaunchConfig {
                 grid_dim: ((head_dim + 255) / 256, seq_len, 1),
@@ -1093,14 +1127,14 @@ impl CudaBackend {
                 builder.arg(&(head_dim as i32));
                 builder.arg(&scale);
                 builder.arg(&has_mask);
-                builder.launch().map_err(|e| {
-                    anyhow::anyhow!("启动 kernel 失败: {:?}", e)
-                })?;
+                builder
+                    .launch()
+                    .map_err(|e| anyhow::anyhow!("启动 kernel 失败: {:?}", e))?;
             }
 
-            let result_vec = device.dtoh_sync_copy(&output_dev).map_err(|e| {
-                anyhow::anyhow!("复制结果到主机失败: {:?}", e)
-            })?;
+            let result_vec = device
+                .dtoh_sync_copy(&output_dev)
+                .map_err(|e| anyhow::anyhow!("复制结果到主机失败: {:?}", e))?;
 
             Ok(Array2::from_shape_vec((seq_len, head_dim), result_vec)?)
         }
@@ -1309,17 +1343,9 @@ mod tests {
     fn test_matmul_small() {
         let backend = get_backend();
 
-        let a = Array2::from_shape_vec(
-            (2, 3),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        )
-        .unwrap();
+        let a = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-        let b = Array2::from_shape_vec(
-            (3, 2),
-            vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
-        )
-        .unwrap();
+        let b = Array2::from_shape_vec((3, 2), vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
 
         let result = backend.matmul(&a, &b).unwrap();
 
@@ -1349,11 +1375,8 @@ mod tests {
     fn test_softmax() {
         let backend = get_backend();
 
-        let input = Array2::from_shape_vec(
-            (2, 4),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        )
-        .unwrap();
+        let input =
+            Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
 
         let result = backend.softmax(&input).unwrap();
 
@@ -1372,11 +1395,8 @@ mod tests {
     fn test_layer_norm() {
         let backend = get_backend();
 
-        let input = Array2::from_shape_vec(
-            (2, 4),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        )
-        .unwrap();
+        let input =
+            Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
 
         let gamma = vec![1.0, 1.0, 1.0, 1.0];
         let beta = vec![0.0, 0.0, 0.0, 0.0];
@@ -1395,11 +1415,8 @@ mod tests {
     fn test_rms_norm() {
         let backend = get_backend();
 
-        let input = Array2::from_shape_vec(
-            (2, 4),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        )
-        .unwrap();
+        let input =
+            Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
 
         let gamma = vec![1.0, 1.0, 1.0, 1.0];
         let eps = 1e-5;
@@ -1446,7 +1463,9 @@ mod tests {
             }
         });
 
-        let result = backend.attention(&query, &key, &value, Some(&mask)).unwrap();
+        let result = backend
+            .attention(&query, &key, &value, Some(&mask))
+            .unwrap();
 
         assert_eq!(result.dim(), (seq_len, head_dim));
     }
@@ -1504,7 +1523,7 @@ mod tests {
         let ctx = CudaContext::new_with_device(1);
         // 在 fallback 模式下应成功（返回模拟设备属性）
         assert!(ctx.is_ok());
-        
+
         let ctx = ctx.unwrap();
         assert_eq!(ctx.device_id(), 1);
         assert!(!ctx.device_prop().name.is_empty());
@@ -1536,14 +1555,14 @@ mod tests {
         // 覆盖 synchronize 和 is_done
         assert!(stream.synchronize().is_ok());
         assert!(default_stream.synchronize().is_ok());
-        
+
         let done = stream.is_done();
         assert!(done.is_ok());
         assert!(done.unwrap());
 
         // 覆盖 Clone trait
         let cloned = stream.clone();
-        assert!(!cloned.owned);  // clone后owned应为false
+        assert!(!cloned.owned); // clone后owned应为false
     }
 
     /// 测试 CudaEventWrapper 完整API（覆盖第363-390行）
@@ -1574,13 +1593,17 @@ mod tests {
         let backend = get_backend();
 
         let a = Array2::from_shape_vec((2, 3), vec![1.0; 6]).unwrap();
-        let b = Array2::from_shape_vec((4, 5), vec![1.0; 20]).unwrap();  // K不匹配: 3 vs 4
+        let b = Array2::from_shape_vec((4, 5), vec![1.0; 20]).unwrap(); // K不匹配: 3 vs 4
 
         // 覆盖：维度不匹配应返回错误
         let result = backend.matmul(&a, &b);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("维度") || err_msg.contains("dimension") || err_msg.contains("mismatch"));
+        assert!(
+            err_msg.contains("维度")
+                || err_msg.contains("dimension")
+                || err_msg.contains("mismatch")
+        );
     }
 
     /// 测试 softmax 单行/单列边界（覆盖 softmax_fallback 边界条件）
@@ -1617,7 +1640,7 @@ mod tests {
 
         let input = Array2::from_shape_vec((2, 4), vec![1.0f32; 8]).unwrap();
         let gamma = vec![1.0; 4];
-        let beta = vec![0.0; 2];  // 长度不匹配
+        let beta = vec![0.0; 2]; // 长度不匹配
 
         // 覆盖：gamma/beta长度与cols不匹配
         let result = backend.layer_norm(&input, &gamma, &beta, 1e-5);
@@ -1630,7 +1653,7 @@ mod tests {
         let backend = get_backend();
 
         let input = Array2::from_shape_vec((2, 4), vec![1.0f32; 8]).unwrap();
-        let gamma = vec![1.0; 2];  // 长度不匹配
+        let gamma = vec![1.0; 2]; // 长度不匹配
 
         // 覆盖：gamma长度与cols不匹配
         let result = backend.rms_norm(&input, &gamma, 1e-5);
@@ -1645,14 +1668,16 @@ mod tests {
         let a = vec![Array2::from_shape_vec((2, 3), vec![1.0f32; 6]).unwrap()];
         let b = vec![
             Array2::from_shape_vec((3, 2), vec![1.0f32; 6]).unwrap(),
-            Array2::from_shape_vec((3, 2), vec![1.0f32; 6]).unwrap(),  // 批量大小不同
+            Array2::from_shape_vec((3, 2), vec![1.0f32; 6]).unwrap(), // 批量大小不同
         ];
 
         // 覆盖：批量大小不匹配
         let result = backend.batch_matmul(&a, &b);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("批量") || err_msg.contains("batch") || err_msg.contains("mismatch"));
+        assert!(
+            err_msg.contains("批量") || err_msg.contains("batch") || err_msg.contains("mismatch")
+        );
     }
 
     /// 测试 attention_with_kv_cache kv_len=0（覆盖空KV Cache边界）
@@ -1701,14 +1726,17 @@ mod benches {
 
         println!(
             "Matmul {}x{}x{}: {:?} ({:.2} GFLOPS)",
-            m, k, n,
+            m,
+            k,
+            n,
             elapsed / iterations as u32,
             gflops
         );
     }
 
     fn benchmark_softmax(backend: &CudaBackend, rows: usize, cols: usize, iterations: usize) {
-        let input = Array2::from_shape_fn((rows, cols), |(i, j)| ((i * cols + j) % 100) as f32 / 100.0);
+        let input =
+            Array2::from_shape_fn((rows, cols), |(i, j)| ((i * cols + j) % 100) as f32 / 100.0);
 
         let _ = backend.softmax(&input);
 
@@ -1718,11 +1746,17 @@ mod benches {
         }
         let elapsed = start.elapsed();
 
-        println!("Softmax {}x{}: {:?}", rows, cols, elapsed / iterations as u32);
+        println!(
+            "Softmax {}x{}: {:?}",
+            rows,
+            cols,
+            elapsed / iterations as u32
+        );
     }
 
     fn benchmark_layer_norm(backend: &CudaBackend, rows: usize, cols: usize, iterations: usize) {
-        let input = Array2::from_shape_fn((rows, cols), |(i, j)| ((i * cols + j) % 100) as f32 / 100.0);
+        let input =
+            Array2::from_shape_fn((rows, cols), |(i, j)| ((i * cols + j) % 100) as f32 / 100.0);
         let gamma = vec![1.0; cols];
         let beta = vec![0.0; cols];
 
@@ -1734,10 +1768,20 @@ mod benches {
         }
         let elapsed = start.elapsed();
 
-        println!("LayerNorm {}x{}: {:?}", rows, cols, elapsed / iterations as u32);
+        println!(
+            "LayerNorm {}x{}: {:?}",
+            rows,
+            cols,
+            elapsed / iterations as u32
+        );
     }
 
-    fn benchmark_attention(backend: &CudaBackend, seq_len: usize, head_dim: usize, iterations: usize) {
+    fn benchmark_attention(
+        backend: &CudaBackend,
+        seq_len: usize,
+        head_dim: usize,
+        iterations: usize,
+    ) {
         let query = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j) as f32));
         let key = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j) as f32));
         let value = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j) as f32));
@@ -1752,7 +1796,8 @@ mod benches {
 
         println!(
             "Attention seq_len={}, head_dim={}: {:?}",
-            seq_len, head_dim,
+            seq_len,
+            head_dim,
             elapsed / iterations as u32
         );
     }

@@ -116,7 +116,9 @@ fn scalar_fused_gemm_softmax(
 pub struct SseOps;
 
 impl SimdOps for SseOps {
-    fn name(&self) -> &'static str { "SSE4.2" }
+    fn name(&self) -> &'static str {
+        "SSE4.2"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
@@ -504,9 +506,14 @@ impl SimdOps for SseOps {
         output
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
 
         unsafe {
@@ -733,7 +740,9 @@ impl SimdOps for SseOps {
 pub struct Avx2Ops;
 
 impl SimdOps for Avx2Ops {
-    fn name(&self) -> &'static str { "AVX2" }
+    fn name(&self) -> &'static str {
+        "AVX2"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
@@ -1162,9 +1171,14 @@ impl SimdOps for Avx2Ops {
         output
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
 
         unsafe {
@@ -1394,7 +1408,9 @@ pub struct Avx512Ops;
 
 #[cfg(feature = "nightly_avx512")]
 impl SimdOps for Avx512Ops {
-    fn name(&self) -> &'static str { "AVX-512" }
+    fn name(&self) -> &'static str {
+        "AVX-512"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
@@ -1764,9 +1780,14 @@ impl SimdOps for Avx512Ops {
         scalar_fused_gemm_relu(input, weight, bias, m, k, n)
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         scalar_fused_gemm_silu(input, weight, m, k, n)
     }
 
@@ -1970,7 +1991,8 @@ mod tests {
 
         // 模拟掩码: 只对正数元素进行操作
         let a = vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0];
-        let mask_result: Vec<f32> = a.iter()
+        let mask_result: Vec<f32> = a
+            .iter()
             .map(|&x| if x > 0.0 { x * 2.0 } else { x })
             .collect();
 
@@ -2022,8 +2044,11 @@ mod tests {
 
         // 验证非对齐加载的正确性
         for i in 0..8 {
-            assert!((doubled[i] - ((i + 1) as f32) * 2.0).abs() < f32::EPSILON,
-                "Unaligned load failed at index {}", i);
+            assert!(
+                (doubled[i] - ((i + 1) as f32) * 2.0).abs() < f32::EPSILON,
+                "Unaligned load failed at index {}",
+                i
+            );
         }
     }
 
@@ -2085,7 +2110,10 @@ mod tests {
                     assert!(
                         (result[idx] - expected).abs() < 1e-5,
                         "AVX2 shuffle test failed at size {} index {}: expected {}, got {}",
-                        size, idx, expected, result[idx]
+                        size,
+                        idx,
+                        expected,
+                        result[idx]
                     );
                 }
             }

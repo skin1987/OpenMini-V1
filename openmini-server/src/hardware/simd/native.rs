@@ -185,7 +185,9 @@ pub struct LsxOps;
 
 #[cfg(target_arch = "loongarch64")]
 impl SimdOps for LsxOps {
-    fn name(&self) -> &'static str { "LSX" }
+    fn name(&self) -> &'static str {
+        "LSX"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         scalar_add(a, b)
@@ -247,9 +249,14 @@ impl SimdOps for LsxOps {
         scalar_fused_gemm_relu(input, weight, bias, m, k, n)
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         scalar_fused_gemm_silu(input, weight, m, k, n)
     }
 
@@ -290,7 +297,9 @@ pub struct LasxOps;
 
 #[cfg(target_arch = "loongarch64")]
 impl SimdOps for LasxOps {
-    fn name(&self) -> &'static str { "LASX" }
+    fn name(&self) -> &'static str {
+        "LASX"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         scalar_add(a, b)
@@ -352,9 +361,14 @@ impl SimdOps for LasxOps {
         scalar_fused_gemm_relu(input, weight, bias, m, k, n)
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         scalar_fused_gemm_silu(input, weight, m, k, n)
     }
 
@@ -397,7 +411,9 @@ pub struct PhytiumOps;
 
 #[cfg(all(target_arch = "aarch64", not(target_feature = "sve")))]
 impl SimdOps for PhytiumOps {
-    fn name(&self) -> &'static str { "Phytium/NEON" }
+    fn name(&self) -> &'static str {
+        "Phytium/NEON"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
@@ -807,9 +823,14 @@ impl SimdOps for PhytiumOps {
         output
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
 
         unsafe {
@@ -1042,7 +1063,9 @@ pub struct HygonOps;
 
 #[cfg(target_arch = "x86_64")]
 impl SimdOps for HygonOps {
-    fn name(&self) -> &'static str { "Hygon/AVX2" }
+    fn name(&self) -> &'static str {
+        "Hygon/AVX2"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
@@ -1472,9 +1495,14 @@ impl SimdOps for HygonOps {
         output
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
 
         unsafe {
@@ -1707,7 +1735,9 @@ pub struct SveOps;
 
 #[cfg(all(target_arch = "aarch64", target_feature = "sve"))]
 impl SimdOps for SveOps {
-    fn name(&self) -> &'static str { "SVE" }
+    fn name(&self) -> &'static str {
+        "SVE"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         scalar_add(a, b)
@@ -1769,9 +1799,14 @@ impl SimdOps for SveOps {
         scalar_fused_gemm_relu(input, weight, bias, m, k, n)
     }
 
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize)
-        -> Vec<f32>
-    {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         scalar_fused_gemm_silu(input, weight, m, k, n)
     }
 
@@ -2006,7 +2041,11 @@ mod tests {
                 assert!(
                     result[i].to_bits() == expected.to_bits(),
                     "Exact mismatch at index {}: expected {:?} ({:#x}), got {:?} ({:#x})",
-                    i, expected, expected.to_bits(), result[i], result[i].to_bits()
+                    i,
+                    expected,
+                    expected.to_bits(),
+                    result[i],
+                    result[i].to_bits()
                 );
             }
         }
@@ -2029,8 +2068,11 @@ mod tests {
         }
         // 结果应该保持为次正规数或零（flush-to-zero）
         for &val in &denormal_result {
-            assert!(val == 0.0 || val.abs() < f32::MIN_POSITIVE * 2.0,
-                "Denormal handling issue: got {}", val);
+            assert!(
+                val == 0.0 || val.abs() < f32::MIN_POSITIVE * 2.0,
+                "Denormal handling issue: got {}",
+                val
+            );
         }
 
         // 最大有限数
@@ -2075,10 +2117,10 @@ mod tests {
 
         // 单元素各种组合
         let combos = vec![
-            (0.0_f32, 0.0_f32, 0.0_f32),       // 全零
-            (1.0_f32, 1.0_f32, 0.0_f32),       // 简单乘法
-            (-1.0_f32, -1.0_f32, 1.0_f32),     // 负负得正+偏移
-            (0.001_f32, 1000.0_f32, 0.5_f32),  // 小*大
+            (0.0_f32, 0.0_f32, 0.0_f32),      // 全零
+            (1.0_f32, 1.0_f32, 0.0_f32),      // 简单乘法
+            (-1.0_f32, -1.0_f32, 1.0_f32),    // 负负得正+偏移
+            (0.001_f32, 1000.0_f32, 0.5_f32), // 小*大
         ];
 
         for (a_val, b_val, c_val) in combos {
@@ -2089,7 +2131,11 @@ mod tests {
             assert!(
                 (r[0] - expected).abs() < f32::EPSILON,
                 "Single element failed: {}*{}+{} = {}, got {}",
-                a_val, b_val, c_val, expected, r[0]
+                a_val,
+                b_val,
+                c_val,
+                expected,
+                r[0]
             );
         }
     }
@@ -2122,7 +2168,9 @@ mod tests {
             assert!(
                 (original_input[i] - input_snapshot[i]).abs() < f32::EPSILON,
                 "Input was modified at index {}: original {}, now {}",
-                i, input_snapshot[i], original_input[i]
+                i,
+                input_snapshot[i],
+                original_input[i]
             );
         }
     }
@@ -2137,24 +2185,32 @@ mod tests {
 
         // 第一次计算
         let mut r1 = vec![0.0_f32; 3];
-        for i in 0..3 { r1[i] = base_a[i] * base_b[i] + base_c[i]; }
+        for i in 0..3 {
+            r1[i] = base_a[i] * base_b[i] + base_c[i];
+        }
 
         // 用完全相同的输入再次计算
         let mut r2 = vec![0.0_f32; 3];
-        for i in 0..3 { r2[i] = base_a[i] * base_b[i] + base_c[i]; }
+        for i in 0..3 {
+            r2[i] = base_a[i] * base_b[i] + base_c[i];
+        }
 
         // 结果应该完全一致
         for i in 0..3 {
             assert!(
                 r1[i].to_bits() == r2[i].to_bits(),
                 "Inconsistent results at index {}: first call {}, second call {}",
-                i, r1[i], r2[i]
+                i,
+                r1[i],
+                r2[i]
             );
         }
 
         // 第三次确认
         let mut r3 = vec![0.0_f32; 3];
-        for i in 0..3 { r3[i] = base_a[i] * base_b[i] + base_c[i]; }
+        for i in 0..3 {
+            r3[i] = base_a[i] * base_b[i] + base_c[i];
+        }
         for i in 0..3 {
             assert_eq!(r1[i].to_bits(), r3[i].to_bits());
         }
@@ -2169,25 +2225,32 @@ mod tests {
         let a: Vec<f32> = (0..size)
             .map(|i| if i % 2 == 0 { 1e15_f32 } else { -1e15_f32 })
             .collect();
-        let b: Vec<f32> = (0..size)
-            .map(|_| 1.0_f32)
-            .collect();
+        let b: Vec<f32> = (0..size).map(|_| 1.0_f32).collect();
         let c: Vec<f32> = vec![1e15_f32; size]; // 补偿项
         let mut r: Vec<f32> = vec![0.0_f32; size];
 
         // 手动实现 FMA
-        for i in 0..size { r[i] = a[i] * b[i] + c[i]; }
+        for i in 0..size {
+            r[i] = a[i] * b[i] + c[i];
+        }
 
         // 验证偶数索引: 1e15 * 1 + 1e15 = 2e15
         for i in (0..size).step_by(2) {
-            assert!((r[i] - 2e15).abs() / 2e15 < 1e-6,
-                "Even index {} precision issue", i);
+            assert!(
+                (r[i] - 2e15).abs() / 2e15 < 1e-6,
+                "Even index {} precision issue",
+                i
+            );
         }
 
         // 验证奇数索引: -1e15 * 1 + 1e15 = 0
         for i in (1..size).step_by(2) {
-            assert!(r[i].abs() < 1e9, // 允许一定的抵消误差
-                "Odd index {} cancellation issue: got {}", i, r[i]);
+            assert!(
+                r[i].abs() < 1e9, // 允许一定的抵消误差
+                "Odd index {} cancellation issue: got {}",
+                i,
+                r[i]
+            );
         }
     }
 
@@ -2202,13 +2265,19 @@ mod tests {
         let mut result = vec![0.0_f32; 20];
 
         // 手动实现 FMA
-        for i in 0..20 { result[i] = increasing[i] * positive[i] + constant[i]; }
+        for i in 0..20 {
+            result[i] = increasing[i] * positive[i] + constant[i];
+        }
 
         // 验证单调递增
         for i in 1..result.len() {
-            assert!(result[i] > result[i-1],
+            assert!(
+                result[i] > result[i - 1],
                 "Monotonicity violated at index {}: {} <= {}",
-                i, result[i], result[i-1]);
+                i,
+                result[i],
+                result[i - 1]
+            );
         }
 
         // 验证第一个值

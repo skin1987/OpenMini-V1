@@ -3,27 +3,24 @@
 //! 提供请求日志、CORS、超时控制等中间件功能。
 
 use axum::{
-    http::{Request, Method},
+    body::Body,
+    http::{Method, Request},
     middleware::Next,
     response::Response,
-    body::Body,
     Router,
 };
-use tower_http::{
-    cors::{CorsLayer, Any},
-    timeout::TimeoutLayer,
-    limit::RequestBodyLimitLayer,
-};
 use std::time::{Duration, Instant};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
+};
 use tracing::{info, warn};
 
 /// 请求日志中间件
 ///
 /// 记录每个请求的方法、路径、状态码和处理时间。
-pub async fn logging_middleware(
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn logging_middleware(req: Request<Body>, next: Next) -> Response {
     let start = Instant::now();
     let method = req.method().clone();
     let uri = req.uri().clone();
@@ -87,7 +84,8 @@ pub fn cors_layer(allowed_origins: Option<Vec<String>>) -> CorsLayer {
             // 自定义允许的源列表
             tower_http::cors::CorsLayer::new()
                 .allow_origin(
-                    origins.iter()
+                    origins
+                        .iter()
                         .map(|o| o.parse().unwrap())
                         .collect::<Vec<_>>(),
                 )

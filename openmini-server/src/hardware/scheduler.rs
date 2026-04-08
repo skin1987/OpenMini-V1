@@ -32,34 +32,34 @@
 #![allow(dead_code)]
 
 use super::detector::HardwareProfile;
-use super::profile::{HardwareLevel, DeviceType, HardwareClassifier};
-use super::hyperthreading::{CpuAffinity, TaskType, CoreSelectionStrategy, HyperthreadEfficiency};
+use super::hyperthreading::{CoreSelectionStrategy, CpuAffinity, HyperthreadEfficiency, TaskType};
+use super::profile::{DeviceType, HardwareClassifier, HardwareLevel};
 
 mod constants {
     pub const KB: usize = 1024;
     pub const MB: usize = 1024 * 1024;
-    
+
     pub const MEMORY_THRESHOLD_SMALL: usize = 1024;
     pub const MEMORY_THRESHOLD_STANDARD: usize = 4096;
-    
+
     pub const SEQ_LEN_THRESHOLD_MEDIUM: usize = 4096;
     pub const SEQ_LEN_THRESHOLD_LARGE: usize = 8192;
-    
+
     pub const PARALLELISM_MIN_FOR_GPU: u32 = 30;
     pub const PARALLELISM_MAX: u32 = 100;
-    
+
     pub const KV_CACHE_MIN_SMALL: usize = 64;
     pub const KV_CACHE_MIN_STANDARD: usize = 256;
-    
+
     pub const MATRIX_SIZE_SMALL: usize = 256;
     pub const MATRIX_SIZE_MEDIUM: usize = 1024;
     pub const MATRIX_SIZE_LARGE: usize = 4096;
-    
+
     pub const ATTENTION_HEADS_ENTRY: usize = 8;
     pub const ATTENTION_HEADS_STANDARD: usize = 16;
     pub const ATTENTION_HEADS_PROFESSIONAL: usize = 32;
     pub const ATTENTION_HEADS_SERVER: usize = 64;
-    
+
     pub const DSA_RATIO_ENTRY: usize = 10;
     pub const DSA_RATIO_STANDARD_NUMERATOR: usize = 15;
     pub const DSA_RATIO_STANDARD_DENOMINATOR: usize = 100;
@@ -261,19 +261,19 @@ impl AdaptiveScheduler {
         let classifier = HardwareClassifier::new(hardware.clone());
         let level = classifier.level();
         let device_type = classifier.device_type();
-        
+
         let config = Self::create_config(&hardware, level, device_type);
-        
+
         let cpu_affinity = Some(CpuAffinity::new(
             hardware.hyperthreading.clone(),
             hardware.numa.clone(),
         ));
-        
+
         let ht_efficiency = Some(HyperthreadEfficiency::estimate(
             &hardware.hyperthreading,
             TaskType::ComputeIntensive,
         ));
-        
+
         Self {
             hardware,
             level,
@@ -283,7 +283,7 @@ impl AdaptiveScheduler {
             ht_efficiency,
         }
     }
-    
+
     /// 从硬件配置创建
     ///
     /// # 参数
@@ -298,19 +298,19 @@ impl AdaptiveScheduler {
         let classifier = HardwareClassifier::new(hardware.clone());
         let level = classifier.level();
         let device_type = classifier.device_type();
-        
+
         let config = Self::create_config(&hardware, level, device_type);
-        
+
         let cpu_affinity = Some(CpuAffinity::new(
             hardware.hyperthreading.clone(),
             hardware.numa.clone(),
         ));
-        
+
         let ht_efficiency = Some(HyperthreadEfficiency::estimate(
             &hardware.hyperthreading,
             TaskType::ComputeIntensive,
         ));
-        
+
         Self {
             hardware,
             level,
@@ -320,15 +320,19 @@ impl AdaptiveScheduler {
             ht_efficiency,
         }
     }
-    
+
     /// 根据硬件能力创建配置
-    fn create_config(hardware: &HardwareProfile, level: HardwareLevel, _device_type: DeviceType) -> InferenceConfig {
+    fn create_config(
+        hardware: &HardwareProfile,
+        level: HardwareLevel,
+        _device_type: DeviceType,
+    ) -> InferenceConfig {
         let mut config = InferenceConfig::default();
-        
+
         config.num_threads = hardware.cpu.physical_cores.min(hardware.cpu.logical_cores);
-        
+
         let has_gpu = hardware.gpu.gpu_type != super::detector::GpuType::Unknown;
-        
+
         match level {
             HardwareLevel::Entry => {
                 config.strategy = ScheduleStrategy::Entry;
@@ -371,36 +375,36 @@ impl AdaptiveScheduler {
                 config.batch_size = 16;
             }
         }
-        
+
         config.num_threads = config.num_threads.max(1);
-        
+
         config
     }
-    
+
     /// 获取当前配置
     #[inline]
     pub fn config(&self) -> &InferenceConfig {
         &self.config
     }
-    
+
     /// 获取硬件分级
     #[inline]
     pub fn level(&self) -> HardwareLevel {
         self.level
     }
-    
+
     /// 获取设备类型
     #[inline]
     pub fn device_type(&self) -> DeviceType {
         self.device_type
     }
-    
+
     /// 获取硬件配置
     #[inline]
     pub fn hardware(&self) -> &HardwareProfile {
         &self.hardware
     }
-    
+
     /// 动态调整配置（根据可用内存）
     ///
     /// 根据当前可用内存动态调整内存策略和 KV Cache 大小。
@@ -430,7 +434,7 @@ impl AdaptiveScheduler {
             self.config.kv_cache_size = available_memory_mb.saturating_mul(3) / 4;
         }
     }
-    
+
     /// 根据序列长度调整注意力策略
     ///
     /// 长序列时自动切换到更高效的注意力实现。
@@ -456,7 +460,7 @@ impl AdaptiveScheduler {
             }
         }
     }
-    
+
     /// 获取推荐的 DSA k 值
     ///
     /// DSA（动态稀疏注意力）的稀疏参数 k。
@@ -479,12 +483,14 @@ impl AdaptiveScheduler {
         use constants::*;
         match self.level {
             HardwareLevel::Entry => seq_len / DSA_RATIO_ENTRY,
-            HardwareLevel::Standard => seq_len * DSA_RATIO_STANDARD_NUMERATOR / DSA_RATIO_STANDARD_DENOMINATOR,
+            HardwareLevel::Standard => {
+                seq_len * DSA_RATIO_STANDARD_NUMERATOR / DSA_RATIO_STANDARD_DENOMINATOR
+            }
             HardwareLevel::Professional => seq_len / DSA_RATIO_PROFESSIONAL,
             HardwareLevel::Server => seq_len / DSA_RATIO_SERVER,
         }
     }
-    
+
     /// 获取推荐的注意力头数
     ///
     /// # 返回
@@ -507,7 +513,7 @@ impl AdaptiveScheduler {
             HardwareLevel::Server => ATTENTION_HEADS_SERVER,
         }
     }
-    
+
     /// 获取 CPU 亲和性管理器
     ///
     /// # 返回
@@ -516,12 +522,12 @@ impl AdaptiveScheduler {
     pub fn cpu_affinity(&self) -> Option<&CpuAffinity> {
         self.cpu_affinity.as_ref()
     }
-    
+
     #[inline]
     pub fn ht_efficiency(&self) -> Option<&HyperthreadEfficiency> {
         self.ht_efficiency.as_ref()
     }
-    
+
     #[inline]
     pub fn optimal_threads_for_task(&self, task_type: TaskType) -> usize {
         match &self.cpu_affinity {
@@ -529,7 +535,7 @@ impl AdaptiveScheduler {
             None => self.config.num_threads,
         }
     }
-    
+
     /// 获取最优计算核心列表
     ///
     /// # 返回
@@ -541,14 +547,16 @@ impl AdaptiveScheduler {
             (0..self.config.num_threads).collect()
         }
     }
-    
+
     /// 绑定当前线程到最优核心
     ///
     /// 将当前线程绑定到物理性能核心。
     ///
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
-    pub fn bind_current_thread_optimal(&self) -> Result<(), super::hyperthreading::CpuAffinityError> {
+    pub fn bind_current_thread_optimal(
+        &self,
+    ) -> Result<(), super::hyperthreading::CpuAffinityError> {
         if let Some(affinity) = &self.cpu_affinity {
             let cores = affinity.select_cores(CoreSelectionStrategy::PhysicalOnly, Some(1));
             if let Some(&core_id) = cores.first() {
@@ -560,7 +568,7 @@ impl AdaptiveScheduler {
             Ok(())
         }
     }
-    
+
     /// 获取超线程加速比
     ///
     /// # 返回
@@ -669,7 +677,7 @@ impl UnifiedScheduler {
     pub fn new() -> Self {
         let base = AdaptiveScheduler::new();
         let hardware = base.hardware();
-        
+
         let preferred_device = Self::determine_preferred_device(hardware);
         let unified_memory = Self::check_unified_memory(hardware);
 
@@ -800,7 +808,7 @@ impl Default for UnifiedScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_scheduler_creation() {
         let scheduler = AdaptiveScheduler::new();
@@ -808,105 +816,105 @@ mod tests {
         println!("Device Type: {:?}", scheduler.device_type());
         println!("Config: {:?}", scheduler.config());
     }
-    
+
     #[test]
     fn test_dsa_k_recommendation() {
         let scheduler = AdaptiveScheduler::new();
         let k = scheduler.recommended_dsa_k(1024);
         assert!(k > 0 && k <= 1024);
     }
-    
+
     #[test]
     fn test_memory_adjustment() {
         let mut scheduler = AdaptiveScheduler::new();
         scheduler.adjust_for_memory(512);
         assert_eq!(scheduler.config().memory, MemoryStrategy::SmallArena);
-        
+
         scheduler.adjust_for_memory(2048);
         assert_eq!(scheduler.config().memory, MemoryStrategy::StandardArena);
-        
+
         scheduler.adjust_for_memory(8192);
         assert_eq!(scheduler.config().memory, MemoryStrategy::PagedAttention);
     }
-    
+
     #[test]
     fn test_unified_scheduler() {
         let scheduler = UnifiedScheduler::new();
-        
+
         // 小任务使用 CPU
         let device = scheduler.select_device(100);
         assert_eq!(device, ComputeDevice::Cpu);
-        
+
         // 检查统一内存
         println!("Unified memory: {}", scheduler.has_unified_memory());
     }
-    
+
     #[test]
     fn test_parallelism() {
         let mut scheduler = UnifiedScheduler::new();
-        
+
         scheduler.set_parallelism(50);
         assert_eq!(scheduler.recommended_parallelism(), 0.5);
-        
+
         // 并行度应该被限制在 100
         scheduler.set_parallelism(150);
         assert_eq!(scheduler.parallelism, 100);
     }
-    
+
     #[test]
     fn test_dsa_k_values() {
         let scheduler = AdaptiveScheduler::new();
-        
+
         let k_entry = scheduler.recommended_dsa_k(1000);
         let k_standard = scheduler.recommended_dsa_k(1000);
         let k_professional = scheduler.recommended_dsa_k(1000);
         let k_server = scheduler.recommended_dsa_k(1000);
-        
+
         assert!(k_entry <= 1000);
         assert!(k_standard <= 1000);
         assert!(k_professional <= 1000);
         assert!(k_server <= 1000);
     }
-    
+
     #[test]
     fn test_memory_adjustment_edge_cases() {
         let mut scheduler = AdaptiveScheduler::new();
-        
+
         scheduler.adjust_for_memory(0);
         assert_eq!(scheduler.config().memory, MemoryStrategy::SmallArena);
         assert_eq!(scheduler.config().kv_cache_size, 64);
-        
+
         scheduler.adjust_for_memory(1023);
         assert_eq!(scheduler.config().memory, MemoryStrategy::SmallArena);
-        
+
         scheduler.adjust_for_memory(1024);
         assert_eq!(scheduler.config().memory, MemoryStrategy::StandardArena);
-        
+
         scheduler.adjust_for_memory(4095);
         assert_eq!(scheduler.config().memory, MemoryStrategy::StandardArena);
-        
+
         scheduler.adjust_for_memory(4096);
         assert_eq!(scheduler.config().memory, MemoryStrategy::PagedAttention);
     }
-    
+
     #[test]
     fn test_recommended_threads() {
         let mut scheduler = UnifiedScheduler::new();
-        
+
         scheduler.set_parallelism(100);
         let threads_full = scheduler.recommended_threads();
         assert!(threads_full >= 1);
-        
+
         scheduler.set_parallelism(50);
         let threads_half = scheduler.recommended_threads();
         assert!(threads_half >= 1);
         assert!(threads_half <= threads_full);
-        
+
         scheduler.set_parallelism(0);
         let threads_zero = scheduler.recommended_threads();
         assert_eq!(threads_zero, 1);
     }
-    
+
     #[test]
     fn test_attention_heads() {
         let scheduler = AdaptiveScheduler::new();
@@ -915,7 +923,7 @@ mod tests {
     }
 
     // ==================== 新增测试：覆盖枚举变体 ====================
-    
+
     /// 测试 ScheduleStrategy 所有变体的 PartialEq 实现
     #[test]
     fn test_schedule_strategy_equality() {
@@ -930,7 +938,10 @@ mod tests {
     fn test_attention_strategy_equality() {
         assert_eq!(AttentionStrategy::Standard, AttentionStrategy::Standard);
         assert_ne!(AttentionStrategy::Dsa, AttentionStrategy::FlashAttention);
-        assert_ne!(AttentionStrategy::FlashAttention, AttentionStrategy::MultiQueryOptimized);
+        assert_ne!(
+            AttentionStrategy::FlashAttention,
+            AttentionStrategy::MultiQueryOptimized
+        );
     }
 
     /// 测试 MemoryStrategy 所有变体的 PartialEq 实现
@@ -938,7 +949,10 @@ mod tests {
     fn test_memory_strategy_equality() {
         assert_eq!(MemoryStrategy::SmallArena, MemoryStrategy::SmallArena);
         assert_ne!(MemoryStrategy::SmallArena, MemoryStrategy::StandardArena);
-        assert_ne!(MemoryStrategy::StandardArena, MemoryStrategy::PagedAttention);
+        assert_ne!(
+            MemoryStrategy::StandardArena,
+            MemoryStrategy::PagedAttention
+        );
         assert_ne!(MemoryStrategy::PagedAttention, MemoryStrategy::Distributed);
     }
 
@@ -946,9 +960,18 @@ mod tests {
     #[test]
     fn test_parallel_strategy_equality() {
         assert_eq!(ParallelStrategy::Single, ParallelStrategy::Single);
-        assert_ne!(ParallelStrategy::MultiThread, ParallelStrategy::SimdVectorized);
-        assert_ne!(ParallelStrategy::SimdVectorized, ParallelStrategy::GpuAccelerated);
-        assert_ne!(ParallelStrategy::GpuAccelerated, ParallelStrategy::Distributed);
+        assert_ne!(
+            ParallelStrategy::MultiThread,
+            ParallelStrategy::SimdVectorized
+        );
+        assert_ne!(
+            ParallelStrategy::SimdVectorized,
+            ParallelStrategy::GpuAccelerated
+        );
+        assert_ne!(
+            ParallelStrategy::GpuAccelerated,
+            ParallelStrategy::Distributed
+        );
     }
 
     /// 测试 InferenceConfig 的 Default trait 实现及字段默认值
@@ -983,11 +1006,11 @@ mod tests {
     fn test_adjust_sequence_length_all_branches() {
         let mut scheduler = AdaptiveScheduler::new();
         let original_attention = scheduler.config().attention;
-        
+
         // 分支1: seq_len > SEQ_LEN_THRESHOLD_LARGE (8192)，所有设备使用 DSA
         scheduler.adjust_for_sequence_length(10000);
         assert_eq!(scheduler.config().attention, AttentionStrategy::Dsa);
-        
+
         // 重置并测试分支2: seq_len > SEQ_LEN_THRESHOLD_MEDIUM (4096) 且 <= 8192
         let mut scheduler2 = AdaptiveScheduler::new();
         scheduler2.adjust_for_sequence_length(5000);
@@ -997,10 +1020,13 @@ mod tests {
                 assert_eq!(scheduler2.config().attention, AttentionStrategy::Dsa);
             }
             HardwareLevel::Professional | HardwareLevel::Server => {
-                assert_eq!(scheduler2.config().attention, AttentionStrategy::FlashAttention);
+                assert_eq!(
+                    scheduler2.config().attention,
+                    AttentionStrategy::FlashAttention
+                );
             }
         }
-        
+
         // 分支3: seq_len <= SEQ_LEN_THRESHOLD_MEDIUM (4096)，不改变策略
         let mut scheduler3 = AdaptiveScheduler::new();
         scheduler3.adjust_for_sequence_length(2048);
@@ -1012,15 +1038,15 @@ mod tests {
     #[test]
     fn test_recommended_dsa_k_boundary_values() {
         let scheduler = AdaptiveScheduler::new();
-        
+
         // 边界条件：seq_len = 0
         let k_zero = scheduler.recommended_dsa_k(0);
         assert_eq!(k_zero, 0);
-        
+
         // 小值
         let k_small = scheduler.recommended_dsa_k(10);
         assert!(k_small <= 10);
-        
+
         // 大值
         let k_large = scheduler.recommended_dsa_k(100000);
         assert!(k_large > 0 && k_large <= 100000);
@@ -1094,9 +1120,7 @@ mod tests {
         let scheduler = UnifiedScheduler::new();
         let device = scheduler.preferred_device();
         match device {
-            ComputeDevice::Cpu |
-            ComputeDevice::IntegratedGpu |
-            ComputeDevice::DiscreteGpu => {}
+            ComputeDevice::Cpu | ComputeDevice::IntegratedGpu | ComputeDevice::DiscreteGpu => {}
         }
     }
 
@@ -1107,19 +1131,19 @@ mod tests {
     #[test]
     fn test_select_device_matrix_size_branches() {
         let mut scheduler = UnifiedScheduler::new();
-        
+
         // 分支1: 低并行度 (< 30%)，总是 CPU
         scheduler.set_parallelism(20);
         let device_low_par = scheduler.select_device(500);
         assert_eq!(device_low_par, ComputeDevice::Cpu);
-        
+
         // 恢复并行度
         scheduler.set_parallelism(100);
-        
+
         // 分支2: 小矩阵 (< 256)，使用 CPU
         let device_small = scheduler.select_device(100);
         assert_eq!(device_small, ComputeDevice::Cpu);
-        
+
         // 分支3: 大矩阵 (>= 256)，使用首选设备
         let device_large = scheduler.select_device(512);
         // 应该返回首选设备（不一定是CPU）
@@ -1136,7 +1160,7 @@ mod tests {
         assert_eq!(thresholds.small_matrix, 256);
         assert_eq!(thresholds.medium_matrix, 1024);
         assert_eq!(thresholds.large_matrix, 4096);
-        
+
         // 自定义阈值
         let custom = TaskThresholds {
             small_matrix: 128,
@@ -1195,19 +1219,19 @@ mod tests {
     #[test]
     fn test_kv_cache_size_calculation_precision() {
         let mut scheduler = AdaptiveScheduler::new();
-        
+
         // 0 MB -> 最小值 64
         scheduler.adjust_for_memory(0);
         assert_eq!(scheduler.config().kv_cache_size, 64);
-        
+
         // 500 MB -> 500/4=125，但至少 64
         scheduler.adjust_for_memory(500);
         assert_eq!(scheduler.config().kv_cache_size, 125);
-        
+
         // 2000 MB -> 2000/2=1000，但至少 256
         scheduler.adjust_for_memory(2000);
         assert_eq!(scheduler.config().kv_cache_size, 1000);
-        
+
         // 8000 MB -> 8000*3/4=6000
         scheduler.adjust_for_memory(8000);
         assert_eq!(scheduler.config().kv_cache_size, 6000);

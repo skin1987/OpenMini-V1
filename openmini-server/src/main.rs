@@ -42,10 +42,10 @@ mod service;
 // 外部依赖导入
 // ============================================================================
 
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::signal;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::ServerConfig;
@@ -111,20 +111,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _hardware_profile = hardware::detect_hardware();
     let cpu_backend = hardware::CpuBackend::create();
     let cpu_info = hardware::CpuBackend::cpu_info();
-    
-    info!("CPU Backend: {} ({})", cpu_backend.backend_name(), cpu_backend.backend_type());
+
+    info!(
+        "CPU Backend: {} ({})",
+        cpu_backend.backend_name(),
+        cpu_backend.backend_type()
+    );
     info!("CPU Info:\n{}", cpu_info);
-    
-    info!("Hardware: {} CPU cores, {} GB max memory",
-          num_cpus::get(), config::ServerConfig::default().memory.max_memory_gb);
+
+    info!(
+        "Hardware: {} CPU cores, {} GB max memory",
+        num_cpus::get(),
+        config::ServerConfig::default().memory.max_memory_gb
+    );
 
     // ========================================================================
     // 配置加载
     // ========================================================================
 
     let config = load_config();
-    info!("Configuration loaded: {} workers, {} max connections",
-          config.worker.count, config.server.max_connections);
+    info!(
+        "Configuration loaded: {} workers, {} max connections",
+        config.worker.count, config.server.max_connections
+    );
 
     // ========================================================================
     // 内存监控器初始化
@@ -132,8 +141,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建内存监控器，用于跟踪内存使用情况
     // 当内存使用接近限制时，会触发警告或拒绝新请求
-    info!("Initializing memory monitor (max {} GB)...", config.memory.max_memory_gb);
-    let _memory_monitor = Arc::new(hardware::memory::MemoryMonitor::new(config.memory.max_memory_gb * 1024 * 1024 * 1024));
+    info!(
+        "Initializing memory monitor (max {} GB)...",
+        config.memory.max_memory_gb
+    );
+    let _memory_monitor = Arc::new(hardware::memory::MemoryMonitor::new(
+        config.memory.max_memory_gb * 1024 * 1024 * 1024,
+    ));
 
     // ========================================================================
     // 线程池创建
@@ -141,7 +155,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建线程池用于并行处理请求
     // 线程池大小由配置文件决定，通常设置为 CPU 核心数
-    info!("Creating thread pool ({} threads)...", config.thread_pool.size);
+    info!(
+        "Creating thread pool ({} threads)...",
+        config.thread_pool.size
+    );
     let thread_pool = Arc::new(ThreadPool::new(config.thread_pool.size));
 
     // ========================================================================
@@ -150,8 +167,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建 Worker 进程池，每个 Worker 独立运行模型推理
     // Worker 数量由配置决定，通常根据 GPU 数量和内存限制设置
-    info!("Initializing worker pool ({} workers)...", config.worker.count);
-    let worker_pool = Arc::new(service::worker::WorkerPool::new(config.worker.clone().into())?);
+    info!(
+        "Initializing worker pool ({} workers)...",
+        config.worker.count
+    );
+    let worker_pool = Arc::new(service::worker::WorkerPool::new(
+        config.worker.clone().into(),
+    )?);
 
     // ========================================================================
     // gRPC 网关启动
@@ -167,7 +189,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 设置关闭信号监听器
     let shutdown_signal = setup_shutdown_signal();
 
-    info!("Server listening on {}:{}", config.server.host, config.server.port);
+    info!(
+        "Server listening on {}:{}",
+        config.server.host, config.server.port
+    );
     info!("Ready to accept connections!");
 
     // ========================================================================

@@ -6,9 +6,9 @@ use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvictionPolicy {
-    LRU,       // Least Recently Used
-    LFU,       // Least Frequently Used
-    Adaptive,  // 自适应策略
+    LRU,      // Least Recently Used
+    LFU,      // Least Frequently Used
+    Adaptive, // 自适应策略
 }
 
 pub struct LruEviction {
@@ -29,7 +29,8 @@ impl LruEviction {
             self.queue.remove(pos);
         }
         self.queue.push_back(key.to_string());
-        self.access_time.insert(key.to_string(), self.queue.len() as u64);
+        self.access_time
+            .insert(key.to_string(), self.queue.len() as u64);
     }
 
     pub fn evict(&mut self) -> Option<String> {
@@ -59,7 +60,7 @@ impl LfuEviction {
     pub fn access(&mut self, key: &str) {
         let count = self.frequency.entry(key.to_string()).or_insert(0);
         *count += 1;
-        
+
         if !self.access_order.contains(&key.to_string()) {
             self.access_order.push(key.to_string());
         }
@@ -69,16 +70,18 @@ impl LfuEviction {
         if self.access_order.is_empty() {
             return None;
         }
-        
-        let min_key = self.access_order.iter()
+
+        let min_key = self
+            .access_order
+            .iter()
             .min_by_key(|k| self.frequency.get(*k).unwrap_or(&0))
             .cloned();
-        
+
         if let Some(key) = min_key.clone() {
             self.access_order.retain(|k| k != &key);
             self.frequency.remove(&key);
         }
-        
+
         min_key
     }
 }
@@ -117,9 +120,11 @@ impl AdaptiveEviction {
         match policy {
             EvictionPolicy::LRU => self.hit_rate_lru += 1.0,
             EvictionPolicy::LFU => self.hit_rate_lfu += 1.0,
-            EvictionPolicy::Adaptive => unreachable!("policy should never be Adaptive in record_hit"),
+            EvictionPolicy::Adaptive => {
+                unreachable!("policy should never be Adaptive in record_hit")
+            }
         }
-        
+
         if self.hit_rate_lru + self.hit_rate_lfu > 100.0 {
             if self.hit_rate_lfu > self.hit_rate_lru * 1.2 {
                 self.mode = EvictionPolicy::LFU;

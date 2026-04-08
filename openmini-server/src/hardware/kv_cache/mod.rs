@@ -43,12 +43,12 @@
 
 pub mod block;
 pub mod block_manager;
+pub mod continuous_batch;
+pub mod mla;
 pub mod page_table;
 pub mod paged_cache;
 pub mod prefix_cache;
-pub mod continuous_batch;
 pub mod streaming;
-pub mod mla;
 
 // 重导出主要类型
 #[allow(unused_imports)]
@@ -56,20 +56,22 @@ pub use block::{Block, BlockId, BlockState, KVCacheConfig, DEFAULT_BLOCK_SIZE};
 #[allow(unused_imports)]
 pub use block_manager::BlockManager;
 #[allow(unused_imports)]
+pub use continuous_batch::{
+    BatchConfig, BatchScheduler, GenerationRequest, GenerationResult, RequestPriority,
+    RequestState, SchedulerStats,
+};
+#[allow(unused_imports)]
+pub use mla::{
+    mla_attention_forward, MLAAttention, MLAConfig, MLALatentCache, MLAProjection, RoPECache,
+};
+#[allow(unused_imports)]
 pub use page_table::{PageTable, PageTableEntry, PageTableManager};
 #[allow(unused_imports)]
 pub use paged_cache::PagedKVCache;
 #[allow(unused_imports)]
 pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixCacheStats, PrefixEntry, PrefixHash};
 #[allow(unused_imports)]
-pub use continuous_batch::{
-    BatchConfig, BatchScheduler, SchedulerStats,
-    GenerationRequest, GenerationResult, RequestPriority, RequestState,
-};
-#[allow(unused_imports)]
 pub use streaming::{StreamingAttention, StreamingAttentionConfig, StreamingAttentionStats};
-#[allow(unused_imports)]
-pub use mla::{MLAConfig, MLAProjection, MLALatentCache, MLAAttention, RoPECache, mla_attention_forward};
 
 /// 请求ID类型
 pub type RequestId = u64;
@@ -88,37 +90,28 @@ pub type TokenPos = usize;
 pub enum KVCacheError {
     /// 内存不足
     #[error("Out of memory: requested {requested} blocks, available {available}")]
-    OutOfMemory {
-        requested: usize,
-        available: usize,
-    },
-    
+    OutOfMemory { requested: usize, available: usize },
+
     /// 请求不存在
     #[error("Request {0} not found")]
     RequestNotFound(RequestId),
-    
+
     /// 块不存在
     #[error("Block {0} not found")]
     BlockNotFound(BlockId),
-    
+
     /// 层越界
     #[error("Layer {layer} out of range (max: {max})")]
-    LayerOutOfRange {
-        layer: usize,
-        max: usize,
-    },
-    
+    LayerOutOfRange { layer: usize, max: usize },
+
     /// 位置越界
     #[error("Position {pos} out of range (max: {max})")]
-    PositionOutOfRange {
-        pos: usize,
-        max: usize,
-    },
-    
+    PositionOutOfRange { pos: usize, max: usize },
+
     /// 无效操作
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
-    
+
     /// 配置错误
     #[error("Configuration error: {0}")]
     ConfigError(String),
@@ -230,7 +223,10 @@ mod tests {
     #[test]
     fn test_kv_cache_error_all_variants() {
         // 覆盖 OutOfMemory 变体
-        let oom = KVCacheError::OutOfMemory { requested: 10, available: 5 };
+        let oom = KVCacheError::OutOfMemory {
+            requested: 10,
+            available: 5,
+        };
         let msg = format!("{}", oom);
         assert!(msg.contains("10") && msg.contains("5"));
 
@@ -239,7 +235,7 @@ mod tests {
         assert!(format!("{}", rnf).contains("42"));
 
         // 覆盖 BlockNotFound 变体
-        let bnf = KVCacheError::BlockNotFound(7usize);  // BlockId 是 usize 类型别名
+        let bnf = KVCacheError::BlockNotFound(7usize); // BlockId 是 usize 类型别名
         assert!(format!("{}", bnf).contains("7"));
 
         // 覆盖 LayerOutOfRange 变体
@@ -309,14 +305,20 @@ mod tests {
     #[test]
     fn test_kv_cache_trait_is_empty_default() {
         // 创建一个简单的 struct 来验证 trait 默认实现
-        struct MockCache { tokens: usize }
+        struct MockCache {
+            tokens: usize,
+        }
         impl KVCache for MockCache {
-            fn num_tokens(&self) -> usize { self.tokens }
+            fn num_tokens(&self) -> usize {
+                self.tokens
+            }
             fn clear_cache(&mut self) -> Result<(), KVCacheError> {
                 self.tokens = 0;
                 Ok(())
             }
-            fn memory_usage(&self) -> usize { self.tokens * 100 }
+            fn memory_usage(&self) -> usize {
+                self.tokens * 100
+            }
         }
 
         // 空缓存
@@ -343,9 +345,15 @@ mod tests {
     /// 测试 DEFAULT_BLOCK_SIZE 常量
     #[test]
     fn test_default_block_size() {
-        assert!(DEFAULT_BLOCK_SIZE > 0, "DEFAULT_BLOCK_SIZE should be positive");
+        assert!(
+            DEFAULT_BLOCK_SIZE > 0,
+            "DEFAULT_BLOCK_SIZE should be positive"
+        );
         // 通常 block_size 是 2 的幂或合理值
-        assert!(DEFAULT_BLOCK_SIZE >= 16, "DEFAULT_BLOCK_SIZE should be at least 16");
+        assert!(
+            DEFAULT_BLOCK_SIZE >= 16,
+            "DEFAULT_BLOCK_SIZE should be at least 16"
+        );
     }
 
     /// 测试 BlockId 的基本操作（如果可用）

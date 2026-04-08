@@ -24,11 +24,11 @@
 //! let status = checker.check().await;
 //! ```
 
+pub mod health_check;
 pub mod metrics;
 pub mod prometheus_exporter;
-pub mod health_check;
 
 // 重新导出常用类型
+pub use health_check::HealthChecker;
 pub use metrics::*;
 pub use prometheus_exporter::PrometheusExporter;
-pub use health_check::HealthChecker;

@@ -27,16 +27,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::{
-    Router,
-    routing::get,
-    response::Response,
-    extract::State,
-    http::StatusCode,
-};
-use prometheus::{Encoder, TextEncoder, Registry};
+use axum::{extract::State, http::StatusCode, response::Response, routing::get, Router};
+use prometheus::{Encoder, Registry, TextEncoder};
 use tokio::net::TcpListener;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Prometheus 指标 HTTP 导出器
 ///
@@ -93,13 +87,13 @@ impl PrometheusExporter {
         info!(address = %self.addr, "Starting Prometheus metrics exporter");
 
         // 创建 TCP listener 以便获取实际绑定地址
-        let listener = TcpListener::bind(self.addr).await.map_err(|e| {
-            anyhow::anyhow!("Failed to bind to {}: {}", self.addr, e)
-        })?;
+        let listener = TcpListener::bind(self.addr)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to bind to {}: {}", self.addr, e))?;
 
-        let actual_addr = listener.local_addr().map_err(|e| {
-            anyhow::anyhow!("Failed to get local address: {}", e)
-        })?;
+        let actual_addr = listener
+            .local_addr()
+            .map_err(|e| anyhow::anyhow!("Failed to get local address: {}", e))?;
 
         info!(address = %actual_addr, "Prometheus metrics server listening");
 
@@ -111,9 +105,9 @@ impl PrometheusExporter {
             .with_state(registry);
 
         // 启动服务器
-        axum::serve(listener, app).await.map_err(|e| {
-            anyhow::anyhow!("Server error: {}", e)
-        })?;
+        axum::serve(listener, app)
+            .await
+            .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
 
         Ok(())
     }
@@ -293,8 +287,13 @@ mod tests {
         // 测试各种自定义端口
         for port in [8080, 9090, 3000, 80, 443] {
             let exporter = PrometheusExporter::new(port);
-            assert_eq!(exporter.addr().port(), port, "Port should match for {}", port);
-            
+            assert_eq!(
+                exporter.addr().port(),
+                port,
+                "Port should match for {}",
+                port
+            );
+
             // 验证地址绑定到所有接口
             assert_eq!(exporter.addr().ip(), std::net::Ipv4Addr::new(0, 0, 0, 0));
         }
@@ -309,19 +308,22 @@ mod tests {
         update_system_metrics(45.2, 512 * 1024 * 512); // 45.2% CPU, 256MB
         update_token_throughput(123.4);
         update_batch_size(6.0);
-        
+
         let exporter = PrometheusExporter::new(19997);
         let metrics_text = exporter.gather_metrics();
-        
+
         // 验证Prometheus基本格式要求
-        assert!(!metrics_text.is_empty(), "Metrics output should not be empty");
-        
+        assert!(
+            !metrics_text.is_empty(),
+            "Metrics output should not be empty"
+        );
+
         // 验证包含HELP注释（Prometheus标准格式）
         assert!(
             metrics_text.contains("# HELP") || metrics_text.contains("openmini_"),
             "Metrics should contain HELP comments or metric names"
         );
-        
+
         // 验证包含TYPE注释
         assert!(
             metrics_text.contains("# TYPE") || metrics_text.contains("openmini_"),
@@ -330,8 +332,8 @@ mod tests {
 
         // 验证包含我们设置的指标值
         assert!(
-            metrics_text.contains("openmini_gpu_utilization_percent") ||
-            metrics_text.contains("openmini_cpu_usage_percent"),
+            metrics_text.contains("openmini_gpu_utilization_percent")
+                || metrics_text.contains("openmini_cpu_usage_percent"),
             "Should contain system metrics"
         );
     }
@@ -339,11 +341,11 @@ mod tests {
     #[test]
     fn test_gather_metrics_with_inference_data() {
         use crate::monitoring::metrics::*;
-        
+
         // 记录推理数据
         record_inference_start();
         record_inference_complete("test-model-for-export", true, 42.5, "q4_0", "metal");
-        
+
         record_inference_start();
         record_inference_complete("error-model", false, 5000.0, "q8_0", "cpu");
 
@@ -355,7 +357,7 @@ mod tests {
             metrics_output.contains("openmini_inference_requests_total"),
             "Should contain inference requests counter"
         );
-        
+
         // 验证包含不同状态的记录
         assert!(
             metrics_output.len() > 50, // 应该有足够的内容
@@ -368,9 +370,9 @@ mod tests {
         // 测试使用空注册表时的行为
         let custom_registry = prometheus::Registry::new();
         let exporter = PrometheusExporter::with_registry(19995, custom_registry);
-        
+
         let metrics_output = exporter.gather_metrics();
-        
+
         // 空注册表应该返回空字符串或最小格式
         // （不应该panic）
         let _ = metrics_output;
@@ -381,10 +383,10 @@ mod tests {
         // 测试addr()方法返回完整的SocketAddr
         let exporter = PrometheusExporter::new(8888);
         let addr = exporter.addr();
-        
+
         assert_eq!(addr.port(), 8888);
         assert_eq!(addr.ip(), std::net::Ipv4Addr::new(0, 0, 0, 0));
-        
+
         // 验证可以用于格式化
         let addr_string = addr.to_string();
         assert!(addr_string.contains("8888"));
@@ -400,12 +402,12 @@ mod tests {
 
         assert_ne!(exporter1.addr().port(), exporter2.addr().port());
         assert_ne!(exporter2.addr().port(), exporter3.addr().port());
-        
+
         // 每个都应该能收集指标
         let metrics1 = exporter1.gather_metrics();
         let metrics2 = exporter2.gather_metrics();
         let metrics3 = exporter3.gather_metrics();
-        
+
         // 它们应该收集相同的全局指标（因为共享同一个默认registry）
         // 但至少验证都能正常工作
         assert!(!metrics1.is_empty());

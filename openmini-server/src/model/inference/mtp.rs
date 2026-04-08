@@ -68,26 +68,26 @@ impl MtpDecoder {
             total_accepted: 0,
         }
     }
-    
+
     /// 使用默认配置创建
     pub fn default_decoder() -> Self {
         Self::new(MtpConfig::default())
     }
-    
+
     /// 生成候选tokens
     pub fn generate_candidates(&mut self, logits: &Array2<f32>) -> Result<Vec<MtpCandidate>> {
         let (seq_len, _vocab_size) = logits.dim();
         let last_logits = logits.row(seq_len - 1).to_owned();
-        
+
         // 并行计算 top-k 候选
         let mut indexed: Vec<(usize, f32)> = last_logits
             .iter()
             .enumerate()
             .map(|(i, &p)| (i, p))
             .collect();
-        
+
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        
+
         let candidates: Vec<MtpCandidate> = indexed
             .into_iter()
             .take(self.config.num_candidates)
@@ -97,13 +97,13 @@ impl MtpDecoder {
                 verification_score: 0.0,
             })
             .collect();
-        
+
         self.candidates = candidates.clone();
         self.total_generated += candidates.len();
-        
+
         Ok(candidates)
     }
-    
+
     /// 验证候选tokens
     pub fn verify_candidates(
         &mut self,
@@ -113,10 +113,10 @@ impl MtpDecoder {
         if !self.config.speculative_sampling {
             return Ok(candidates.to_vec());
         }
-        
+
         let (seq_len, _vocab_size) = target_logits.dim();
         let target_probs = target_logits.row(seq_len - 1);
-        
+
         let verified: Vec<MtpCandidate> = candidates
             .iter()
             .map(|c| {
@@ -126,7 +126,7 @@ impl MtpDecoder {
                 } else {
                     0.0
                 };
-                
+
                 MtpCandidate {
                     token_id: c.token_id,
                     probability: c.probability,
@@ -134,31 +134,35 @@ impl MtpDecoder {
                 }
             })
             .collect();
-        
+
         Ok(verified)
     }
-    
+
     /// 选择最优候选
     pub fn select_best_candidate(&mut self, candidates: &[MtpCandidate]) -> Option<MtpCandidate> {
         let best = candidates
             .iter()
             .filter(|c| c.verification_score >= self.config.acceptance_threshold)
-            .max_by(|a, b| a.verification_score.partial_cmp(&b.verification_score).unwrap());
-        
+            .max_by(|a, b| {
+                a.verification_score
+                    .partial_cmp(&b.verification_score)
+                    .unwrap()
+            });
+
         if best.is_some() {
             self.consecutive_accepts += 1;
             self.total_accepted += 1;
-            
+
             if self.consecutive_accepts >= self.config.max_consecutive_accepts {
                 self.consecutive_accepts = 0;
             }
         } else {
             self.consecutive_accepts = 0;
         }
-        
+
         best.cloned()
     }
-    
+
     /// 批量生成候选
     pub fn batch_generate_candidates(
         &mut self,
@@ -169,7 +173,7 @@ impl MtpDecoder {
             .map(|logits| self.generate_candidates(logits))
             .collect()
     }
-    
+
     /// 获取接受率
     pub fn acceptance_rate(&self) -> f32 {
         if self.total_generated == 0 {
@@ -178,19 +182,19 @@ impl MtpDecoder {
             self.total_accepted as f32 / self.total_generated as f32
         }
     }
-    
+
     /// 重置统计
     pub fn reset_stats(&mut self) {
         self.consecutive_accepts = 0;
         self.total_generated = 0;
         self.total_accepted = 0;
     }
-    
+
     /// 获取配置
     pub fn config(&self) -> &MtpConfig {
         &self.config
     }
-    
+
     /// 更新配置
     pub fn set_config(&mut self, config: MtpConfig) {
         self.config = config;
@@ -217,22 +221,20 @@ impl SpeculativeSampler {
             verification_sequence: Vec::new(),
         }
     }
-    
+
     /// 生成候选序列
     pub fn generate_candidate_sequence(&mut self, logits: &Array2<f32>) -> Result<Vec<usize>> {
         let candidates = self.decoder.generate_candidates(logits)?;
-        
+
         self.candidate_sequence = candidates.iter().map(|c| c.token_id).collect();
-        
+
         Ok(self.candidate_sequence.clone())
     }
-    
+
     /// 验证并接受tokens
-    pub fn verify_and_accept(
-        &mut self,
-        target_logits: &Array2<f32>,
-    ) -> Result<Vec<usize>> {
-        let candidates: Vec<MtpCandidate> = self.candidate_sequence
+    pub fn verify_and_accept(&mut self, target_logits: &Array2<f32>) -> Result<Vec<usize>> {
+        let candidates: Vec<MtpCandidate> = self
+            .candidate_sequence
             .iter()
             .map(|&token_id| MtpCandidate {
                 token_id,
@@ -240,25 +242,25 @@ impl SpeculativeSampler {
                 verification_score: 0.0,
             })
             .collect();
-        
+
         let verified = self.decoder.verify_candidates(&candidates, target_logits)?;
-        
+
         let accepted: Vec<usize> = verified
             .iter()
             .filter(|c| c.verification_score >= self.decoder.config().acceptance_threshold)
             .map(|c| c.token_id)
             .collect();
-        
+
         self.verification_sequence = accepted.clone();
-        
+
         Ok(accepted)
     }
-    
+
     /// 获取解码器
     pub fn decoder(&self) -> &MtpDecoder {
         &self.decoder
     }
-    
+
     /// 获取解码器（可变）
     pub fn decoder_mut(&mut self) -> &mut MtpDecoder {
         &mut self.decoder
@@ -336,9 +338,21 @@ mod tests {
         });
 
         let candidates = vec![
-            MtpCandidate { token_id: 1, probability: 0.9, verification_score: 0.95 },
-            MtpCandidate { token_id: 2, probability: 0.8, verification_score: 0.85 },
-            MtpCandidate { token_id: 3, probability: 0.7, verification_score: 0.75 },
+            MtpCandidate {
+                token_id: 1,
+                probability: 0.9,
+                verification_score: 0.95,
+            },
+            MtpCandidate {
+                token_id: 2,
+                probability: 0.8,
+                verification_score: 0.85,
+            },
+            MtpCandidate {
+                token_id: 3,
+                probability: 0.7,
+                verification_score: 0.75,
+            },
         ];
 
         let best = decoder.select_best_candidate(&candidates).unwrap();
@@ -359,9 +373,21 @@ mod tests {
         });
 
         let candidates = vec![
-            MtpCandidate { token_id: 1, probability: 0.9, verification_score: 0.5 },
-            MtpCandidate { token_id: 2, probability: 0.8, verification_score: 0.3 },
-            MtpCandidate { token_id: 3, probability: 0.7, verification_score: 0.1 },
+            MtpCandidate {
+                token_id: 1,
+                probability: 0.9,
+                verification_score: 0.5,
+            },
+            MtpCandidate {
+                token_id: 2,
+                probability: 0.8,
+                verification_score: 0.3,
+            },
+            MtpCandidate {
+                token_id: 3,
+                probability: 0.7,
+                verification_score: 0.1,
+            },
         ];
 
         let best = decoder.select_best_candidate(&candidates);
@@ -381,14 +407,24 @@ mod tests {
         });
 
         let candidates = vec![
-            MtpCandidate { token_id: 1, probability: 0.9, verification_score: 0.0 },
-            MtpCandidate { token_id: 2, probability: 0.8, verification_score: 0.0 },
+            MtpCandidate {
+                token_id: 1,
+                probability: 0.9,
+                verification_score: 0.0,
+            },
+            MtpCandidate {
+                token_id: 2,
+                probability: 0.8,
+                verification_score: 0.0,
+            },
         ];
 
         let target_logits = Array2::from_shape_fn((1, 50), |(_, j)| j as f32 / 50.0);
 
         // 关闭投机采样时，应该直接返回原始候选不做验证
-        let verified = decoder.verify_candidates(&candidates, &target_logits).unwrap();
+        let verified = decoder
+            .verify_candidates(&candidates, &target_logits)
+            .unwrap();
 
         assert_eq!(verified.len(), candidates.len());
         // verification_score应该保持为0（未验证）
@@ -477,9 +513,11 @@ mod tests {
             max_consecutive_accepts: 3, // 连续接受3次后重置
         });
 
-        let good_candidates = vec![
-            MtpCandidate { token_id: 1, probability: 0.9, verification_score: 0.95 },
-        ];
+        let good_candidates = vec![MtpCandidate {
+            token_id: 1,
+            probability: 0.9,
+            verification_score: 0.95,
+        }];
 
         // 第一次接受
         decoder.select_best_candidate(&good_candidates);
@@ -530,16 +568,30 @@ mod tests {
         let mut decoder = MtpDecoder::default_decoder();
 
         let candidates = vec![
-            MtpCandidate { token_id: 999, probability: 0.9, verification_score: 0.0 }, // 不在目标分布中
-            MtpCandidate { token_id: 0, probability: 0.1, verification_score: 0.0 },   // 在目标分布中但概率低
+            MtpCandidate {
+                token_id: 999,
+                probability: 0.9,
+                verification_score: 0.0,
+            }, // 不在目标分布中
+            MtpCandidate {
+                token_id: 0,
+                probability: 0.1,
+                verification_score: 0.0,
+            }, // 在目标分布中但概率低
         ];
 
         // 创建一个只有前几个token有概率的目标分布
         let target_logits = Array2::from_shape_fn((1, 100), |(_, j)| {
-            if j < 10 { 1.0 } else { 0.0 } // 只有0-9有概率
+            if j < 10 {
+                1.0
+            } else {
+                0.0
+            } // 只有0-9有概率
         });
 
-        let verified = decoder.verify_candidates(&candidates, &target_logits).unwrap();
+        let verified = decoder
+            .verify_candidates(&candidates, &target_logits)
+            .unwrap();
 
         // token_id=999不在目标分布中，verification_score应为0
         let candidate_999 = verified.iter().find(|c| c.token_id == 999).unwrap();

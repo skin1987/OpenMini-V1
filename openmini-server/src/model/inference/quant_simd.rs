@@ -9,23 +9,15 @@
 #![allow(dead_code)]
 #![allow(unused_unsafe)]
 
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::{
-    _mm256_loadu_ps, _mm256_storeu_ps,
-    _mm_loadu_ps, _mm_storeu_ps,
-};
-#[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
-
-use std::arch::x86_64::{
-    _mm512_loadu_ps, _mm512_storeu_ps, _mm512_set1_ps, _mm512_mul_ps,
-};
 #[cfg(target_arch = "aarch64")]
-use std::arch::aarch64::{
-    vld1q_f32, vst1q_f32, vdupq_n_f32, vmulq_f32, vaddq_f32,
-};
+use std::arch::aarch64::{vaddq_f32, vdupq_n_f32, vld1q_f32, vmulq_f32, vst1q_f32};
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps, _mm_loadu_ps, _mm_storeu_ps};
+#[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
+use std::arch::x86_64::{_mm512_loadu_ps, _mm512_mul_ps, _mm512_set1_ps, _mm512_storeu_ps};
 
-use rayon::prelude::*;
 use super::gguf::GgufTensorType;
+use rayon::prelude::*;
 
 const QK4_0: usize = 32;
 const QK4_1: usize = 32;
@@ -42,7 +34,12 @@ pub fn dequantize_simd(data: &[u8], tensor_type: GgufTensorType, n: usize) -> Ve
     }
 }
 
-pub fn dequantize_simd_parallel(data: &[u8], tensor_type: GgufTensorType, n: usize, num_threads: usize) -> Vec<f32> {
+pub fn dequantize_simd_parallel(
+    data: &[u8],
+    tensor_type: GgufTensorType,
+    n: usize,
+    num_threads: usize,
+) -> Vec<f32> {
     match tensor_type {
         GgufTensorType::F32 => dequantize_f32_impl(data, n),
         GgufTensorType::F16 => dequantize_f16_impl(data, n),
@@ -235,7 +232,8 @@ fn dequantize_f16_impl(data: &[u8], n: usize) -> Vec<f32> {
                 let mut values = [0u16; 8];
                 for j in 0..8 {
                     if offset + j * 2 + 2 <= data.len() {
-                        let bytes: [u8; 2] = data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
+                        let bytes: [u8; 2] =
+                            data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
                         values[j] = u16::from_le_bytes(bytes);
                     }
                 }
@@ -254,7 +252,8 @@ fn dequantize_f16_impl(data: &[u8], n: usize) -> Vec<f32> {
                 let mut values = [0u16; 8];
                 for j in 0..8 {
                     if offset + j * 2 + 2 <= data.len() {
-                        let bytes: [u8; 2] = data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
+                        let bytes: [u8; 2] =
+                            data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
                         values[j] = u16::from_le_bytes(bytes);
                     }
                 }
@@ -273,7 +272,8 @@ fn dequantize_f16_impl(data: &[u8], n: usize) -> Vec<f32> {
                 let mut values = [0u16; 4];
                 for j in 0..4 {
                     if offset + j * 2 + 2 <= data.len() {
-                        let bytes: [u8; 2] = data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
+                        let bytes: [u8; 2] =
+                            data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
                         values[j] = u16::from_le_bytes(bytes);
                     }
                 }
@@ -320,7 +320,8 @@ fn dequantize_f16_impl(data: &[u8], n: usize) -> Vec<f32> {
             let mut values = [0u16; 4];
             for j in 0..4 {
                 if offset + j * 2 + 2 <= data.len() {
-                    let bytes: [u8; 2] = data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
+                    let bytes: [u8; 2] =
+                        data[offset + j * 2..offset + j * 2 + 2].try_into().unwrap();
                     values[j] = u16::from_le_bytes(bytes);
                 }
             }
@@ -884,7 +885,6 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
             16
         } else if cfg!(target_arch = "x86_64") {
             unsafe {
-                
                 if is_x86_feature_detected!("avx2") {
                     8
                 } else if is_x86_feature_detected!("sse4.2") {
@@ -1050,7 +1050,8 @@ fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
                 let scale_bytes: [u8; 2] = data[block_offset..block_offset + 2].try_into().unwrap();
                 let scale = f16::from_le_bytes(scale_bytes).to_f32();
 
-                let min_bytes: [u8; 2] = data[block_offset + 2..block_offset + 4].try_into().unwrap();
+                let min_bytes: [u8; 2] =
+                    data[block_offset + 2..block_offset + 4].try_into().unwrap();
                 let min_val = f16::from_le_bytes(min_bytes).to_f32();
 
                 let qs = &data[block_offset + 4..block_offset + 20];
@@ -1263,7 +1264,6 @@ unsafe fn exp_ps_avx2(x: std::arch::x86_64::__m256) -> std::arch::x86_64::__m256
     );
 
     let exp_series = _mm256_add_ps(_mm256_set1_ps(1.0), series);
-    
 
     _mm256_mul_ps(exp_series, pow2n)
 }
@@ -1344,7 +1344,10 @@ unsafe fn exp_ps_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64:
 }
 
 #[cfg(target_arch = "aarch64")]
-unsafe fn vdivq_f32(a: std::arch::aarch64::float32x4_t, b: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+unsafe fn vdivq_f32(
+    a: std::arch::aarch64::float32x4_t,
+    b: std::arch::aarch64::float32x4_t,
+) -> std::arch::aarch64::float32x4_t {
     use std::arch::aarch64::*;
     let recip = vrecpeq_f32(b);
     let recip = vmulq_f32(recip, vrecpsq_f32(b, recip));
@@ -1532,10 +1535,7 @@ pub fn softmax_parallel(input: &[f32], num_threads: usize) -> Vec<f32> {
 
     let max_val = input.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
-    let sum: f32 = input
-        .par_iter()
-        .map(|&x| (x - max_val).exp())
-        .sum();
+    let sum: f32 = input.par_iter().map(|&x| (x - max_val).exp()).sum();
 
     input
         .par_iter()
@@ -1634,7 +1634,7 @@ impl SmartQuantStrategy {
     /// 创建新的智能量化策略
     pub fn new(num_layers: usize) -> Self {
         let mut layer_configs = Vec::with_capacity(num_layers);
-        
+
         for i in 0..num_layers {
             let is_critical = i % 3 == 0 || i % 3 == 2;
             layer_configs.push(LayerQuantConfig {
@@ -1647,7 +1647,7 @@ impl SmartQuantStrategy {
                 is_critical,
             });
         }
-        
+
         Self {
             layer_configs,
             default_quant: QuantType::INT8,
@@ -1674,7 +1674,7 @@ impl SmartQuantStrategy {
     /// 应用量化策略进行量化
     pub fn quantize_layer(&self, layer_idx: usize, data: &[f32]) -> Vec<u8> {
         let quant_type = self.get_layer_quant(layer_idx);
-        
+
         match quant_type {
             QuantType::FP32 => {
                 let mut result = Vec::with_capacity(data.len() * 4);
@@ -1685,23 +1685,27 @@ impl SmartQuantStrategy {
             }
             QuantType::FP16 => {
                 use half::f16;
-                data.iter().flat_map(|&v| f16::from_f32(v).to_le_bytes().to_vec()).collect()
+                data.iter()
+                    .flat_map(|&v| f16::from_f32(v).to_le_bytes().to_vec())
+                    .collect()
             }
             QuantType::INT8 => {
                 let min = data.iter().copied().fold(f32::INFINITY, f32::min);
                 let max = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                 let scale = (max - min) / 255.0;
-                
-                data.iter().map(|&v| {
-                    let normalized = (v - min) / scale;
-                    (normalized * 127.5).clamp(-128.0, 127.0) as i8 as u8
-                }).collect()
+
+                data.iter()
+                    .map(|&v| {
+                        let normalized = (v - min) / scale;
+                        (normalized * 127.5).clamp(-128.0, 127.0) as i8 as u8
+                    })
+                    .collect()
             }
             QuantType::INT4 => {
                 let min = data.iter().copied().fold(f32::INFINITY, f32::min);
                 let max = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                 let scale = (max - min) / 15.0;
-                
+
                 let mut result = Vec::with_capacity(data.len().div_ceil(2));
                 for &v in data {
                     let normalized = (v - min) / scale;
@@ -1714,7 +1718,12 @@ impl SmartQuantStrategy {
     }
 
     /// 反量化层
-    pub fn dequantize_layer(&self, _layer_idx: usize, data: &[u8], quant_type: QuantType) -> Vec<f32> {
+    pub fn dequantize_layer(
+        &self,
+        _layer_idx: usize,
+        data: &[u8],
+        quant_type: QuantType,
+    ) -> Vec<f32> {
         match quant_type {
             QuantType::FP32 => {
                 let mut result = Vec::with_capacity(data.len() / 4);
@@ -1737,17 +1746,18 @@ impl SmartQuantStrategy {
                 let min = data.iter().copied().fold(u8::MAX, |a, b| a.min(b));
                 let max = data.iter().copied().fold(u8::MIN, |a, b| a.max(b));
                 let scale = (max as f32 - min as f32) / 255.0;
-                
-                data.iter().map(|&b| {
-                    (b as i8 as f32) * scale + min as f32
-                }).collect()
+
+                data.iter()
+                    .map(|&b| (b as i8 as f32) * scale + min as f32)
+                    .collect()
             }
-            QuantType::INT4 => {
-                data.iter().map(|&b| {
+            QuantType::INT4 => data
+                .iter()
+                .map(|&b| {
                     let normalized = (b as f32) / 8.0;
                     normalized * 15.0
-                }).collect()
-            }
+                })
+                .collect(),
         }
     }
 }
@@ -1766,7 +1776,7 @@ impl SmartQuantStrategy {
 ///
 /// # 返回
 /// 反量化后的 f32 向量列表
-pub fn batch_dequantize(tensors: &[( &[u8], GgufTensorType, usize )]) -> Vec<Vec<f32>> {
+pub fn batch_dequantize(tensors: &[(&[u8], GgufTensorType, usize)]) -> Vec<Vec<f32>> {
     use rayon::prelude::*;
 
     tensors
@@ -1879,8 +1889,7 @@ impl QuantStats {
 }
 
 /// 全局量化统计实例
-static QUANT_STATS: std::sync::OnceLock<std::sync::Mutex<QuantStats>> =
-    std::sync::OnceLock::new();
+static QUANT_STATS: std::sync::OnceLock<std::sync::Mutex<QuantStats>> = std::sync::OnceLock::new();
 
 /// 获取全局量化统计
 pub fn get_quant_stats() -> &'static std::sync::Mutex<QuantStats> {
@@ -1916,8 +1925,8 @@ pub fn dequantize_with_stats(data: &[u8], tensor_type: GgufTensorType, n: usize)
 /// - Q2_K: K-量化格式的特殊解包
 #[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
 mod avx512_opt {
-    use super::{QK4_0, QK4_1, QK8_0};
     use super::GgufTensorType;
+    use super::{QK4_0, QK4_1, QK8_0};
     use std::arch::x86_64::*;
 
     /// Q2_K 量化块大小常量
@@ -2156,7 +2165,8 @@ mod avx512_opt {
         let mut result = vec![0.0f32; n];
 
         for block_idx in 0..block_count {
-            let block_offset = block_idx * ((BLOCK_SIZE / 16) * 2 + BLOCK_SIZE / 32 + BLOCK_SIZE / 16);
+            let block_offset =
+                block_idx * ((BLOCK_SIZE / 16) * 2 + BLOCK_SIZE / 32 + BLOCK_SIZE / 16);
             // 简化版：实际 Q2_K 格式更复杂，这里提供框架实现
             let scale_bytes: [u8; 2] = data
                 .get(block_offset..block_offset + 2)
@@ -2282,8 +2292,8 @@ mod avx512_opt {
 /// - 利用 `vrev` 和 `vzip` 进行数据重排优化
 #[cfg(target_arch = "aarch64")]
 mod neon_opt {
-    use super::{QK4_0, QK4_1, QK8_0};
     use super::GgufTensorType;
+    use super::{QK4_0, QK4_1, QK8_0};
     use std::arch::aarch64::*;
 
     /// NEON 优化的 Q4_0 反量化 (ARMv8)
@@ -2661,10 +2671,7 @@ impl MetalQuantOps {
             // 运行时检测 Metal 可用性
             // 实际项目中这里会调用 Metal API 检测
             // 这里提供框架实现
-            (
-                true,
-                "Apple Metal Device (simulated)".to_string(),
-            )
+            (true, "Apple Metal Device (simulated)".to_string())
         };
 
         #[cfg(not(target_os = "macos"))]
@@ -3407,7 +3414,11 @@ fn select_and_execute(
 ) -> (Vec<f32>, DequantStrategy, String) {
     // 1. 空数据快速路径
     if n == 0 || data.is_empty() {
-        return (Vec::new(), DequantStrategy::Scalar, "empty input".to_string());
+        return (
+            Vec::new(),
+            DequantStrategy::Scalar,
+            "empty input".to_string(),
+        );
     }
 
     // 2. 小张量: 标量代码 (避免 SIMD 的 setup 开销)
@@ -3475,11 +3486,7 @@ fn select_and_execute(
 
 /// 尝试 AVX-512 反量化
 #[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
-fn try_avx512_dequant(
-    data: &[u8],
-    tensor_type: GgufTensorType,
-    n: usize,
-) -> Option<Vec<f32>> {
+fn try_avx512_dequant(data: &[u8], tensor_type: GgufTensorType, n: usize) -> Option<Vec<f32>> {
     use avx512_opt::*;
     match tensor_type {
         GgufTensorType::Q4_0 => dequantize_q4_0_avx512_safe(data, n),
@@ -3490,20 +3497,12 @@ fn try_avx512_dequant(
 }
 
 #[cfg(not(all(target_arch = "x86_64", feature = "nightly_avx512")))]
-fn try_avx512_dequant(
-    _data: &[u8],
-    _tensor_type: GgufTensorType,
-    _n: usize,
-) -> Option<Vec<f32>> {
+fn try_avx512_dequant(_data: &[u8], _tensor_type: GgufTensorType, _n: usize) -> Option<Vec<f32>> {
     None
 }
 
 /// 尝试 GPU 反量化 (使用全局 Metal 实例)
-fn try_gpu_dequant(
-    data: &[u8],
-    tensor_type: GgufTensorType,
-    n: usize,
-) -> Option<Vec<f32>> {
+fn try_gpu_dequant(data: &[u8], tensor_type: GgufTensorType, n: usize) -> Option<Vec<f32>> {
     // 使用线程本地存储避免锁竞争
     thread_local! {
         static GPU_OPS: std::cell::OnceCell<MetalQuantOps> = std::cell::OnceCell::new();
@@ -3539,7 +3538,7 @@ mod deep_optimization_tests {
         for _ in 0..num_blocks {
             // scale = 1.0 in f16
             data.extend_from_slice(&[0x00, 0x3C]); // f16 1.0
-            // 16 bytes of quant data (all zeros -> all -8 after dequant)
+                                                   // 16 bytes of quant data (all zeros -> all -8 after dequant)
             data.extend_from_slice(&[0x88u8; 16]); // 0x88 = 10001000 -> each nibble = 8, minus 8 = 0
         }
         data
@@ -3709,9 +3708,7 @@ mod deep_optimization_tests {
         }
 
         // Test batch dequantize
-        let tensors: Vec<(GgufTensorType, &[u8], usize)> = vec![
-            (GgufTensorType::Q4_0, &data, 32),
-        ];
+        let tensors: Vec<(GgufTensorType, &[u8], usize)> = vec![(GgufTensorType::Q4_0, &data, 32)];
         let batch_result = ops.batch_dequantize_gpu(&tensors);
         if ops.is_available() {
             assert!(batch_result.is_ok());
@@ -3842,9 +3839,17 @@ mod deep_optimization_tests {
     #[test]
     fn test_dequantize_empty_input() {
         // 空输入应返回空向量
-        for tensor_type in &[GgufTensorType::F32, GgufTensorType::Q4_0, GgufTensorType::Q8_0] {
+        for tensor_type in &[
+            GgufTensorType::F32,
+            GgufTensorType::Q4_0,
+            GgufTensorType::Q8_0,
+        ] {
             let result = dequantize_simd(&[], *tensor_type, 0);
-            assert!(result.is_empty(), "Empty input for {:?} should return empty", tensor_type);
+            assert!(
+                result.is_empty(),
+                "Empty input for {:?} should return empty",
+                tensor_type
+            );
         }
     }
 
@@ -3866,8 +3871,16 @@ mod deep_optimization_tests {
         let data: Vec<u8> = vec![0x00, 0x3C, 0x00, 0x40]; // 1.0f16, 2.0f16
         let result = dequantize_simd(&data.as_slice(), GgufTensorType::F16, 2);
         assert_eq!(result.len(), 2);
-        assert!((result[0] - 1.0).abs() < 0.01, "Expected ~1.0, got {}", result[0]);
-        assert!((result[1] - 2.0).abs() < 0.01, "Expected ~2.0, got {}", result[1]);
+        assert!(
+            (result[0] - 1.0).abs() < 0.01,
+            "Expected ~1.0, got {}",
+            result[0]
+        );
+        assert!(
+            (result[1] - 2.0).abs() < 0.01,
+            "Expected ~2.0, got {}",
+            result[1]
+        );
     }
 
     #[test]
@@ -3877,7 +3890,7 @@ mod deep_optimization_tests {
         let block_count = (n + 31) / 32; // = 1
         let data_size = block_count * 18; // 每个block 18字节
         let data: Vec<u8> = vec![0; data_size];
-        
+
         let result = dequantize_simd(&data.as_slice(), GgufTensorType::Q4_0, n);
         assert_eq!(result.len(), n);
     }
@@ -3898,16 +3911,18 @@ mod deep_optimization_tests {
         let block_count = 1;
         let data_size = block_count * 20; // 每个block 20字节 (scale + min + quants)
         let mut data = vec![0u8; data_size];
-        
+
         // 设置 scale = 1.0 (f16)
-        data[0] = 0x00; data[1] = 0x3C;
-        // 设置 min = 0.0 (f16)  
-        data[2] = 0x00; data[3] = 0x00;
+        data[0] = 0x00;
+        data[1] = 0x3C;
+        // 设置 min = 0.0 (f16)
+        data[2] = 0x00;
+        data[3] = 0x00;
         // 设置 quants: all 8s -> each nibble = 8
         for i in 4..20 {
             data[i] = 0x88;
         }
-        
+
         let result = dequantize_simd(&data.as_slice(), GgufTensorType::Q4_1, 32);
         assert_eq!(result.len(), 32);
         // 验证结果有限
@@ -3938,12 +3953,12 @@ mod deep_optimization_tests {
     fn test_batch_dequantize_mixed_types() {
         let f32_data = vec![0u8; 40]; // 10 f32 elements
         let q40_data = vec![0u8; 36]; // 2 blocks of Q4_0
-        
+
         let tensors = vec![
             (f32_data.as_slice(), GgufTensorType::F32, 10),
             (q40_data.as_slice(), GgufTensorType::Q4_0, 64),
         ];
-        
+
         let results = batch_dequantize(&tensors);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].len(), 10);
@@ -3955,14 +3970,15 @@ mod deep_optimization_tests {
         let total_elements = 100;
         let chunk_size = 25;
         let data: Vec<u8> = vec![0; total_elements * 4]; // F32
-        
+
         let chunks: Vec<Vec<f32>> = streaming_dequantize(
             &data.as_slice(),
             GgufTensorType::F32,
             total_elements,
             chunk_size,
-        ).collect();
-        
+        )
+        .collect();
+
         assert_eq!(chunks.len(), (total_elements + chunk_size - 1) / chunk_size);
         // 验证总元素数
         let total: usize = chunks.iter().map(|c| c.len()).sum();
@@ -3986,8 +4002,9 @@ mod deep_optimization_tests {
             GgufTensorType::F32,
             10,
             100, // chunk_size > n
-        ).collect();
-        
+        )
+        .collect();
+
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].len(), 10);
     }
@@ -3997,14 +4014,15 @@ mod deep_optimization_tests {
         // 测试 Q4_0 流式反量化时的块对齐
         let n = 96; // 3 个 Q4_0 blocks
         let data: Vec<u8> = vec![0; 3 * 18]; // 3 blocks
-        
+
         let results: Vec<Vec<f32>> = streaming_dequantize(
             &data.as_slice(),
             GgufTensorType::Q4_0,
             n,
             32, // chunk_size
-        ).collect();
-        
+        )
+        .collect();
+
         let total: usize = results.iter().map(|c| c.len()).sum();
         assert_eq!(total, n);
     }
@@ -4025,12 +4043,12 @@ mod deep_optimization_tests {
         let mut stats = QuantStats::new();
         stats.record(1000, 5.0);
         stats.record(2000, 3.0);
-        
+
         assert_eq!(stats.total_dequantizations, 2);
         assert_eq!(stats.total_elements, 3000);
         assert!((stats.total_time_ms - 8.0).abs() < 0.001);
         assert!(stats.avg_throughput > 0.0);
-        
+
         stats.reset();
         assert_eq!(stats.total_dequantizations, 0);
         assert_eq!(stats.total_elements, 0);
@@ -4043,7 +4061,7 @@ mod deep_optimization_tests {
         let mut stats = QuantStats::new();
         // 记录时间为 0 的情况
         stats.record(100, 0.0);
-        
+
         assert_eq!(stats.total_dequantizations, 1);
         assert_eq!(stats.total_elements, 100);
         // 时间为 0 时，avg_throughput 应该是 0 或特殊处理
@@ -4053,24 +4071,36 @@ mod deep_optimization_tests {
     fn test_global_quant_stats_thread_safety() {
         use std::sync::{Arc, Barrier};
         use std::thread;
-        
+
         let barrier = Arc::new(Barrier::new(4));
-        let handles: Vec<_> = (0..4).map(|i| {
-            let b = Arc::clone(&barrier);
-            thread::spawn(move || {
-                b.wait();
-                if let Ok(mut stats) = get_quant_stats().lock() {
-                    stats.record(100 * (i + 1), 1.0 * (i + 1) as f64);
-                }
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let b = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    b.wait();
+                    if let Ok(mut stats) = get_quant_stats().lock() {
+                        stats.record(100 * (i + 1), 1.0 * (i + 1) as f64);
+                    }
+                })
             })
-        }).collect();
-        
-        for h in handles { h.join().unwrap(); }
-        
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
         if let Ok(stats) = get_quant_stats().lock() {
             // 可能其他测试也写入了统计数据，所以检查 >= 4
-            assert!(stats.total_dequantizations >= 4, "Expected at least 4, got {}", stats.total_dequantizations);
-            assert!(stats.total_elements >= 1000, "Expected at least 1000 elements, got {}", stats.total_elements);
+            assert!(
+                stats.total_dequantizations >= 4,
+                "Expected at least 4, got {}",
+                stats.total_dequantizations
+            );
+            assert!(
+                stats.total_elements >= 1000,
+                "Expected at least 1000 elements, got {}",
+                stats.total_elements
+            );
         }
     }
 
@@ -4079,9 +4109,9 @@ mod deep_optimization_tests {
         // 测试带统计的包装函数
         let data: Vec<u8> = vec![0; 40]; // 10 f32 elements
         let result = dequantize_with_stats(&data.as_slice(), GgufTensorType::F32, 10);
-        
+
         assert_eq!(result.len(), 10);
-        
+
         // 验证统计已更新
         if let Ok(stats) = get_quant_stats().lock() {
             assert!(stats.total_dequantizations > 0);
@@ -4125,7 +4155,7 @@ mod deep_optimization_tests {
         let result = auto_dequantize(&small_data, GgufTensorType::F32, 10);
         assert_eq!(result.data.len(), 10);
         assert!(!result.reason.is_empty());
-        
+
         // 大张量应该选择Parallel或其他策略（使用适中大小避免内存压力）
         let large_data = vec![0u8; 40000]; // 10K元素
         let result = auto_dequantize(&large_data, GgufTensorType::F32, 10000);
@@ -4136,15 +4166,21 @@ mod deep_optimization_tests {
     fn test_auto_dequantize_result_fields() {
         let data = make_test_q4_0_data(2); // 64 elements
         let result = auto_dequantize(&data, GgufTensorType::Q4_0, 64);
-        
+
         // 验证所有字段都有有效值
         assert_eq!(result.data.len(), 64);
         assert!(
-            matches!(result.strategy, 
-                DequantStrategy::Scalar | DequantStrategy::Sse42 | 
-                DequantStrategy::Avx2 | DequantStrategy::Neon |
-                DequantStrategy::Parallel | DequantStrategy::Prefetch),
-            "Unexpected strategy: {:?}", result.strategy
+            matches!(
+                result.strategy,
+                DequantStrategy::Scalar
+                    | DequantStrategy::Sse42
+                    | DequantStrategy::Avx2
+                    | DequantStrategy::Neon
+                    | DequantStrategy::Parallel
+                    | DequantStrategy::Prefetch
+            ),
+            "Unexpected strategy: {:?}",
+            result.strategy
         );
         assert!(!result.reason.is_empty());
     }
@@ -4155,7 +4191,7 @@ mod deep_optimization_tests {
     fn test_dequantize_simd_parallel_basic() {
         let data = make_test_q4_0_data(4); // 128 elements
         let result = dequantize_simd_parallel(&data.as_slice(), GgufTensorType::Q4_0, 128, 2);
-        
+
         assert_eq!(result.len(), 128);
         // 所有值应该是有限的
         for val in &result {
@@ -4168,7 +4204,7 @@ mod deep_optimization_tests {
         // num_threads=1 应该回退到单线程实现
         let data = make_test_q4_0_data(2); // 64 elements
         let result = dequantize_simd_parallel(&data.as_slice(), GgufTensorType::Q4_0, 64, 1);
-        
+
         assert_eq!(result.len(), 64);
     }
 
@@ -4177,7 +4213,7 @@ mod deep_optimization_tests {
         // 测试线程数计算
         let threads_small = get_optimal_threads(100); // 小数据
         let threads_large = get_optimal_threads(100000); // 大数据
-        
+
         assert!(threads_small >= 1);
         assert!(threads_large >= 1);
         assert!(threads_small <= threads_large); // 大数据应该使用更多线程
@@ -4188,7 +4224,7 @@ mod deep_optimization_tests {
     #[test]
     fn test_smart_quant_strategy_creation() {
         let strategy = SmartQuantStrategy::new(12); // 12层
-        
+
         assert_eq!(strategy.layer_configs.len(), 12);
         assert_eq!(strategy.default_quant, QuantType::INT8);
         assert_eq!(strategy.critical_quant, QuantType::FP16);
@@ -4197,15 +4233,15 @@ mod deep_optimization_tests {
     #[test]
     fn test_smart_quant_strategy_layer_access() {
         let strategy = SmartQuantStrategy::new(6);
-        
+
         // 测试获取层的量化类型
         let q0 = strategy.get_layer_quant(0);
         let q1 = strategy.get_layer_quant(1);
-        
+
         // 层 0, 2, ... 是关键层（FP16），其他是 INT8
         assert_eq!(q0, QuantType::FP16);
         assert_eq!(q1, QuantType::INT8);
-        
+
         // 超出范围的层应该返回默认值
         let q_out_of_range = strategy.get_layer_quant(100);
         assert_eq!(q_out_of_range, QuantType::INT8);
@@ -4214,7 +4250,7 @@ mod deep_optimization_tests {
     #[test]
     fn test_smart_quant_strategy_is_critical() {
         let strategy = SmartQuantStrategy::new(9);
-        
+
         // 层 0, 2, 3, 5, 6, 8 是关键层 (i % 3 == 0 || i % 3 == 2)
         assert!(strategy.is_critical_layer(0));
         assert!(!strategy.is_critical_layer(1));
@@ -4226,7 +4262,7 @@ mod deep_optimization_tests {
     fn test_smart_quant_strategy_quantize_fp32() {
         let strategy = SmartQuantStrategy::new(1);
         let data = vec![1.0, 2.0, -1.0, 0.5];
-        
+
         let quantized = strategy.quantize_layer(0, &data.as_slice());
         // 层 0 是关键层 (i % 3 == 0)，使用 FP16 量化：每个元素 2 字节
         assert_eq!(quantized.len(), data.len() * 2); // FP16 = 2 bytes per element
@@ -4235,13 +4271,13 @@ mod deep_optimization_tests {
     #[test]
     fn test_smart_quant_strategy_dequantize_fp32() {
         let strategy = SmartQuantStrategy::new(1);
-        
+
         // 创建 FP32 数据
         let mut data = Vec::new();
         for val in &[1.0f32, 2.0, -1.0, 0.5] {
             data.extend_from_slice(&val.to_le_bytes());
         }
-        
+
         let dequantized = strategy.dequantize_layer(0, &data.as_slice(), QuantType::FP32);
         assert_eq!(dequantized.len(), 4);
         assert!((dequantized[0] - 1.0).abs() < 1e-6);
@@ -4252,22 +4288,23 @@ mod deep_optimization_tests {
     #[test]
     fn test_metal_quant_ops_total_elements_processed() {
         let ops = MetalQuantOps::new();
-        
+
         if ops.is_available() {
             let data = make_test_q4_0_data(2);
             let _ = ops.dequantize_q4_0_gpu(&data, 64);
-            
+
             // 验证计数器增加
-            let processed = ops.total_elements_processed.load(std::sync::atomic::Ordering::Relaxed);
+            let processed = ops
+                .total_elements_processed
+                .load(std::sync::atomic::Ordering::Relaxed);
             assert!(processed >= 64);
         }
     }
 
     #[test]
     fn test_metal_quant_ops_max_buffer_size() {
-        let ops = MetalQuantOps::new()
-            .with_max_buffer_size(1024 * 1024); // 1MB
-        
+        let ops = MetalQuantOps::new().with_max_buffer_size(1024 * 1024); // 1MB
+
         let info = ops.device_info();
         assert!(info.contains("1MB") || info.contains("1048576"));
     }
@@ -4277,17 +4314,16 @@ mod deep_optimization_tests {
     #[test]
     fn test_cuda_quant_ops_all_methods_return_error() {
         let cuda = CudaQuantOps::new();
-        
+
         // 所有方法都应该返回错误
         assert!(cuda.dequantize_q4_0_gpu(&[0u8; 18], 32).is_err());
         assert!(cuda.dequantize_q8_0_gpu(&[0u8; 34], 32).is_err());
         assert!(cuda.dequantize_q4_1_gpu(&[0u8; 20], 32).is_err());
-        
-        let tensors: Vec<(GgufTensorType, &[u8], usize)> = vec![
-            (GgufTensorType::Q4_0, &[0u8; 18], 32),
-        ];
+
+        let tensors: Vec<(GgufTensorType, &[u8], usize)> =
+            vec![(GgufTensorType::Q4_0, &[0u8; 18], 32)];
         assert!(cuda.batch_dequantize_gpu(&tensors).is_err());
-        
+
         assert!(!cuda.is_available());
         assert_eq!(cuda.estimate_memory_usage(1000), 8000); // 1000 * 4 * 2
     }
@@ -4304,11 +4340,19 @@ mod deep_optimization_tests {
             (GgufTensorType::Q4_1, 18, 32), // 实际实现中使用 Q4_0 的 block size
             (GgufTensorType::Q8_0, 34, 32),
         ];
-        
+
         for (tensor_type, expected_element_bytes, expected_block_size) in types {
             let desc = SoALayoutDesc::new(tensor_type, 1024);
-            assert_eq!(desc.element_bytes, expected_element_bytes, "Mismatch for {:?}", tensor_type);
-            assert_eq!(desc.block_size, expected_block_size, "Mismatch for {:?}", tensor_type);
+            assert_eq!(
+                desc.element_bytes, expected_element_bytes,
+                "Mismatch for {:?}",
+                tensor_type
+            );
+            assert_eq!(
+                desc.block_size, expected_block_size,
+                "Mismatch for {:?}",
+                tensor_type
+            );
             assert_eq!(desc.total_elements, 1024);
         }
     }
@@ -4319,7 +4363,7 @@ mod deep_optimization_tests {
     fn test_softmax_simd_single_element() {
         let input = vec![42.0];
         let result = softmax_simd(&input);
-        
+
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], 1.0);
     }
@@ -4328,7 +4372,7 @@ mod deep_optimization_tests {
     fn test_softmax_simd_all_same_values() {
         let input = vec![5.0; 100];
         let result = softmax_simd(&input);
-        
+
         assert_eq!(result.len(), 100);
         // 验证所有值为正数
         for val in &result {
@@ -4336,7 +4380,11 @@ mod deep_optimization_tests {
         }
         // 验证和为 1（允许一定的数值误差）
         let sum: f32 = result.iter().sum();
-        assert!((sum - 1.0).abs() < 0.1, "Softmax sum should be ~1.0, got {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 0.1,
+            "Softmax sum should be ~1.0, got {}",
+            sum
+        );
     }
 
     #[test]
@@ -4345,7 +4393,7 @@ mod deep_optimization_tests {
         let input = vec![0.0; 4];
         let weight = vec![1.0; 4];
         let result = rms_norm_simd(&input, &weight, 1e-6);
-        
+
         assert_eq!(result.len(), 4);
         // 全零输入 + eps 的 RMS norm 结果应该是零
         for val in &result {
@@ -4357,7 +4405,7 @@ mod deep_optimization_tests {
     fn test_softmax_parallel_basic() {
         let input: Vec<f32> = (0..1000).map(|i| i as f32 * 0.01).collect();
         let result = softmax_parallel(&input.as_slice(), 4);
-        
+
         assert_eq!(result.len(), 1000);
         let sum: f32 = result.iter().sum();
         assert!((sum - 1.0).abs() < 0.001);
@@ -4367,9 +4415,9 @@ mod deep_optimization_tests {
     fn test_rms_norm_parallel_basic() {
         let input: Vec<f32> = (0..1000).map(|i| (i as f32 * 0.01)).collect();
         let weight: Vec<f32> = (0..1000).map(|_| 1.0).collect();
-        
+
         let result = rms_norm_parallel(&input.as_slice(), &weight.as_slice(), 1e-6, 4);
-        
+
         assert_eq!(result.len(), 1000);
         for val in &result {
             assert!(val.is_finite());

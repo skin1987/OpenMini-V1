@@ -110,7 +110,9 @@ impl LoadMonitor {
     /// 检查并调节负载
     fn check_and_adjust(&mut self) {
         let now = Instant::now();
-        if now.duration_since(self.last_adjust).as_millis() < self.thresholds.adjust_interval_ms as u128 {
+        if now.duration_since(self.last_adjust).as_millis()
+            < self.thresholds.adjust_interval_ms as u128
+        {
             return;
         }
         self.last_adjust = now;
@@ -131,7 +133,9 @@ impl LoadMonitor {
             return LoadAction::Pause;
         }
 
-        if load.cpu_usage > self.thresholds.cpu_max || load.cpu_temp > self.thresholds.temp_max - 5.0 {
+        if load.cpu_usage > self.thresholds.cpu_max
+            || load.cpu_temp > self.thresholds.temp_max - 5.0
+        {
             return LoadAction::ReduceParallelism;
         }
 
@@ -145,13 +149,15 @@ impl LoadMonitor {
                 self.paused = false;
                 let current = self.parallelism.load(Ordering::Relaxed);
                 if current < 100 {
-                    self.parallelism.store((current + 10).min(100), Ordering::Relaxed);
+                    self.parallelism
+                        .store((current + 10).min(100), Ordering::Relaxed);
                 }
             }
             LoadAction::ReduceParallelism => {
                 self.paused = false;
                 let current = self.parallelism.load(Ordering::Relaxed);
-                self.parallelism.store((current as f32 * 0.8) as u64, Ordering::Relaxed);
+                self.parallelism
+                    .store((current as f32 * 0.8) as u64, Ordering::Relaxed);
             }
             LoadAction::Pause => {
                 self.paused = true;
@@ -237,7 +243,10 @@ pub fn sample_cpu_temp() -> f32 {
     {
         use std::process::Command;
         if let Ok(output) = Command::new("osascript")
-            .args(["-e", "return do shell script \"sysctl -n hw.ThermalLevel\" 2>/dev/null || echo 0"])
+            .args([
+                "-e",
+                "return do shell script \"sysctl -n hw.ThermalLevel\" 2>/dev/null || echo 0",
+            ])
             .output()
         {
             if let Ok(stdout) = String::from_utf8(output.stdout) {
@@ -266,7 +275,9 @@ pub fn sample_memory_usage() -> f32 {
                             .nth(1)
                             .and_then(|s| s.trim().trim_end_matches('.').parse::<u64>().ok())
                             .unwrap_or(0);
-                    } else if line.starts_with("Pages active:") || line.starts_with("Pages inactive:") {
+                    } else if line.starts_with("Pages active:")
+                        || line.starts_with("Pages inactive:")
+                    {
                         used += line
                             .split(':')
                             .nth(1)
@@ -381,7 +392,7 @@ mod tests {
         });
 
         assert_eq!(monitor.parallelism(), 0); // 并行度应为0
-        assert!(monitor.should_pause());       // 应该暂停
+        assert!(monitor.should_pause()); // 应该暂停
     }
 
     /// 测试Pause动作（CPU>95%或温度超过阈值）
@@ -554,8 +565,8 @@ mod tests {
 
         // 高负载但在新阈值内不应触发调节
         monitor.update(SystemLoad {
-            cpu_usage: 0.90, // < 0.95
-            cpu_temp: 90.0,  // < 95
+            cpu_usage: 0.90,    // < 0.95
+            cpu_temp: 90.0,     // < 95
             memory_usage: 0.95, // < 0.98
             gpu_usage: 0.0,
             gpu_temp: 0.0,
@@ -807,11 +818,7 @@ mod tests {
         let temp = sample_cpu_temp();
 
         // 温度应该是合理的正值（通常20-120摄氏度）
-        assert!(
-            temp >= 0.0,
-            "CPU temp {} should be non-negative",
-            temp
-        );
+        assert!(temp >= 0.0, "CPU temp {} should be non-negative", temp);
         // 注意：实际温度可能很高，所以上限不做严格限制
     }
 

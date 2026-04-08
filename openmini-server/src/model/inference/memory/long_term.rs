@@ -42,10 +42,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ndarray::Array2;
 
-use super::{EvictionStrategy, MemoryConfig, MemoryItem, MemoryLevel, PaddingStrategy};
-use super::hnsw::{HNSWIndex, HNSWConfig};
+use super::hnsw::{HNSWConfig, HNSWIndex};
 use super::persistence::{Persistence, PersistenceConfig};
 use super::simd_ops::SimdVectorOps;
+use super::{EvictionStrategy, MemoryConfig, MemoryItem, MemoryLevel, PaddingStrategy};
 
 /// 时间衰减管理器
 #[derive(Debug, Clone)]
@@ -235,7 +235,7 @@ impl LongTermMemory {
     }
 
     /// 写入记忆
-    /// 
+    ///
     /// 将数据存储到长期记忆中，自动计算嵌入向量
     pub fn write(&mut self, key: String, data: Array2<f32>, timestamp: u64, importance: f32) {
         if self.items.len() >= self.capacity {
@@ -243,16 +243,19 @@ impl LongTermMemory {
         }
 
         // 计算嵌入向量并直接转换为 Vec<f32>，避免后续重复转换
-        let embedding = Self::compute_embedding_with_dim(&data, self.embedding_dim, self.padding_strategy);
+        let embedding =
+            Self::compute_embedding_with_dim(&data, self.embedding_dim, self.padding_strategy);
         let vector: Vec<f32> = embedding.iter().copied().collect();
-        
+
         // 更新索引
         self.index.insert(key.clone(), self.items.len());
-        self.items.push(MemoryItem::new(data.clone(), timestamp).with_importance(importance));
+        self.items
+            .push(MemoryItem::new(data.clone(), timestamp).with_importance(importance));
         self.vector_cache.push(vector.clone());
-        
+
         // 更新访问统计
-        self.access_stats.insert(self.items.len() - 1, AccessStats::new(timestamp));
+        self.access_stats
+            .insert(self.items.len() - 1, AccessStats::new(timestamp));
 
         // 如果 HNSW 索引存在，插入新向量（使用已转换的 vector）
         if let Some(ref mut hnsw) = self.hnsw_index {
@@ -268,29 +271,33 @@ impl LongTermMemory {
     /// # 返回值
     /// 如果找到返回 Some(数据)，否则返回 None
     pub fn read(&self, key: &str) -> Option<Array2<f32>> {
-        self.index.get(key).and_then(|&idx| {
-            self.items.get(idx).map(|item| item.data.clone())
-        })
+        self.index
+            .get(key)
+            .and_then(|&idx| self.items.get(idx).map(|item| item.data.clone()))
     }
 
     /// 搜索相似记忆（线性扫描）
-    /// 
+    ///
     /// 对于大规模数据，建议先调用 `build_hnsw_index()` 并使用 `search_hnsw()`
     pub fn search(&self, query: &Array2<f32>, top_k: usize) -> Vec<(usize, f32)> {
         if self.vector_cache.is_empty() {
             return Vec::new();
         }
 
-        let query_embedding = Self::compute_embedding_with_dim(query, self.embedding_dim, self.padding_strategy);
+        let query_embedding =
+            Self::compute_embedding_with_dim(query, self.embedding_dim, self.padding_strategy);
         let query_vec: Vec<f32> = query_embedding.iter().copied().collect();
-        
+
         // 使用缓存的 vector_cache 进行相似度计算
-        let mut scores: Vec<(usize, f32)> = self.vector_cache
+        let mut scores: Vec<(usize, f32)> = self
+            .vector_cache
             .iter()
             .enumerate()
             .map(|(idx, vec)| {
                 let min_len = query_vec.len().min(vec.len());
-                let similarity = self.simd_ops.cosine_similarity(&query_vec[..min_len], &vec[..min_len]);
+                let similarity = self
+                    .simd_ops
+                    .cosine_similarity(&query_vec[..min_len], &vec[..min_len]);
                 (idx, similarity)
             })
             .collect();
@@ -311,9 +318,14 @@ impl LongTermMemory {
     /// 按重要性降序排列的记忆数据列表
     pub fn search_by_importance(&self, top_k: usize) -> Vec<Array2<f32>> {
         let mut items: Vec<(usize, &MemoryItem)> = self.items.iter().enumerate().collect();
-        items.sort_by(|a, b| b.1.importance.partial_cmp(&a.1.importance).unwrap_or(std::cmp::Ordering::Equal));
-        
-        items.into_iter()
+        items.sort_by(|a, b| {
+            b.1.importance
+                .partial_cmp(&a.1.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        items
+            .into_iter()
             .take(top_k)
             .map(|(_idx, item)| item.data.clone())
             .collect()
@@ -353,12 +365,17 @@ impl LongTermMemory {
     pub fn search_hnsw(&self, query: &Array2<f32>, top_k: usize) -> Vec<(usize, f32)> {
         match &self.hnsw_index {
             Some(hnsw) => {
-                let query_vec = Self::compute_embedding_with_dim(query, self.embedding_dim, self.padding_strategy);
+                let query_vec = Self::compute_embedding_with_dim(
+                    query,
+                    self.embedding_dim,
+                    self.padding_strategy,
+                );
                 let query_slice: Vec<f32> = query_vec.iter().copied().collect();
-                
+
                 let results = hnsw.search(&query_slice, top_k);
-                
-                results.into_iter()
+
+                results
+                    .into_iter()
                     .map(|r| (r.id, 1.0 / (1.0 + r.distance.sqrt())))
                     .collect()
             }
@@ -372,7 +389,7 @@ impl LongTermMemory {
     /// 应定期调用此方法以实现记忆的自然衰减。
     pub fn apply_decay(&mut self) {
         let current_time = current_timestamp();
-        
+
         for item in &mut self.items {
             let age = current_time.saturating_sub(item.timestamp);
             let decay = self.decay_manager.compute_decay(age);
@@ -388,27 +405,28 @@ impl LongTermMemory {
     /// 返回被移除的记忆数量
     pub fn auto_forget(&mut self) -> usize {
         let threshold = self.decay_manager.importance_threshold;
-        
-        let mut to_remove: Vec<usize> = self.items
+
+        let mut to_remove: Vec<usize> = self
+            .items
             .iter()
             .enumerate()
             .filter(|(_, item)| item.importance < threshold)
             .map(|(idx, _)| idx)
             .collect();
-        
+
         to_remove.sort_by(|a, b| b.cmp(a));
-        
+
         let count = to_remove.len();
-        
+
         for idx in to_remove {
             self.remove_by_index(idx);
         }
-        
+
         count
     }
 
     /// 持久化记忆到存储
-    /// 
+    ///
     /// 使用原子性写入：先写入临时位置，成功后原子性重命名
     /// 避免写入过程中崩溃导致数据丢失
     pub fn persist(&mut self) -> std::io::Result<()> {
@@ -416,13 +434,13 @@ impl LongTermMemory {
             Some(persistence) => {
                 // 原子性写入：先写入临时位置
                 persistence.begin_atomic_write()?;
-                
+
                 for (key, &idx) in &self.index {
                     if let Some(item) = self.items.get(idx) {
                         persistence.write_memory(key, item, MemoryLevel::LongTerm)?;
                     }
                 }
-                
+
                 persistence.flush()?;
                 // 原子性提交：重命名临时文件为正式文件
                 persistence.commit_atomic_write()?;
@@ -436,7 +454,7 @@ impl LongTermMemory {
     }
 
     /// 从持久化存储恢复数据
-    /// 
+    ///
     /// 恢复后会自动重建 HNSW 索引（如果之前存在），使用保存的配置
     pub fn restore(&mut self) -> std::io::Result<usize> {
         match &self.persistence {
@@ -444,26 +462,34 @@ impl LongTermMemory {
                 let saved_config = self.hnsw_config;
                 let memories = persistence.load()?;
                 let count = memories.len();
-                
+
                 self.clear();
-                
+
                 for (key, item, _level) in memories {
-                    let vector: Vec<f32> = Self::compute_embedding_with_dim(&item.data, self.embedding_dim, self.padding_strategy).iter().copied().collect();
+                    let vector: Vec<f32> = Self::compute_embedding_with_dim(
+                        &item.data,
+                        self.embedding_dim,
+                        self.padding_strategy,
+                    )
+                    .iter()
+                    .copied()
+                    .collect();
                     let idx = self.items.len();
-                    
+
                     self.index.insert(key, idx);
                     self.items.push(item);
                     self.vector_cache.push(vector);
-                    self.access_stats.insert(idx, AccessStats::new(current_timestamp()));
+                    self.access_stats
+                        .insert(idx, AccessStats::new(current_timestamp()));
                 }
-                
+
                 // 如果之前存在 HNSW 配置，使用保存的配置重建
                 if let Some(config) = saved_config {
                     if !self.vector_cache.is_empty() {
                         self.build_hnsw_index(Some(config));
                     }
                 }
-                
+
                 Ok(count)
             }
             None => Err(std::io::Error::new(
@@ -503,34 +529,38 @@ impl LongTermMemory {
     /// 如果找到返回 Some((访问次数, 最后访问时间戳))，否则返回 None
     pub fn get_access_stats(&self, key: &str) -> Option<(u32, u64)> {
         self.index.get(key).and_then(|&idx| {
-            self.access_stats.get(&idx).map(|stats| {
-                (stats.get_access_count(), stats.get_last_access())
-            })
+            self.access_stats
+                .get(&idx)
+                .map(|stats| (stats.get_access_count(), stats.get_last_access()))
         })
     }
 
     /// 计算嵌入向量
-    /// 
+    ///
     /// # 嵌入策略
-    /// 
+    ///
     /// 1. **多行数据**：计算行均值，然后截断/填充到目标维度
     /// 2. **单行数据**：直接截断/填充到目标维度
-    /// 
+    ///
     /// # 截断策略
-    /// 
+    ///
     /// 当原始维度大于嵌入维度时，截取前 `embedding_dim` 维
-    /// 
+    ///
     /// # 归一化
-    /// 
+    ///
     /// 最终进行 L2 归一化，零向量保持不变
-    fn compute_embedding_with_dim(data: &Array2<f32>, embedding_dim: usize, strategy: PaddingStrategy) -> Array2<f32> {
+    fn compute_embedding_with_dim(
+        data: &Array2<f32>,
+        embedding_dim: usize,
+        strategy: PaddingStrategy,
+    ) -> Array2<f32> {
         if data.nrows() == 0 {
             return Array2::zeros((1, embedding_dim));
         }
 
         let dim = data.ncols();
         let rows = data.nrows();
-        
+
         // 快速路径：单行且维度不超过 embedding_dim
         if rows == 1 && dim <= embedding_dim {
             let mut result = Array2::zeros((1, embedding_dim));
@@ -561,12 +591,12 @@ impl LongTermMemory {
 
         let actual_dim = embedding_dim.min(dim);
         let mut embedding = Array2::zeros((1, embedding_dim));
-        
+
         // 复制原始维度数据
         for j in 0..actual_dim {
             embedding[[0, j]] = mean[[0, j]];
         }
-        
+
         // 根据策略填充超出原始维度的部分
         if dim < embedding_dim {
             for j in dim..embedding_dim {
@@ -596,24 +626,36 @@ impl LongTermMemory {
 
         match self.strategy {
             EvictionStrategy::LRU => {
-                if let Some((idx, _)) = self.access_stats
+                if let Some((idx, _)) = self
+                    .access_stats
                     .iter()
                     .min_by_key(|(_, stats)| stats.get_last_access())
                     .map(|(idx, _)| (*idx, ()))
                 {
                     self.remove_by_index(idx);
-                } else if let Some((idx, _)) = self.items.iter().enumerate().min_by_key(|(_, item)| item.timestamp) {
+                } else if let Some((idx, _)) = self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, item)| item.timestamp)
+                {
                     self.remove_by_index(idx);
                 }
             }
             EvictionStrategy::LFU => {
-                if let Some((idx, _)) = self.access_stats
+                if let Some((idx, _)) = self
+                    .access_stats
                     .iter()
                     .min_by_key(|(_, stats)| stats.get_access_count())
                     .map(|(idx, _)| (*idx, ()))
                 {
                     self.remove_by_index(idx);
-                } else if let Some((idx, _)) = self.items.iter().enumerate().min_by_key(|(_, item)| item.importance as i32) {
+                } else if let Some((idx, _)) = self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, item)| item.importance as i32)
+                {
                     self.remove_by_index(idx);
                 }
             }
@@ -628,11 +670,12 @@ impl LongTermMemory {
             return;
         }
 
-        let key_to_remove = self.index
+        let key_to_remove = self
+            .index
             .iter()
             .find(|(_, &i)| i == idx)
             .map(|(k, _)| k.clone());
-        
+
         if let Some(key) = key_to_remove {
             self.index.remove(&key);
         }
@@ -649,11 +692,13 @@ impl LongTermMemory {
         }
 
         // 优化：原地调整 access_stats 索引，避免全量重建
-        let keys_to_update: Vec<usize> = self.access_stats.keys()
+        let keys_to_update: Vec<usize> = self
+            .access_stats
+            .keys()
             .filter(|&&k| k > idx)
             .copied()
             .collect();
-        
+
         for old_idx in keys_to_update {
             if let Some(stats) = self.access_stats.remove(&old_idx) {
                 self.access_stats.insert(old_idx - 1, stats);
@@ -676,9 +721,9 @@ impl LongTermMemory {
 
     /// 获取指定键的记忆重要性
     pub fn get_importance(&self, key: &str) -> Option<f32> {
-        self.index.get(key).and_then(|&idx| {
-            self.items.get(idx).map(|item| item.importance)
-        })
+        self.index
+            .get(key)
+            .and_then(|&idx| self.items.get(idx).map(|item| item.importance))
     }
 
     /// 获取当前存储的记忆数量
@@ -760,16 +805,16 @@ mod tests {
     #[test]
     fn test_long_term_memory_search() {
         let mut memory = LongTermMemory::default();
-        
+
         let data1 = Array2::zeros((1, 512));
         let data2 = Array2::zeros((1, 512));
-        
+
         memory.write("key1".to_string(), data1, 1, 1.0);
         memory.write("key2".to_string(), data2, 2, 0.5);
 
         let query = Array2::zeros((1, 512));
         let results = memory.search(&query, 2);
-        
+
         assert_eq!(results.len(), 2);
     }
 
@@ -792,12 +837,12 @@ mod tests {
     #[test]
     fn test_decay_manager() {
         let decay = DecayManager::new(3600, 0.9, 0.1);
-        
+
         assert!((decay.compute_decay(0) - 1.0).abs() < 0.001);
-        
+
         let decayed = decay.compute_decay(3600);
         assert!((decayed - 0.9).abs() < 0.01);
-        
+
         let decayed_more = decay.compute_decay(7200);
         assert!(decayed_more < decayed);
     }
@@ -805,12 +850,12 @@ mod tests {
     #[test]
     fn test_access_stats() {
         let stats = AccessStats::new(100);
-        
+
         assert_eq!(stats.get_access_count(), 1);
         assert_eq!(stats.get_last_access(), 100);
-        
+
         stats.increment(200);
-        
+
         assert_eq!(stats.get_access_count(), 2);
         assert_eq!(stats.get_last_access(), 200);
     }
@@ -818,23 +863,23 @@ mod tests {
     #[test]
     fn test_build_hnsw_index() {
         let mut memory = LongTermMemory::default();
-        
+
         for i in 0..10 {
             let data = Array2::zeros((1, 128));
             memory.write(format!("key{}", i), data, i as u64, 1.0);
         }
-        
+
         assert!(!memory.has_hnsw_index());
-        
+
         memory.build_hnsw_index(None);
-        
+
         assert!(memory.has_hnsw_index());
     }
 
     #[test]
     fn test_search_hnsw() {
         let mut memory = LongTermMemory::default();
-        
+
         for i in 0..20 {
             let mut data = Array2::zeros((1, 128));
             if i < 128 {
@@ -842,12 +887,12 @@ mod tests {
             }
             memory.write(format!("key{}", i), data, i as u64, 1.0);
         }
-        
+
         memory.build_hnsw_index(None);
-        
+
         let query = Array2::zeros((1, 128));
         let results = memory.search_hnsw(&query, 5);
-        
+
         assert!(!results.is_empty());
         assert!(results.len() <= 5);
     }
@@ -856,12 +901,12 @@ mod tests {
     fn test_apply_decay() {
         let mut memory = LongTermMemory::default();
         memory = memory.with_decay(DecayManager::new(1, 0.5, 0.1));
-        
+
         let data = Array2::zeros((1, 128));
         memory.write("key1".to_string(), data, current_timestamp() - 2, 1.0);
-        
+
         memory.apply_decay();
-        
+
         assert!(memory.items[0].importance < 1.0);
     }
 
@@ -869,15 +914,20 @@ mod tests {
     fn test_auto_forget() {
         let mut memory = LongTermMemory::default();
         memory = memory.with_decay(DecayManager::new(1, 0.1, 0.5));
-        
+
         let data = Array2::zeros((1, 128));
-        memory.write("key1".to_string(), data.clone(), current_timestamp() - 10, 0.01);
+        memory.write(
+            "key1".to_string(),
+            data.clone(),
+            current_timestamp() - 10,
+            0.01,
+        );
         memory.write("key2".to_string(), data, current_timestamp(), 1.0);
-        
+
         assert_eq!(memory.len(), 2);
-        
+
         let removed = memory.auto_forget();
-        
+
         assert!(removed >= 1);
         assert!(memory.len() <= 1);
     }
@@ -886,21 +936,21 @@ mod tests {
     fn test_touch() {
         let mut memory = LongTermMemory::default();
         let data = Array2::zeros((1, 128));
-        
+
         memory.write("key1".to_string(), data, 100, 1.0);
-        
+
         let (_, initial_time) = memory.get_access_stats("key1").unwrap();
         assert_eq!(initial_time, 100);
-        
+
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         let result = memory.touch("key1");
         assert!(result);
-        
+
         let (count, new_time) = memory.get_access_stats("key1").unwrap();
         assert_eq!(count, 2);
         assert!(new_time > initial_time);
-        
+
         let result = memory.touch("nonexistent");
         assert!(!result);
     }
@@ -909,21 +959,21 @@ mod tests {
     fn test_persist_and_restore() {
         let temp_dir = TempDir::new().unwrap();
         let config = PersistenceConfig::new(temp_dir.path().join("test_memory"));
-        
+
         let mut memory = LongTermMemory::default().with_persistence(config);
-        
+
         assert!(memory.has_persistence());
-        
+
         for i in 0..5 {
             let data = Array2::zeros((1, 128));
             memory.write(format!("key{}", i), data, i as u64, 1.0);
         }
-        
+
         memory.persist().unwrap();
-        
+
         let config2 = PersistenceConfig::new(temp_dir.path().join("test_memory"));
         let mut memory2 = LongTermMemory::default().with_persistence(config2);
-        
+
         let count = memory2.restore().unwrap();
         assert_eq!(count, 5);
         assert_eq!(memory2.len(), 5);
@@ -933,7 +983,7 @@ mod tests {
     fn test_with_decay() {
         let decay = DecayManager::new(7200, 0.8, 0.2);
         let memory = LongTermMemory::default().with_decay(decay.clone());
-        
+
         assert_eq!(memory.decay_manager.ttl_seconds, 7200);
         assert!((memory.decay_manager.decay_factor - 0.8).abs() < 0.001);
     }
@@ -954,7 +1004,7 @@ mod tests {
 
         memory.touch("key0");
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         let data = Array2::zeros((1, 128));
         memory.write("key3".to_string(), data, 100, 1.0);
 
@@ -965,14 +1015,14 @@ mod tests {
     fn test_custom_embedding_dim() {
         // 测试自定义嵌入维度
         let config = MemoryConfig {
-            embedding_dim: Some(256),  // 自定义 256 维
+            embedding_dim: Some(256), // 自定义 256 维
             ..Default::default()
         };
         let mut memory = LongTermMemory::new(&config);
-        
+
         let data = Array2::zeros((1, 512));
         memory.write("key1".to_string(), data, 1, 1.0);
-        
+
         // 验证 vector_cache 中的向量维度为 256
         assert_eq!(memory.vector_cache[0].len(), 256);
     }
@@ -982,34 +1032,34 @@ mod tests {
         // 测试 restore 后自动重建 HNSW 索引
         let temp_dir = TempDir::new().unwrap();
         let config = PersistenceConfig::new(temp_dir.path().join("test_hnsw_rebuild"));
-        
+
         // 创建内存并构建 HNSW 索引
         let mut memory = LongTermMemory::default().with_persistence(config.clone());
         memory.build_hnsw_index(None);
         assert!(memory.has_hnsw_index());
-        
+
         // 写入数据并持久化
         for i in 0..5 {
             let data = Array2::zeros((1, 128));
             memory.write(format!("key{}", i), data, i as u64, 1.0);
         }
         memory.persist().unwrap();
-        
+
         // 恢复到新实例
         let config2 = PersistenceConfig::new(temp_dir.path().join("test_hnsw_rebuild"));
         let mut memory2 = LongTermMemory::default().with_persistence(config2);
-        
+
         // 先构建 HNSW 索引（模拟之前存在）
         memory2.build_hnsw_index(None);
         assert!(memory2.has_hnsw_index());
-        
+
         // 恢复数据
         let count = memory2.restore().unwrap();
         assert_eq!(count, 5);
-        
+
         // 验证 HNSW 索引已自动重建
         assert!(memory2.has_hnsw_index());
-        
+
         // 验证搜索功能正常
         let query = Array2::zeros((1, 128));
         let results = memory2.search_hnsw(&query, 3);
@@ -1020,15 +1070,15 @@ mod tests {
     fn test_clear_resets_hnsw_index() {
         // 测试 clear 后 HNSW 索引被重置
         let mut memory = LongTermMemory::default();
-        
+
         let data = Array2::zeros((1, 128));
         memory.write("key1".to_string(), data, 1, 1.0);
-        
+
         memory.build_hnsw_index(None);
         assert!(memory.has_hnsw_index());
-        
+
         memory.clear();
-        
+
         // 验证 HNSW 索引已重置为 None
         assert!(!memory.has_hnsw_index());
         assert!(memory.is_empty());
@@ -1043,14 +1093,14 @@ mod tests {
             ..Default::default()
         };
         let mut memory = LongTermMemory::new(&config);
-        
+
         // 创建 64 维数据，需要填充到 256 维
         let data = Array2::ones((1, 64));
         memory.write("key1".to_string(), data, 1, 1.0);
-        
+
         // 验证向量维度为 256
         assert_eq!(memory.vector_cache[0].len(), 256);
-        
+
         // 前 64 维应为非零（归一化后），后 192 维应为 0.0
         let vec = &memory.vector_cache[0];
         for i in 0..64 {
@@ -1070,14 +1120,14 @@ mod tests {
             ..Default::default()
         };
         let mut memory = LongTermMemory::new(&config);
-        
+
         // 创建 64 维数据
         let data = Array2::ones((1, 64));
         memory.write("key1".to_string(), data, 1, 1.0);
-        
+
         // 验证向量维度为 256
         assert_eq!(memory.vector_cache[0].len(), 256);
-        
+
         // 循环填充：所有维度都应有值
         let vec = &memory.vector_cache[0];
         for i in 0..256 {
@@ -1089,10 +1139,10 @@ mod tests {
     fn test_hnsw_config_preserved_on_restore() {
         // 测试 HNSW 配置在恢复时保留
         use crate::model::inference::memory::hnsw::{HNSWConfig, NeighborSelection};
-        
+
         let temp_dir = TempDir::new().unwrap();
         let config = PersistenceConfig::new(temp_dir.path().join("test_config_preserve"));
-        
+
         // 创建自定义 HNSW 配置
         let custom_config = HNSWConfig {
             m: 32,
@@ -1103,38 +1153,38 @@ mod tests {
             neighbor_selection: NeighborSelection::Heuristic,
             heuristic_diversity_factor: 0.8,
         };
-        
+
         // 创建内存并使用自定义配置构建 HNSW
         let mut memory = LongTermMemory::default().with_persistence(config.clone());
         memory.build_hnsw_index(Some(custom_config));
-        
+
         // 写入数据并持久化
         for i in 0..5 {
             let data = Array2::zeros((1, 128));
             memory.write(format!("key{}", i), data, i as u64, 1.0);
         }
         memory.persist().unwrap();
-        
+
         // 验证配置已保存
         assert!(memory.hnsw_config().is_some());
         let saved_config = memory.hnsw_config().unwrap();
         assert_eq!(saved_config.m, 32);
         assert_eq!(saved_config.ef_construction, 200);
-        
+
         // 恢复到新实例
         let config2 = PersistenceConfig::new(temp_dir.path().join("test_config_preserve"));
         let mut memory2 = LongTermMemory::default().with_persistence(config2);
-        
+
         // 先构建 HNSW 索引（模拟之前存在配置）
         memory2.build_hnsw_index(Some(custom_config));
-        
+
         // 恢复数据
         let count = memory2.restore().unwrap();
         assert_eq!(count, 5);
-        
+
         // 验证 HNSW 索引已重建
         assert!(memory2.has_hnsw_index());
-        
+
         // 验证配置已恢复
         assert!(memory2.hnsw_config().is_some());
         let restored_config = memory2.hnsw_config().unwrap();
@@ -1152,7 +1202,12 @@ mod tests {
 
         // 添加条目（使用过去的时间戳）
         let data = Array2::ones((1, 64));
-        memory.write("old_item".to_string(), data.clone(), current_timestamp() - 3, 1.0);
+        memory.write(
+            "old_item".to_string(),
+            data.clone(),
+            current_timestamp() - 3,
+            1.0,
+        );
 
         let original_importance = memory.items[0].importance;
         assert!((original_importance - 1.0).abs() < 0.001);
@@ -1181,9 +1236,7 @@ mod tests {
 
         // 添加向量
         for i in 0..20 {
-            let vec: Vec<f32> = (0..dim)
-                .map(|j| ((i * j + 1) % 10) as f32 / 10.0)
-                .collect();
+            let vec: Vec<f32> = (0..dim).map(|j| ((i * j + 1) % 10) as f32 / 10.0).collect();
             index.insert(i, vec);
         }
 
@@ -1278,12 +1331,7 @@ mod tests {
         for i in 0..5 {
             let data = Array2::from_elem((1, 64), i as f32);
             let importance = 0.2 + i as f32 * 0.15; // 0.2, 0.35, 0.5, 0.65, 0.8
-            memory.write(
-                format!("item{}", i),
-                data,
-                i as u64,
-                importance,
-            );
+            memory.write(format!("item{}", i), data, i as u64, importance);
         }
 
         // 获取前3个最重要的

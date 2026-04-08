@@ -25,26 +25,15 @@
 
 use std::time::Duration;
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ndarray::Array2;
 
 use openmini_server::model::inference::dsa::{
-    lightning_indexer,
-    lightning_indexer_adaptive,
-    lightning_indexer_auto,
-    lightning_indexer_cache_optimized,
-    lightning_indexer_chunked,
-    DSAMemoryPool,
-    DSATempBuffers,
-    lightning_indexer_gpu,
-    lightning_indexer_gpu_adaptive_stats,
-    lightning_indexer_gpu_chunked,
-    sparse_attention_forward,
-    sparse_attention_forward_optimized,
-    sparse_attention_forward_optimized_with_buffers,
-    DSATopKConfig,
+    lightning_indexer, lightning_indexer_adaptive, lightning_indexer_auto,
+    lightning_indexer_cache_optimized, lightning_indexer_chunked, lightning_indexer_gpu,
+    lightning_indexer_gpu_adaptive_stats, lightning_indexer_gpu_chunked, sparse_attention_forward,
+    sparse_attention_forward_optimized, sparse_attention_forward_optimized_with_buffers,
+    DSAMemoryPool, DSATempBuffers, DSATopKConfig,
 };
 
 // ============================================================================
@@ -78,16 +67,12 @@ fn bench_lightning_indexer_cpu(c: &mut Criterion) {
         let q = generate_query_matrix(*seq_len, hidden_size);
         let k = generate_key_matrix(*seq_len, hidden_size);
 
-        group.bench_with_input(
-            BenchmarkId::new("cpu", seq_len),
-            seq_len,
-            |b, &_s| {
-                b.iter(|| {
-                    let result = lightning_indexer(black_box(&q), black_box(&k));
-                    black_box(result)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("cpu", seq_len), seq_len, |b, &_s| {
+            b.iter(|| {
+                let result = lightning_indexer(black_box(&q), black_box(&k));
+                black_box(result)
+            })
+        });
 
         // 设置合理的采样时间
         group.measurement_time(Duration::from_secs(3));
@@ -106,16 +91,12 @@ fn bench_lightning_indexer_gpu(c: &mut Criterion) {
         let q = generate_query_matrix(*seq_len, hidden_size);
         let k = generate_key_matrix(*seq_len, hidden_size);
 
-        group.bench_with_input(
-            BenchmarkId::new("gpu", seq_len),
-            seq_len,
-            |b, &_s| {
-                b.iter(|| {
-                    // GPU 可能不可用，捕获错误但不影响基准测试
-                    let _result = lightning_indexer_gpu(black_box(&q), black_box(&k));
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("gpu", seq_len), seq_len, |b, &_s| {
+            b.iter(|| {
+                // GPU 可能不可用，捕获错误但不影响基准测试
+                let _result = lightning_indexer_gpu(black_box(&q), black_box(&k));
+            })
+        });
 
         group.measurement_time(Duration::from_secs(3));
         group.throughput(Throughput::Elements(*seq_len as u64));
@@ -176,16 +157,12 @@ fn bench_lightning_indexer_adaptive(c: &mut Criterion) {
         let q = generate_query_matrix(*seq_len, hidden_size);
         let k = generate_key_matrix(*seq_len, hidden_size);
 
-        group.bench_with_input(
-            BenchmarkId::new("adaptive", seq_len),
-            seq_len,
-            |b, &_s| {
-                b.iter(|| {
-                    let result = lightning_indexer_adaptive(black_box(&q), black_box(&k));
-                    black_box(result)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("adaptive", seq_len), seq_len, |b, &_s| {
+            b.iter(|| {
+                let result = lightning_indexer_adaptive(black_box(&q), black_box(&k));
+                black_box(result)
+            })
+        });
     }
 
     group.measurement_time(Duration::from_secs(3));
@@ -201,16 +178,12 @@ fn bench_lightning_indexer_auto(c: &mut Criterion) {
         let q = generate_query_matrix(*seq_len, hidden_size);
         let k = generate_key_matrix(*seq_len, hidden_size);
 
-        group.bench_with_input(
-            BenchmarkId::new("auto", seq_len),
-            seq_len,
-            |b, &_s| {
-                b.iter(|| {
-                    let _result = lightning_indexer_auto(black_box(&q), black_box(&k));
-                    // auto 返回 Result，忽略错误用于基准测试
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("auto", seq_len), seq_len, |b, &_s| {
+            b.iter(|| {
+                let _result = lightning_indexer_auto(black_box(&q), black_box(&k));
+                // auto 返回 Result，忽略错误用于基准测试
+            })
+        });
     }
 
     group.measurement_time(Duration::from_secs(3));
@@ -230,17 +203,12 @@ fn bench_lightning_indexer_cache_optimized(c: &mut Criterion) {
         let q = generate_query_matrix(*seq_len, hidden_size);
         let k = generate_key_matrix(*seq_len, hidden_size);
 
-        group.bench_with_input(
-            BenchmarkId::new("cache_opt", seq_len),
-            seq_len,
-            |b, &_s| {
-                b.iter(|| {
-                    let result =
-                        lightning_indexer_cache_optimized(black_box(&q), black_box(&k));
-                    black_box(result)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("cache_opt", seq_len), seq_len, |b, &_s| {
+            b.iter(|| {
+                let result = lightning_indexer_cache_optimized(black_box(&q), black_box(&k));
+                black_box(result)
+            })
+        });
     }
 
     group.measurement_time(Duration::from_secs(3));
@@ -265,8 +233,7 @@ fn bench_lightning_indexer_gpu_chunked_stats(c: &mut Criterion) {
             seq_len,
             |b, &_s| {
                 b.iter(|| {
-                    let _result =
-                        lightning_indexer_gpu_chunked(black_box(&q), black_box(&k), None);
+                    let _result = lightning_indexer_gpu_chunked(black_box(&q), black_box(&k), None);
                 })
             },
         );

@@ -48,8 +48,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use ndarray::Array2;
 
-use super::model::MultimodalTransformer;
 use super::error::InferenceError;
+use super::model::MultimodalTransformer;
 use super::sampler::GenerateParams;
 use super::tokenizer::Tokenizer;
 
@@ -72,8 +72,6 @@ pub struct TextGenerator {
     /// 生成参数
     params: GenerateParams,
 }
-
-
 
 impl TextGenerator {
     /// 创建新的文本生成器
@@ -159,9 +157,11 @@ impl TextGenerator {
             ..Default::default()
         };
 
-        self.model.generate_streaming(&tokens, &params, |token_id| {
-            callback(token_id).map_err(|e| InferenceError::generation(e.to_string()))
-        }).map_err(|e| anyhow::anyhow!("{}", e))
+        self.model
+            .generate_streaming(&tokens, &params, |token_id| {
+                callback(token_id).map_err(|e| InferenceError::generation(e.to_string()))
+            })
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 }
 
@@ -261,11 +261,13 @@ impl StreamGenerator {
             ..Default::default()
         };
 
-        self.generator.model.generate_streaming(
-            &tokens,
-            &params,
-            |token_id| {
-                let token_text = self.generator.tokenizer.decode(&[token_id])
+        self.generator
+            .model
+            .generate_streaming(&tokens, &params, |token_id| {
+                let token_text = self
+                    .generator
+                    .tokenizer
+                    .decode(&[token_id])
                     .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
                 // 记录首 token 延迟
@@ -277,7 +279,8 @@ impl StreamGenerator {
 
                 // 检查停止符（在节奏控制之前）
                 if let Some(pos) = stop_checker(&accumulated_text)
-                    .map_err(|e| InferenceError::generation(e.to_string()))? {
+                    .map_err(|e| InferenceError::generation(e.to_string()))?
+                {
                     accumulated_text.truncate(pos);
                     return Ok(false);
                 }
@@ -297,7 +300,8 @@ impl StreamGenerator {
                     max_tokens,
                     &accumulated_text,
                     start_time.elapsed().as_millis() as u64,
-                ).map_err(|e| InferenceError::generation(e.to_string()))?;
+                )
+                .map_err(|e| InferenceError::generation(e.to_string()))?;
 
                 let should_continue = token_callback(&token_text)
                     .map_err(|e| InferenceError::generation(e.to_string()))?;
@@ -306,8 +310,8 @@ impl StreamGenerator {
                 next_output_time = next_output_time + target_interval;
 
                 Ok(should_continue)
-            },
-        ).map_err(|e| anyhow::anyhow!("{}", e))?;
+            })
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         progress_callback(
             StreamPhase::Completed,
@@ -372,7 +376,7 @@ impl StreamGenerator {
         F: FnMut(&str) -> Result<bool>,
     {
         let stop_strings: Vec<&str> = stop_strings.to_vec();
-        
+
         self.stream_internal(
             prompt,
             &mut callback,
@@ -421,7 +425,6 @@ impl StreamGenerator {
             },
         )
     }
-
 }
 
 /// 动态负载调节器
@@ -499,7 +502,7 @@ impl LoadRegulator {
 
         let factor = cpu_factor.max(memory_factor);
         let new_interval = (self.current_interval_ms as f32 * factor) as u64;
-        
+
         self.current_interval_ms = new_interval.clamp(self.min_interval_ms, self.max_interval_ms);
     }
 
@@ -620,8 +623,7 @@ mod tests {
 
     #[test]
     fn test_load_regulator_clamp() {
-        let mut regulator = LoadRegulator::new()
-            .with_interval_range(10, 100);
+        let mut regulator = LoadRegulator::new().with_interval_range(10, 100);
         regulator.update(0.99, 0.99); // 极高负载
         assert!(regulator.current_interval_ms <= 100);
 
@@ -665,7 +667,7 @@ mod tests {
     fn test_streaming_generator_empty_prompt_handling() {
         // 空提示词处理 - 测试 StreamStats 对空输入的处理
         let stats = StreamStats::default();
-        
+
         // 空生成的统计信息应该合理
         assert_eq!(stats.tokens_generated, 0);
         assert_eq!(stats.first_token_latency_ms, 0);
@@ -678,11 +680,11 @@ mod tests {
     fn test_streaming_generator_token_by_token_stats() {
         // 逐token生成统计 - 模拟生成过程中的统计数据
         let mut stats = StreamStats::default();
-        
+
         // 模拟生成了5个token
         stats.tokens_generated = 5;
         stats.first_token_latency_ms = 50; // 首token延迟50ms
-        stats.total_latency_ms = 250;      // 总延迟250ms
+        stats.total_latency_ms = 250; // 总延迟250ms
         stats.total_text = "Hello".to_string();
 
         // 验证统计信息正确性
@@ -690,7 +692,7 @@ mod tests {
         assert!(stats.first_token_latency_ms > 0);
         assert!(stats.total_latency_ms > 0);
         assert!(!stats.total_text.is_empty());
-        
+
         // 计算tokens/s: 5 / (250/1000) = 20.0
         let tps = stats.tokens_per_second();
         assert!((tps - 20.0).abs() < 0.01);
@@ -700,7 +702,7 @@ mod tests {
     fn test_streaming_generator_stop_conditions_stats() {
         // 停止条件下的统计 - 提前终止时的统计信息
         let mut stats = StreamStats::default();
-        
+
         // 模拟在第3个token时遇到停止符
         stats.tokens_generated = 3;
         stats.first_token_latency_ms = 30;
@@ -709,7 +711,7 @@ mod tests {
 
         assert_eq!(stats.tokens_generated, 3);
         assert_eq!(stats.total_text.len(), 3);
-        
+
         // tokens/s: 3 / (120/1000) = 25.0
         let tps = stats.tokens_per_second();
         assert!((tps - 25.0).abs() < 0.01);
@@ -722,7 +724,7 @@ mod tests {
             max_new_tokens: 10,
             ..Default::default()
         };
-        
+
         assert_eq!(params.max_new_tokens, 10);
         assert!(params.max_new_tokens <= DEFAULT_MAX_NEW_TOKENS);
     }
@@ -799,8 +801,7 @@ mod tests {
     #[test]
     fn test_load_regulator_memory_pressure() {
         // 内存压力测试
-        let mut regulator = LoadRegulator::new()
-            .with_interval_range(10, 100);
+        let mut regulator = LoadRegulator::new().with_interval_range(10, 100);
 
         // 高内存使用率
         regulator.update(0.5, 0.95);
@@ -812,9 +813,12 @@ mod tests {
         regulator.update(0.5, 0.3);
         let low_memory_interval = regulator.current_interval_ms;
         // memory_factor 应该 < 1.0，导致间隔减少
-        assert!(low_memory_interval < high_memory_interval, 
-                "Low memory interval ({}) should be less than high memory interval ({})",
-                low_memory_interval, high_memory_interval);
+        assert!(
+            low_memory_interval < high_memory_interval,
+            "Low memory interval ({}) should be less than high memory interval ({})",
+            low_memory_interval,
+            high_memory_interval
+        );
     }
 
     #[test]
@@ -837,8 +841,7 @@ mod tests {
     #[test]
     fn test_load_regulator_boundary_values() {
         // 边界值测试
-        let mut regulator = LoadRegulator::new()
-            .with_interval_range(5, 1000);
+        let mut regulator = LoadRegulator::new().with_interval_range(5, 1000);
 
         // CPU使用率为0.0
         regulator.update(0.0, 0.5);
@@ -857,7 +860,7 @@ mod tests {
     fn test_stream_stats_zero_division_protection() {
         // 零除法保护测试
         let stats = StreamStats::default();
-        
+
         // 当total_latency_ms为0时，不应该panic
         let tps = stats.tokens_per_second();
         assert_eq!(tps, 0.0);

@@ -25,7 +25,7 @@ pub fn is_neon_supported() -> bool {
 pub unsafe fn add_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
     let len = a.len();
     let chunks = len / 8;
-    
+
     for i in 0..chunks {
         let offset = i * 8;
         let va = _mm256_loadu_ps(a.as_ptr().add(offset));
@@ -33,7 +33,7 @@ pub unsafe fn add_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
         let vc = _mm256_add_ps(va, vb);
         _mm256_storeu_ps(c.as_mut_ptr().add(offset), vc);
     }
-    
+
     // 处理剩余元素
     for i in (chunks * 8)..len {
         c[i] = a[i] + b[i];
@@ -46,7 +46,7 @@ pub unsafe fn add_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
 pub unsafe fn mul_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
     let len = a.len();
     let chunks = len / 8;
-    
+
     for i in 0..chunks {
         let offset = i * 8;
         let va = _mm256_loadu_ps(a.as_ptr().add(offset));
@@ -54,7 +54,7 @@ pub unsafe fn mul_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
         let vc = _mm256_mul_ps(va, vb);
         _mm256_storeu_ps(c.as_mut_ptr().add(offset), vc);
     }
-    
+
     // 处理剩余元素
     for i in (chunks * 8)..len {
         c[i] = a[i] * b[i];
@@ -66,37 +66,37 @@ pub unsafe fn mul_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
 #[target_feature(enable = "avx2")]
 pub unsafe fn softmax_avx2(x: &[f32], out: &mut [f32]) {
     let len = x.len();
-    
+
     // 找最大值
     let mut max_val = f32::NEG_INFINITY;
     let chunks = len / 8;
-    
+
     let mut vmax = _mm256_set1_ps(f32::NEG_INFINITY);
     for i in 0..chunks {
         let offset = i * 8;
         let vx = _mm256_loadu_ps(x.as_ptr().add(offset));
         vmax = _mm256_max_ps(vmax, vx);
     }
-    
+
     let mut temp = [0.0f32; 8];
     _mm256_storeu_ps(temp.as_mut_ptr(), vmax);
     for &v in &temp {
         max_val = max_val.max(v);
     }
-    
+
     for i in (chunks * 8)..len {
         max_val = max_val.max(x[i]);
     }
-    
+
     // 计算exp(x - max)
-        let vmax = _mm256_set1_ps(max_val);
-        let mut sum = 0.0f32;
-        
-        for i in 0..chunks {
-            let offset = i * 8;
-            let vx = _mm256_loadu_ps(x.as_ptr().add(offset));
-            let vsub = _mm256_sub_ps(vx, vmax);
-            
+    let vmax = _mm256_set1_ps(max_val);
+    let mut sum = 0.0f32;
+
+    for i in 0..chunks {
+        let offset = i * 8;
+        let vx = _mm256_loadu_ps(x.as_ptr().add(offset));
+        let vsub = _mm256_sub_ps(vx, vmax);
+
         // 近似exp计算（使用多项式近似）
         let vexp_result = {
             // exp(x) ≈ 1 + x + x²/2 + x³/6 + x⁴/24
@@ -104,35 +104,35 @@ pub unsafe fn softmax_avx2(x: &[f32], out: &mut [f32]) {
             let two = _mm256_set1_ps(2.0);
             let six = _mm256_set1_ps(6.0);
             let twenty_four = _mm256_set1_ps(24.0);
-            
+
             let x = vsub;
             let x2 = _mm256_mul_ps(x, x);
             let x3 = _mm256_mul_ps(x2, x);
             let x4 = _mm256_mul_ps(x3, x);
-            
+
             let term1 = one;
             let term2 = x;
             let term3 = _mm256_div_ps(x2, two);
             let term4 = _mm256_div_ps(x3, six);
             let term5 = _mm256_div_ps(x4, twenty_four);
-            
+
             let sum1 = _mm256_add_ps(term1, term2);
             let sum2 = _mm256_add_ps(sum1, term3);
             let sum3 = _mm256_add_ps(sum2, term4);
             _mm256_add_ps(sum3, term5)
         };
         _mm256_storeu_ps(out.as_mut_ptr().add(offset), vexp_result);
-        
+
         let mut temp = [0.0f32; 8];
         _mm256_storeu_ps(temp.as_mut_ptr(), vexp_result);
         sum += temp.iter().sum::<f32>();
     }
-    
+
     for i in (chunks * 8)..len {
         out[i] = (x[i] - max_val).exp();
         sum += out[i];
     }
-    
+
     // 归一化
     let vsum = _mm256_set1_ps(sum);
     for i in 0..chunks {
@@ -141,7 +141,7 @@ pub unsafe fn softmax_avx2(x: &[f32], out: &mut [f32]) {
         let vnorm = _mm256_div_ps(vout, vsum);
         _mm256_storeu_ps(out.as_mut_ptr().add(offset), vnorm);
     }
-    
+
     for i in (chunks * 8)..len {
         out[i] /= sum;
     }
@@ -152,10 +152,10 @@ pub unsafe fn softmax_avx2(x: &[f32], out: &mut [f32]) {
 #[target_feature(enable = "neon")]
 pub unsafe fn add_neon(a: &[f32], b: &[f32], c: &mut [f32]) {
     use std::arch::aarch64::*;
-    
+
     let len = a.len();
     let chunks = len / 4;
-    
+
     for i in 0..chunks {
         let offset = i * 4;
         let va = vld1q_f32(a.as_ptr().add(offset));
@@ -163,7 +163,7 @@ pub unsafe fn add_neon(a: &[f32], b: &[f32], c: &mut [f32]) {
         let vc = vaddq_f32(va, vb);
         vst1q_f32(c.as_mut_ptr().add(offset), vc);
     }
-    
+
     for i in (chunks * 4)..len {
         c[i] = a[i] + b[i];
     }
@@ -173,7 +173,7 @@ pub unsafe fn add_neon(a: &[f32], b: &[f32], c: &mut [f32]) {
 pub fn add_vector(a: &[f32], b: &[f32], c: &mut [f32]) {
     assert_eq!(a.len(), b.len());
     assert_eq!(a.len(), c.len());
-    
+
     #[cfg(target_arch = "x86_64")]
     {
         if is_avx2_supported() {
@@ -181,13 +181,13 @@ pub fn add_vector(a: &[f32], b: &[f32], c: &mut [f32]) {
             return;
         }
     }
-    
+
     #[cfg(target_arch = "aarch64")]
     {
         unsafe { add_neon(a, b, c) };
         return;
     }
-    
+
     // 回退到标量实现
     for i in 0..a.len() {
         c[i] = a[i] + b[i];
@@ -198,7 +198,7 @@ pub fn add_vector(a: &[f32], b: &[f32], c: &mut [f32]) {
 pub fn mul_vector(a: &[f32], b: &[f32], c: &mut [f32]) {
     assert_eq!(a.len(), b.len());
     assert_eq!(a.len(), c.len());
-    
+
     #[cfg(target_arch = "x86_64")]
     {
         if is_avx2_supported() {
@@ -206,7 +206,7 @@ pub fn mul_vector(a: &[f32], b: &[f32], c: &mut [f32]) {
             return;
         }
     }
-    
+
     // 回退到标量实现
     for i in 0..a.len() {
         c[i] = a[i] * b[i];
@@ -216,7 +216,7 @@ pub fn mul_vector(a: &[f32], b: &[f32], c: &mut [f32]) {
 /// 自动选择最优的Softmax实现
 pub fn softmax_vector(x: &[f32], out: &mut [f32]) {
     assert_eq!(x.len(), out.len());
-    
+
     #[cfg(target_arch = "x86_64")]
     {
         if is_avx2_supported() {
@@ -224,7 +224,7 @@ pub fn softmax_vector(x: &[f32], out: &mut [f32]) {
             return;
         }
     }
-    
+
     // 回退到标量实现
     let max_val = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let mut sum = 0.0;
@@ -277,10 +277,10 @@ mod tests {
         mul_vector(&a, &b, &mut c);
 
         // 验证逐元素乘法结果
-        assert!((c[0] - 2.0).abs() < 1e-5);   // 1*2
-        assert!((c[1] - 6.0).abs() < 1e-5);   // 2*3
-        assert!((c[2] - 12.0).abs() < 1e-5);  // 3*4
-        assert!((c[3] - 20.0).abs() < 1e-5);  // 4*5
+        assert!((c[0] - 2.0).abs() < 1e-5); // 1*2
+        assert!((c[1] - 6.0).abs() < 1e-5); // 2*3
+        assert!((c[2] - 12.0).abs() < 1e-5); // 3*4
+        assert!((c[3] - 20.0).abs() < 1e-5); // 4*5
     }
 
     /// 测试非对齐长度的向量操作（覆盖SIMD剩余元素处理分支）
@@ -295,7 +295,12 @@ mod tests {
 
         // 所有元素应该正确相加
         for i in 0..11 {
-            assert!((c[i] - 12.0).abs() < 1e-5, "索引 {} 失败: 期望 12.0, 实际 {}", i, c[i]);
+            assert!(
+                (c[i] - 12.0).abs() < 1e-5,
+                "索引 {} 失败: 期望 12.0, 实际 {}",
+                i,
+                c[i]
+            );
         }
     }
 
@@ -322,9 +327,9 @@ mod tests {
 
         add_vector(&a, &b, &mut c);
 
-        assert!((c[0] - 10.0).abs() < 1e-5);   // 0 + 10
+        assert!((c[0] - 10.0).abs() < 1e-5); // 0 + 10
         assert!((c[1] - (-21.0)).abs() < 1e-5); // -1 + (-20)
-        assert!((c[2] - 32.0).abs() < 1e-5);   // 2 + 30
+        assert!((c[2] - 32.0).abs() < 1e-5); // 2 + 30
         assert!((c[3] - (-43.0)).abs() < 1e-5); // -3 + (-40)
     }
 
@@ -382,7 +387,9 @@ mod tests {
         assert!((sum - 1.0).abs() < 1e-5);
 
         // 最大值应有最高概率
-        let max_idx = out.iter().enumerate()
+        let max_idx = out
+            .iter()
+            .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx)
             .unwrap();
@@ -480,7 +487,9 @@ mod tests {
         assert!((sum - 1.0).abs() < 1e-5);
 
         // 最大值应有最高概率（-998.0是最大的）
-        let max_idx = out.iter().enumerate()
+        let max_idx = out
+            .iter()
+            .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx)
             .unwrap();
@@ -492,7 +501,12 @@ mod tests {
     fn test_softmax_very_small_values() {
         use std::f32;
 
-        let x = vec![f32::MIN_POSITIVE, 2.0 * f32::MIN_POSITIVE, 3.0 * f32::MIN_POSITIVE, 4.0 * f32::MIN_POSITIVE];
+        let x = vec![
+            f32::MIN_POSITIVE,
+            2.0 * f32::MIN_POSITIVE,
+            3.0 * f32::MIN_POSITIVE,
+            4.0 * f32::MIN_POSITIVE,
+        ];
         let mut out = vec![0.0; 4];
 
         softmax_vector(&x, &mut out);
@@ -522,8 +536,7 @@ mod tests {
 
         // 结果应该完全一致
         for i in 0..5 {
-            assert!((c1[i] - c2[i]).abs() < 1e-10,
-                "加法幂等性在索引{}处失败", i);
+            assert!((c1[i] - c2[i]).abs() < 1e-10, "加法幂等性在索引{}处失败", i);
         }
     }
 
@@ -539,7 +552,7 @@ mod tests {
 
         // 验证前几个和最后几个元素
         assert!((c[0] - (0.0 + (size as f32) * 0.002)).abs() < 1e-2);
-        assert!((c[size-1] - ((size-1) as f32 * 0.001 + 0.0)).abs() < 1e-2);
+        assert!((c[size - 1] - ((size - 1) as f32 * 0.001 + 0.0)).abs() < 1e-2);
 
         // 验证中间元素
         let mid = size / 2;
@@ -578,8 +591,11 @@ mod tests {
         softmax_vector(&x, &mut out);
 
         for val in &out {
-            assert!(*val > 0.0 && *val < 1.0,
-                "Softmax概率应在(0,1)范围内，实际: {}", val);
+            assert!(
+                *val > 0.0 && *val < 1.0,
+                "Softmax概率应在(0,1)范围内，实际: {}",
+                val
+            );
         }
 
         // 性质2: 和应为1
@@ -588,9 +604,14 @@ mod tests {
 
         // 性质3: 输入越大，输出概率越高（单调性）
         for i in 1..out.len() {
-            assert!(out[i] > out[i-1],
+            assert!(
+                out[i] > out[i - 1],
                 "Softmax应保持单调递增: out[{}]={} <= out[{}]={}",
-                i-1, out[i-1], i, out[i]);
+                i - 1,
+                out[i - 1],
+                i,
+                out[i]
+            );
         }
     }
 
@@ -599,15 +620,15 @@ mod tests {
     fn test_various_alignment_boundaries() {
         // 测试各种不是SIMD宽度的倍数的长度
         // x86_64 AVX2: 8个float, NEON: 4个float
-        test_alignment_boundary(1);   // 最小长度
+        test_alignment_boundary(1); // 最小长度
         test_alignment_boundary(2);
         test_alignment_boundary(3);
-        test_alignment_boundary(7);   // 8-1
-        test_alignment_boundary(9);   // 8+1
-        test_alignment_boundary(15);  // 16-1 (AVX512)
-        test_alignment_boundary(17);  // 16+1
-        test_alignment_boundary(31);  // 32-1
-        test_alignment_boundary(33);  // 32+1
+        test_alignment_boundary(7); // 8-1
+        test_alignment_boundary(9); // 8+1
+        test_alignment_boundary(15); // 16-1 (AVX512)
+        test_alignment_boundary(17); // 16+1
+        test_alignment_boundary(31); // 32-1
+        test_alignment_boundary(33); // 32+1
     }
 
     fn test_alignment_boundary(len: usize) {
@@ -618,8 +639,12 @@ mod tests {
         add_vector(&a, &b, &mut c);
 
         for i in 0..len {
-            assert!((c[i] - (i as f32 + 1.0)).abs() < 1e-5,
-                "长度{}的边界测试在索引{}处失败", len, i);
+            assert!(
+                (c[i] - (i as f32 + 1.0)).abs() < 1e-5,
+                "长度{}的边界测试在索引{}处失败",
+                len,
+                i
+            );
         }
     }
 
@@ -637,8 +662,12 @@ mod tests {
 
         // 每个元素应该是 0.0002
         for &val in &c {
-            assert!((val - 2.0 * value).abs() < 1e-10,
-                "累加精度误差过大: 期望 {}, 实际 {}", 2.0 * value, val);
+            assert!(
+                (val - 2.0 * value).abs() < 1e-10,
+                "累加精度误差过大: 期望 {}, 实际 {}",
+                2.0 * value,
+                val
+            );
         }
     }
 }

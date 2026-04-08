@@ -58,12 +58,9 @@ impl PageTable {
 
     /// 从块ID列表创建页表
     pub fn from_blocks(block_ids: Vec<BlockId>) -> Self {
-        let entries: Vec<PageTableEntry> = block_ids
-            .into_iter()
-            .map(PageTableEntry::new)
-            .collect();
+        let entries: Vec<PageTableEntry> = block_ids.into_iter().map(PageTableEntry::new).collect();
         let num_slots = entries.len();
-        
+
         Self {
             max_slots: num_slots,
             num_slots,
@@ -76,7 +73,7 @@ impl PageTable {
         if self.num_slots >= self.max_slots {
             return Err("Page table is full".to_string());
         }
-        
+
         self.entries.push(PageTableEntry::new(block_id));
         self.num_slots += 1;
         Ok(())
@@ -91,7 +88,7 @@ impl PageTable {
                 self.num_slots, new_slots, self.max_slots
             ));
         }
-        
+
         for block_id in block_ids {
             self.entries.push(PageTableEntry::new(block_id));
             self.num_slots += 1;
@@ -121,7 +118,11 @@ impl PageTable {
 
     /// 获取最后一个块ID
     pub fn last_block(&self) -> Option<BlockId> {
-        self.entries.iter().rev().find(|entry| entry.valid).map(|entry| entry.block_id)
+        self.entries
+            .iter()
+            .rev()
+            .find(|entry| entry.valid)
+            .map(|entry| entry.block_id)
     }
 
     /// 设置指定位置的块ID
@@ -129,7 +130,7 @@ impl PageTable {
         if slot >= self.num_slots {
             return Err(format!("Slot {} out of range {}", slot, self.num_slots));
         }
-        
+
         self.entries[slot] = PageTableEntry::new(block_id);
         Ok(())
     }
@@ -189,7 +190,10 @@ impl PageTable {
 
     /// 检查槽位是否有效
     pub fn is_valid(&self, slot: usize) -> bool {
-        self.entries.get(slot).map(|entry| entry.valid).unwrap_or(false)
+        self.entries
+            .get(slot)
+            .map(|entry| entry.valid)
+            .unwrap_or(false)
     }
 
     /// 截断到指定长度
@@ -234,8 +238,11 @@ impl PageTableManager {
 
     /// 创建新的页表
     pub fn create_page_table(&mut self, max_slots: usize) -> u64 {
-        let request_id = self.next_request_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.page_tables.insert(request_id, PageTable::new(max_slots));
+        let request_id = self
+            .next_request_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.page_tables
+            .insert(request_id, PageTable::new(max_slots));
         request_id
     }
 
@@ -311,11 +318,11 @@ mod tests {
     #[test]
     fn test_page_table_append() {
         let mut pt = PageTable::new(10);
-        
+
         pt.append(0).unwrap();
         pt.append(1).unwrap();
         pt.append(2).unwrap();
-        
+
         assert_eq!(pt.len(), 3);
         assert_eq!(pt.get(0), Some(0));
         assert_eq!(pt.get(1), Some(1));
@@ -325,10 +332,10 @@ mod tests {
     #[test]
     fn test_page_table_overflow() {
         let mut pt = PageTable::new(2);
-        
+
         pt.append(0).unwrap();
         pt.append(1).unwrap();
-        
+
         assert!(pt.append(2).is_err());
         assert_eq!(pt.len(), 2);
     }
@@ -336,9 +343,9 @@ mod tests {
     #[test]
     fn test_page_table_invalidate() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
-        
+
         pt.invalidate(1);
-        
+
         assert_eq!(pt.get(0), Some(0));
         assert_eq!(pt.get(1), None);
         assert_eq!(pt.get(2), Some(2));
@@ -348,7 +355,7 @@ mod tests {
     #[test]
     fn test_page_table_pop() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
-        
+
         assert_eq!(pt.pop(), Some(2));
         assert_eq!(pt.len(), 2);
         assert_eq!(pt.pop(), Some(1));
@@ -358,9 +365,9 @@ mod tests {
     #[test]
     fn test_page_table_truncate() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2, 3, 4]);
-        
+
         pt.truncate(3);
-        
+
         assert_eq!(pt.len(), 3);
         assert_eq!(pt.get(3), None);
         assert_eq!(pt.get(4), None);
@@ -370,28 +377,28 @@ mod tests {
     fn test_page_table_get_all_blocks() {
         let pt = PageTable::from_blocks(vec![0, 1, 2, 3]);
         let blocks = pt.get_all_blocks();
-        
+
         assert_eq!(blocks, vec![0, 1, 2, 3]);
     }
 
     #[test]
     fn test_page_table_manager() {
         let mut manager = PageTableManager::new();
-        
+
         let id1 = manager.create_page_table(100);
         let id2 = manager.create_page_table(200);
-        
+
         assert!(manager.contains(id1));
         assert!(manager.contains(id2));
         assert_eq!(manager.len(), 2);
-        
+
         let pt = manager.get_page_table_mut(id1).unwrap();
         pt.append(0).unwrap();
         pt.append(1).unwrap();
-        
+
         let pt = manager.get_page_table(id1).unwrap();
         assert_eq!(pt.len(), 2);
-        
+
         manager.remove_page_table(id1);
         assert!(!manager.contains(id1));
         assert_eq!(manager.len(), 1);
@@ -401,7 +408,7 @@ mod tests {
     fn test_page_table_fork() {
         let pt1 = PageTable::from_blocks(vec![0, 1, 2]);
         let pt2 = pt1.fork();
-        
+
         assert_eq!(pt1.len(), pt2.len());
         assert_eq!(pt1.get_all_blocks(), pt2.get_all_blocks());
     }
@@ -412,7 +419,7 @@ mod tests {
     #[test]
     fn test_page_table_set() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
-        
+
         pt.set(1, 99).unwrap();
         assert_eq!(pt.get(1), Some(99));
     }
@@ -421,7 +428,7 @@ mod tests {
     #[test]
     fn test_page_table_set_out_of_range() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
-        
+
         let result = pt.set(5, 99);
         assert!(result.is_err(), "设置超出范围的槽位应返回错误");
     }
@@ -430,10 +437,10 @@ mod tests {
     #[test]
     fn test_page_table_invalidate_out_of_range() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
-        
+
         // 超出范围的 invalidate 不应 panic
         pt.invalidate(100);
-        
+
         // 原有数据不应受影响
         assert_eq!(pt.len(), 3);
         assert_eq!(pt.valid_count(), 3);
@@ -443,7 +450,7 @@ mod tests {
     #[test]
     fn test_page_table_pop_empty() {
         let mut pt = PageTable::new(10);
-        
+
         assert_eq!(pt.pop(), None);
         assert_eq!(pt.len(), 0);
     }
@@ -453,7 +460,7 @@ mod tests {
     fn test_page_table_pop_invalid_entry() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
         pt.invalidate(2); // 使最后一个条目无效
-        
+
         assert_eq!(pt.pop(), None); // 无效条目应返回 None
         assert_eq!(pt.len(), 2); // 但长度仍会减少
     }
@@ -463,7 +470,7 @@ mod tests {
     fn test_page_table_reserve() {
         let mut pt = PageTable::new(5);
         assert_eq!(pt.capacity(), 5);
-        
+
         pt.reserve(10);
         assert_eq!(pt.capacity(), 15); // 5 + 10
     }
@@ -473,10 +480,10 @@ mod tests {
     fn test_page_table_valid_count() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2, 3, 4]);
         assert_eq!(pt.valid_count(), 5);
-        
+
         pt.invalidate(1);
         assert_eq!(pt.valid_count(), 4);
-        
+
         pt.invalidate(3);
         assert_eq!(pt.valid_count(), 3);
     }
@@ -485,17 +492,17 @@ mod tests {
     #[test]
     fn test_page_table_is_valid() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
-        
+
         assert!(pt.is_valid(0));
         assert!(pt.is_valid(1));
         assert!(pt.is_valid(2));
-        
+
         pt.invalidate(1);
-        
+
         assert!(pt.is_valid(0));
         assert!(!pt.is_valid(1));
         assert!(pt.is_valid(2));
-        
+
         // 越界访问应返回 false
         assert!(!pt.is_valid(100));
     }
@@ -505,9 +512,9 @@ mod tests {
     fn test_page_table_truncate_larger() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
         let len_before = pt.len();
-        
+
         pt.truncate(10); // 大于当前长度
-        
+
         assert_eq!(pt.len(), len_before, "截断到更大长度不应改变");
     }
 
@@ -515,9 +522,9 @@ mod tests {
     #[test]
     fn test_page_table_clear() {
         let mut pt = PageTable::from_blocks(vec![0, 1, 2, 3, 4]);
-        
+
         pt.clear();
-        
+
         assert_eq!(pt.len(), 0);
         assert!(pt.is_empty());
     }
@@ -527,11 +534,11 @@ mod tests {
     fn test_page_table_last_block() {
         let pt = PageTable::from_blocks(vec![0, 1, 2]);
         assert_eq!(pt.last_block(), Some(2));
-        
+
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
         pt.invalidate(2);
         assert_eq!(pt.last_block(), Some(1)); // 最后一个有效块是 1
-        
+
         let mut pt = PageTable::from_blocks(vec![0, 1, 2]);
         pt.invalidate(0);
         pt.invalidate(1);
@@ -543,10 +550,10 @@ mod tests {
     #[test]
     fn test_page_table_append_blocks() {
         let mut pt = PageTable::new(10);
-        
+
         pt.append(0).unwrap();
         pt.append_blocks(vec![1, 2, 3]).unwrap();
-        
+
         assert_eq!(pt.len(), 4);
         assert_eq!(pt.get(0), Some(0));
         assert_eq!(pt.get(3), Some(3));
@@ -556,7 +563,7 @@ mod tests {
     #[test]
     fn test_page_table_append_blocks_overflow() {
         let mut pt = PageTable::new(5);
-        
+
         pt.append_blocks(vec![0, 1, 2, 3, 4]).unwrap(); // 填满
         assert!(pt.append_blocks(vec![5]).is_err()); // 溢出
     }
@@ -575,7 +582,7 @@ mod tests {
         let valid_entry = PageTableEntry::new(42);
         assert!(valid_entry.valid);
         assert_eq!(valid_entry.block_id, 42);
-        
+
         let invalid_entry = PageTableEntry::invalid();
         assert!(!invalid_entry.valid);
         assert_eq!(invalid_entry.block_id, 0);
@@ -585,21 +592,21 @@ mod tests {
     #[test]
     fn test_page_table_manager_utilities() {
         let mut manager = PageTableManager::new();
-        
+
         // 初始状态
         assert!(manager.is_empty());
         assert!(manager.request_ids().is_empty());
-        
+
         // 创建页表
         let id1 = manager.create_page_table(100);
         let id2 = manager.create_page_table(200);
-        
+
         assert!(!manager.is_empty());
         let ids = manager.request_ids();
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&id1));
         assert!(ids.contains(&id2));
-        
+
         // 清空
         manager.clear();
         assert!(manager.is_empty());

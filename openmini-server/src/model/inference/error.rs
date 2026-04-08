@@ -40,10 +40,7 @@ use std::path::PathBuf;
 pub enum InferenceError {
     /// 模型文件错误
     #[error("Model file error: {message} (path: {path:?})")]
-    ModelFileError {
-        message: String,
-        path: PathBuf,
-    },
+    ModelFileError { message: String, path: PathBuf },
 
     /// 权重加载错误
     #[error("Weight loading error: {message}")]
@@ -55,45 +52,31 @@ pub enum InferenceError {
 
     /// 权重缺失错误
     #[error("Missing required weight: {name}")]
-    MissingWeight {
-        name: String,
-    },
+    MissingWeight { name: String },
 
     /// 配置错误
     #[error("Configuration error: {message}")]
-    ConfigError {
-        message: String,
-    },
+    ConfigError { message: String },
 
     /// 分词错误
     #[error("Tokenization error: {message}")]
-    TokenizationError {
-        message: String,
-    },
+    TokenizationError { message: String },
 
     /// 生成错误
     #[error("Generation error: {message}")]
-    GenerationError {
-        message: String,
-    },
+    GenerationError { message: String },
 
     /// 多模态错误
     #[error("Multimodal error: {message}")]
-    MultimodalError {
-        message: String,
-    },
+    MultimodalError { message: String },
 
     /// 图像预处理错误
     #[error("Image preprocessing error: {message}")]
-    ImagePreprocessError {
-        message: String,
-    },
+    ImagePreprocessError { message: String },
 
     /// 内存错误
     #[error("Memory error: {message}")]
-    MemoryError {
-        message: String,
-    },
+    MemoryError { message: String },
 
     /// IO 错误
     #[error("IO error: {message}")]
@@ -138,9 +121,7 @@ impl InferenceError {
 
     /// 创建缺失权重错误
     pub fn missing_weight(name: impl Into<String>) -> Self {
-        Self::MissingWeight {
-            name: name.into(),
-        }
+        Self::MissingWeight { name: name.into() }
     }
 
     /// 创建配置错误
@@ -316,16 +297,8 @@ mod tests {
         ];
 
         for err in &recoverable_errors {
-            assert!(
-                err.is_recoverable(),
-                "{:?} should be recoverable",
-                err
-            );
-            assert!(
-                !err.is_fatal(),
-                "{:?} should not be fatal",
-                err
-            );
+            assert!(err.is_recoverable(), "{:?} should be recoverable", err);
+            assert!(!err.is_fatal(), "{:?} should not be fatal", err);
         }
     }
 
@@ -340,16 +313,8 @@ mod tests {
         ];
 
         for err in &fatal_errors {
-            assert!(
-                !err.is_recoverable(),
-                "{:?} should not be recoverable",
-                err
-            );
-            assert!(
-                err.is_fatal(),
-                "{:?} should be fatal",
-                err
-            );
+            assert!(!err.is_recoverable(), "{:?} should not be recoverable", err);
+            assert!(err.is_fatal(), "{:?} should be fatal", err);
         }
     }
 
@@ -432,7 +397,9 @@ mod tests {
         let err = InferenceError::weight_load_with_source("custom error", custom_err);
 
         match &err {
-            InferenceError::WeightLoadError { source: Some(s), .. } => {
+            InferenceError::WeightLoadError {
+                source: Some(s), ..
+            } => {
                 // source 存在
                 let _ = s.to_string();
             }
@@ -565,7 +532,10 @@ mod tests {
         let received2 = rx.recv().unwrap();
 
         match (&received1, &received2) {
-            (InferenceError::MemoryError { message: m1 }, InferenceError::TokenizationError { message: m2 }) => {
+            (
+                InferenceError::MemoryError { message: m1 },
+                InferenceError::TokenizationError { message: m2 },
+            ) => {
                 assert!(m1.contains("thread 1"));
                 assert!(m2.contains("thread 2"));
             }
@@ -583,11 +553,20 @@ mod tests {
 
         // weight_load -> WeightLoadError (无源)
         let e = InferenceError::weight_load("msg");
-        assert!(matches!(e, InferenceError::WeightLoadError { source: None, .. }));
+        assert!(matches!(
+            e,
+            InferenceError::WeightLoadError { source: None, .. }
+        ));
 
         // weight_load_with_source -> WeightLoadError (有源)
         let e = InferenceError::weight_load_with_source("msg", std::fmt::Error);
-        assert!(matches!(e, InferenceError::WeightLoadError { source: Some(_), .. }));
+        assert!(matches!(
+            e,
+            InferenceError::WeightLoadError {
+                source: Some(_),
+                ..
+            }
+        ));
 
         // missing_weight -> MissingWeight
         let e = InferenceError::missing_weight("w");
@@ -679,7 +658,10 @@ mod tests {
         // 覆盖分支: ModelFileError 路径信息的完整保留
         let paths = vec![
             ("/simple/path/model.gguf", "simple"),
-            ("/very/deep/nested/path/with/many/segments/model.bin", "deep"),
+            (
+                "/very/deep/nested/path/with/many/segments/model.bin",
+                "deep",
+            ),
             ("/path/with spaces/and special.chars/model.gguf", "special"),
             ("/path/unicode/模型文件.gguf", "unicode"),
         ];

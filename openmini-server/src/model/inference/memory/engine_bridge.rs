@@ -43,10 +43,7 @@ pub enum BridgeError {
         max: usize,
     },
     /// 记忆列数不一致
-    ColumnMismatch {
-        expected: usize,
-        actual: usize,
-    },
+    ColumnMismatch { expected: usize, actual: usize },
     /// 缓存未命中
     CacheMiss(String),
     /// 分配失败
@@ -58,11 +55,23 @@ pub enum BridgeError {
 impl std::fmt::Display for BridgeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CapacityExceeded { current, required, max } => {
-                write!(f, "Context capacity exceeded: current {} + required {} > max {}", current, required, max)
+            Self::CapacityExceeded {
+                current,
+                required,
+                max,
+            } => {
+                write!(
+                    f,
+                    "Context capacity exceeded: current {} + required {} > max {}",
+                    current, required, max
+                )
             }
             Self::ColumnMismatch { expected, actual } => {
-                write!(f, "Column count mismatch: expected {}, actual {}", expected, actual)
+                write!(
+                    f,
+                    "Column count mismatch: expected {}, actual {}",
+                    expected, actual
+                )
             }
             Self::CacheMiss(key) => {
                 write!(f, "Cache miss for key: {}", key)
@@ -167,7 +176,12 @@ impl MemoryInjector {
     ///
     /// 根据查询向量检索相关记忆，并将其注入到上下文中
     /// 返回注入的记忆数量，若超出容量限制则返回错误
-    pub fn inject_context(&self, query: &Array2<f32>, context: &mut Vec<f32>, max_capacity: Option<usize>) -> Result<usize, BridgeError> {
+    pub fn inject_context(
+        &self,
+        query: &Array2<f32>,
+        context: &mut Vec<f32>,
+        max_capacity: Option<usize>,
+    ) -> Result<usize, BridgeError> {
         let mut stats = self.stats.write();
         stats.total_injections += 1;
         drop(stats);
@@ -184,7 +198,9 @@ impl MemoryInjector {
         }
 
         if self.config.include_short_term {
-            let short_term_memories = self.memory_manager.read_last(MemoryLevel::ShortTerm, self.config.top_k / 2);
+            let short_term_memories = self
+                .memory_manager
+                .read_last(MemoryLevel::ShortTerm, self.config.top_k / 2);
             for data in short_term_memories {
                 memories.push((data, self.config.short_term_similarity_weight));
             }
@@ -195,7 +211,7 @@ impl MemoryInjector {
         let injected_count = memories.len();
         if injected_count > 0 {
             let total_elements: usize = memories.iter().map(|(d, _)| d.len()).sum();
-            
+
             if let Some(max_len) = max_capacity {
                 if context.len() + total_elements > max_len {
                     let mut stats = self.stats.write();
@@ -211,7 +227,8 @@ impl MemoryInjector {
             let mut stats = self.stats.write();
             stats.successful_injections += 1;
             stats.total_memories_injected += injected_count as u64;
-            stats.avg_memories_per_injection = stats.total_memories_injected as f32 / stats.successful_injections as f32;
+            stats.avg_memories_per_injection =
+                stats.total_memories_injected as f32 / stats.successful_injections as f32;
 
             for (data, _) in memories {
                 if data.is_standard_layout() {
@@ -245,7 +262,9 @@ impl MemoryInjector {
         }
 
         if self.config.include_short_term {
-            let short_term_memories = self.memory_manager.read_last(MemoryLevel::ShortTerm, self.config.short_term_count);
+            let short_term_memories = self
+                .memory_manager
+                .read_last(MemoryLevel::ShortTerm, self.config.short_term_count);
             for data in short_term_memories {
                 let text = self.data_to_text(&data);
                 memory_texts.push(format!("[近期记忆] {}", text));
@@ -497,11 +516,8 @@ impl MemoryExtractor {
             return false;
         }
 
-        self.memory_manager.write_with_importance(
-            self.config.default_level,
-            result.clone(),
-            imp,
-        );
+        self.memory_manager
+            .write_with_importance(self.config.default_level, result.clone(), imp);
 
         stats.auto_memorize_count += 1;
         true
@@ -560,7 +576,12 @@ impl MemoryExtractor {
         for i in 0..rows {
             let row = data.row(i);
 
-            let norm: f32 = row.iter().map(|v| v.powi(2)).sum::<f32>().sqrt().max(EPSILON);
+            let norm: f32 = row
+                .iter()
+                .map(|v| v.powi(2))
+                .sum::<f32>()
+                .sqrt()
+                .max(EPSILON);
             let row_mean: f32 = row.iter().sum::<f32>() / cols as f32;
             let variance: f32 = (row.iter().map(|v| v.powi(2)).sum::<f32>() / cols as f32
                 - row_mean.powi(2))
@@ -660,15 +681,15 @@ impl MemoryExtractor {
             return None;
         }
 
-        let summary: Array2<f32> = ndarray::Array1::from_vec(
-            weighted_sum.iter().map(|v| v / total_weight).collect()
-        )
-        .insert_axis(ndarray::Axis(0))
-        .into_dyn()
-        .into_dimensionality::<ndarray::Ix2>()
-        .ok()?;
+        let summary: Array2<f32> =
+            ndarray::Array1::from_vec(weighted_sum.iter().map(|v| v / total_weight).collect())
+                .insert_axis(ndarray::Axis(0))
+                .into_dyn()
+                .into_dimensionality::<ndarray::Ix2>()
+                .ok()?;
 
-        let avg_importance: f32 = importance_scores.iter().sum::<f32>() / importance_scores.len() as f32;
+        let avg_importance: f32 =
+            importance_scores.iter().sum::<f32>() / importance_scores.len() as f32;
 
         Some(KeyInfo {
             content: summary,
@@ -797,7 +818,12 @@ impl ContextBuilder {
     ///
     /// 返回是否成功添加
     /// 若记忆列数与已有记忆不一致，返回 false
-    pub fn add_memory(&mut self, data: Array2<f32>, priority: MemoryPriority, source: &str) -> bool {
+    pub fn add_memory(
+        &mut self,
+        data: Array2<f32>,
+        priority: MemoryPriority,
+        source: &str,
+    ) -> bool {
         let data_len = data.len();
         let cols = data.ncols();
 
@@ -809,7 +835,9 @@ impl ContextBuilder {
             self.expected_cols = Some(cols);
         }
 
-        if self.current_len + data_len > self.config.max_context_len && !self.try_evict_for_space(data_len) {
+        if self.current_len + data_len > self.config.max_context_len
+            && !self.try_evict_for_space(data_len)
+        {
             return false;
         }
 
@@ -908,7 +936,8 @@ impl ContextBuilder {
             return;
         }
 
-        let fingerprints: Vec<u64> = self.memories
+        let fingerprints: Vec<u64> = self
+            .memories
             .iter()
             .map(|m| Self::compute_fingerprint(&m.data))
             .collect();
@@ -929,7 +958,8 @@ impl ContextBuilder {
                     continue;
                 }
 
-                let similarity = self.compute_similarity(&self.memories[i].data, &self.memories[j].data);
+                let similarity =
+                    self.compute_similarity(&self.memories[i].data, &self.memories[j].data);
                 if similarity >= self.config.dedup_threshold {
                     if self.memories[i].priority >= self.memories[j].priority {
                         to_remove.insert(j);
@@ -966,7 +996,7 @@ impl ContextBuilder {
 
         let rows = data.nrows();
         let cols = data.ncols();
-        
+
         let mut sum: f64 = 0.0;
         let mut sum_sq: f64 = 0.0;
         let mut count: u64 = 0;
@@ -979,7 +1009,11 @@ impl ContextBuilder {
         }
 
         let mean = if count > 0 { sum / count as f64 } else { 0.0 };
-        let variance = if count > 0 { sum_sq / count as f64 - mean * mean } else { 0.0 };
+        let variance = if count > 0 {
+            sum_sq / count as f64 - mean * mean
+        } else {
+            0.0
+        };
 
         let mean_bits = mean.to_bits();
         let var_bits = variance.to_bits();
@@ -1243,10 +1277,9 @@ impl MemoryWarmer {
         }
 
         if self.config.preload_short_term {
-            let short_term_memories = self.memory_manager.read_last(
-                MemoryLevel::ShortTerm,
-                self.config.warmup_count / 2,
-            );
+            let short_term_memories = self
+                .memory_manager
+                .read_last(MemoryLevel::ShortTerm, self.config.warmup_count / 2);
             for data in short_term_memories {
                 let key = format!("st_{:016x}", Self::compute_content_hash(&data));
                 if self.add_to_cache_if_absent(&key, data) {
@@ -1292,7 +1325,7 @@ impl MemoryWarmer {
             let cache = self.cache.read();
             cache.get(key).map(|item| Arc::clone(&item.data))
         };
-        
+
         if let Some(data) = data {
             let mut cache = self.cache.write();
             if cache.contains_key(key) {
@@ -1305,7 +1338,7 @@ impl MemoryWarmer {
                 return Some(data);
             }
         }
-        
+
         let mut stats = self.stats.write();
         stats.cache_misses += 1;
         None
@@ -1335,7 +1368,7 @@ impl MemoryWarmer {
     /// 若键已存在但内容相同，视为已存在；若内容不同，生成新键
     fn add_to_cache_if_absent(&self, key: &str, data: Array2<f32>) -> bool {
         let mut cache = self.cache.write();
-        
+
         if let Some(existing) = cache.get(key) {
             if Self::data_equals(&existing.data, &data) {
                 return false;
@@ -1406,7 +1439,7 @@ impl MemoryWarmer {
     /// 计算记忆内容的哈希值
     fn compute_content_hash(data: &Array2<f32>) -> u64 {
         use std::collections::hash_map::DefaultHasher;
-        
+
         let mut hasher = DefaultHasher::new();
         data.shape().hash(&mut hasher);
         for val in data.iter() {
@@ -1489,8 +1522,8 @@ fn current_timestamp() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::MemoryConfig;
+    use super::*;
 
     fn create_test_memory_manager() -> MemoryManager {
         MemoryManager::new(MemoryConfig::default())

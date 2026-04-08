@@ -42,13 +42,13 @@ impl ActorNetwork {
     ) -> Self {
         let embedding_size = vocab_size * embedding_dim;
         let embedding = vec![0.0; embedding_size];
-        
+
         let qkv_size = embedding_dim * 3 * embedding_dim;
         let o_size = embedding_dim * embedding_dim;
         let gate_size = embedding_dim * hidden_dim;
         let up_size = embedding_dim * hidden_dim;
         let down_size = hidden_dim * embedding_dim;
-        
+
         let mut layers = Vec::with_capacity(num_layers);
         for _ in 0..num_layers {
             layers.push(ActorLayerWeights {
@@ -59,9 +59,9 @@ impl ActorNetwork {
                 down_proj: vec![0.0; down_size],
             });
         }
-        
+
         let output_proj = vec![0.0; embedding_dim * vocab_size];
-        
+
         Self {
             vocab_size,
             embedding_dim,
@@ -74,7 +74,7 @@ impl ActorNetwork {
             },
         }
     }
-    
+
     #[allow(dead_code)]
     pub fn from_pretrained(model: &crate::model::inference::model::MultimodalTransformer) -> Self {
         Self::new(
@@ -84,11 +84,11 @@ impl ActorNetwork {
             model.config.num_hidden_layers,
         )
     }
-    
+
     pub fn forward(&self, input_ids: &[usize]) -> Tensor {
         let seq_len = input_ids.len();
         let mut hidden_states = vec![0.0; seq_len * self.embedding_dim];
-        
+
         for (i, &token_id) in input_ids.iter().enumerate() {
             let start = token_id * self.embedding_dim;
             let end = start + self.embedding_dim;
@@ -98,24 +98,23 @@ impl ActorNetwork {
                 }
             }
         }
-        
+
         let mut hidden = Tensor::new(hidden_states, vec![seq_len, self.embedding_dim]);
-        
+
         for layer in &self.weights.layers {
             hidden = self.layer_forward(&hidden, layer);
         }
-        
-        
+
         self.compute_logits(&hidden)
     }
-    
+
     fn layer_forward(&self, hidden: &Tensor, _layer: &ActorLayerWeights) -> Tensor {
         let seq_len = hidden.size(0);
         let hidden_dim = self.embedding_dim;
-        
+
         let qkv_size = hidden_dim * 3 * hidden_dim;
         let mut qkv = vec![0.0; seq_len * qkv_size];
-        
+
         hidden
             .as_slice()
             .chunks(hidden_dim)
@@ -125,17 +124,17 @@ impl ActorNetwork {
                     qkv[i * hidden_dim * 3 * hidden_dim + j] = h[j % hidden_dim];
                 }
             });
-        
+
         Tensor::new(qkv, vec![seq_len, hidden_dim * 3])
     }
-    
+
     fn compute_logits(&self, hidden: &Tensor) -> Tensor {
         let seq_len = hidden.size(0);
         let vocab_size = self.vocab_size;
         let hidden_dim = self.embedding_dim;
-        
+
         let mut logits = vec![0.0; seq_len * vocab_size];
-        
+
         for i in 0..seq_len {
             for j in 0..vocab_size {
                 let mut sum = 0.0;
@@ -149,19 +148,19 @@ impl ActorNetwork {
                 logits[i * vocab_size + j] = sum;
             }
         }
-        
+
         Tensor::new(logits, vec![seq_len, vocab_size])
     }
-    
+
     pub fn get_log_probs(&self, input_ids: &[usize]) -> Tensor {
         let logits = self.forward(input_ids);
         let seq_len = logits.size(0);
         let vocab_size = logits.size(1);
-        
+
         let logits_data = logits.as_slice();
-        
+
         let mut log_probs = Vec::with_capacity(input_ids.len());
-        
+
         for i in 0..input_ids.len().min(seq_len) {
             let row_start = i * vocab_size;
             let row = &logits_data[row_start..row_start + vocab_size];
@@ -176,20 +175,20 @@ impl ActorNetwork {
             };
             log_probs.push(log_prob);
         }
-        
+
         let len = log_probs.len();
         Tensor::new(log_probs, vec![len])
     }
-    
+
     pub fn update(&mut self, _gradients: &[f32], _learning_rate: f32) {}
-    
+
     pub fn num_parameters(&self) -> usize {
         let layer_params = self.embedding_dim * 3 * self.embedding_dim
             + self.embedding_dim * self.embedding_dim
             + self.embedding_dim * self.hidden_dim
             + self.hidden_dim * self.embedding_dim
             + self.hidden_dim * self.embedding_dim;
-        
+
         self.weights.embedding.len()
             + self.num_layers * layer_params
             + self.weights.output_proj.len()
@@ -222,7 +221,7 @@ impl GRPOTrainer {
             group_size,
         }
     }
-    
+
     pub fn train_step(
         &mut self,
         prompts: &[Vec<usize>],
@@ -230,66 +229,69 @@ impl GRPOTrainer {
         reward_fn: &dyn Fn(&str, &str) -> f64,
     ) -> TrainingResult {
         use crate::rl::grpo::{
-            compute_group_relative_advantage, entropy_loss, policy_loss,
-            unbiased_kl_estimator,
+            compute_group_relative_advantage, entropy_loss, policy_loss, unbiased_kl_estimator,
         };
-        
+
         let mut all_rewards = Vec::new();
         let mut group_samples = Vec::new();
-        
+
         for prompt in prompts {
             let mut group_rewards = Vec::new();
             let mut samples = Vec::new();
-            
+
             for _ in 0..self.group_size {
                 let response_ids = self.actor_sample(prompt);
                 let response_text = self.ids_to_text(&response_ids);
                 let reward = reward_fn(&response_text, "");
                 let log_probs = self.actor.get_log_probs(&response_ids);
                 let old_log_probs = log_probs.clone();
-                
+
                 group_rewards.push(reward);
-                
+
                 samples.push(GroupSample::new(
-                    Tensor::new(prompt.iter().map(|&x| x as f32).collect(), vec![prompt.len()]),
-                    Tensor::new(response_ids.iter().map(|&x| x as f32).collect(), vec![response_ids.len()]),
+                    Tensor::new(
+                        prompt.iter().map(|&x| x as f32).collect(),
+                        vec![prompt.len()],
+                    ),
+                    Tensor::new(
+                        response_ids.iter().map(|&x| x as f32).collect(),
+                        vec![response_ids.len()],
+                    ),
                     log_probs,
                     old_log_probs,
                     vec![reward],
                 ));
             }
-            
-            let advantages = compute_group_relative_advantage(&group_rewards, self.config.advantage_norm_eps);
-            
+
+            let advantages =
+                compute_group_relative_advantage(&group_rewards, self.config.advantage_norm_eps);
+
             for (i, sample) in samples.iter_mut().enumerate() {
                 if i < advantages.len() {
-                    sample.set_advantage(Tensor::new(
-                        vec![advantages[i] as f32],
-                        vec![1],
-                    ));
+                    sample.set_advantage(Tensor::new(vec![advantages[i] as f32], vec![1]));
                 }
             }
-            
+
             all_rewards.extend(group_rewards);
             group_samples.extend(samples);
         }
-        
+
         let mut total_loss = 0.0f32;
         let mut total_kl = 0.0f32;
         let mut total_entropy = 0.0f32;
-        
+
         for sample in &group_samples {
             if let Some(adv) = &sample.advantage {
                 let ids_slice = sample.response_ids.as_slice();
                 let ids: Vec<usize> = ids_slice.iter().take(100).map(|&x| x as usize).collect();
                 let log_probs = self.actor.get_log_probs(&ids);
-                
+
                 let kl = unbiased_kl_estimator(&log_probs, &sample.old_log_probs, None);
                 total_kl += kl;
-                
+
                 let entropy = entropy_loss(&log_probs);
                 total_entropy += entropy;
-                
+
                 let loss = policy_loss(
                     &log_probs,
                     &sample.old_log_probs,
@@ -300,17 +302,17 @@ impl GRPOTrainer {
                 total_loss += loss;
             }
         }
-        
+
         let count = group_samples.len() as f32;
         if count > 0.0 {
             total_loss /= count;
             total_kl /= count;
             total_entropy /= count;
         }
-        
+
         let kl_penalty = total_kl * self.config.kl_coefficient as f32;
         let total = total_loss + kl_penalty - self.config.entropy_coef as f32 * total_entropy;
-        
+
         TrainingResult {
             total_loss: total as f64,
             policy_loss: total_loss as f64,
@@ -323,55 +325,58 @@ impl GRPOTrainer {
             },
         }
     }
-    
+
     fn actor_sample(&self, prompt: &[usize]) -> Vec<usize> {
         let mut tokens = prompt.to_vec();
         let max_new_tokens = 50;
-        
+
         for _ in 0..max_new_tokens {
             let logits = self.actor.forward(&tokens);
             let last_logits = logits.as_slice()[..self.actor.vocab_size].to_vec();
-            
-            let max_logit = last_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+            let max_logit = last_logits
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             let exp_logits: Vec<f32> = last_logits.iter().map(|x| (x - max_logit).exp()).collect();
             let sum_exp: f32 = exp_logits.iter().sum();
             let probs: Vec<f32> = exp_logits.iter().map(|x| x / sum_exp).collect();
-            
+
             let token = self.sample_from_probs(&probs);
             tokens.push(token);
-            
+
             if token == 2 {
                 break;
             }
         }
-        
+
         tokens
     }
-    
+
     fn sample_from_probs(&self, probs: &[f32]) -> usize {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let r: f32 = rng.gen();
         let mut cumsum = 0.0f32;
-        
+
         for (i, &p) in probs.iter().enumerate() {
             cumsum += p;
             if r <= cumsum {
                 return i;
             }
         }
-        
+
         probs.len() - 1
     }
-    
+
     fn ids_to_text(&self, _ids: &[usize]) -> String {
         "generated_response".to_string()
     }
-    
+
     pub fn get_actor(&self) -> &ActorNetwork {
         &self.actor
     }
-    
+
     pub fn get_actor_mut(&mut self) -> &mut ActorNetwork {
         &mut self.actor
     }
@@ -440,7 +445,7 @@ mod tests {
 
         // 基本验证：embedding + layers + output_proj
         let expected_embedding = 100 * 64; // vocab_size * embedding_dim
-        let expected_output = 64 * 100;     // embedding_dim * vocab_size
+        let expected_output = 64 * 100; // embedding_dim * vocab_size
         assert!(params >= expected_embedding + expected_output);
     }
 
@@ -529,11 +534,9 @@ mod tests {
         let mut trainer = GRPOTrainer::new(actor, config, 2);
 
         let prompts: Vec<Vec<usize>> = vec![];
-        let result = trainer.train_step(
-            &prompts,
-            &[],
-            &|_response: &str, _prompt: &str| -> f64 { 1.0 },
-        );
+        let result = trainer.train_step(&prompts, &[], &|_response: &str, _prompt: &str| -> f64 {
+            1.0
+        });
 
         // 空prompts应该返回0奖励和特定loss结构
         assert_eq!(result.mean_reward, 0.0);
@@ -547,11 +550,11 @@ mod tests {
         let mut trainer = GRPOTrainer::new(actor, config, 2);
 
         let prompts = vec![vec![1, 2, 3]];
-        let result = trainer.train_step(
-            &prompts,
-            &["expected".to_string()],
-            &|_response: &str, _prompt: &str| -> f64 { 0.8 },
-        );
+        let result = trainer.train_step(&prompts, &["expected".to_string()], &|_response: &str,
+                                                                               _prompt: &str|
+         -> f64 {
+            0.8
+        });
 
         // 验证结果结构有效（全零权重可能产生非有限值）
         assert!(result.mean_reward > 0.0 || result.mean_reward == 0.0);
@@ -608,8 +611,8 @@ mod tests {
     /// 测试：forward 多token输入 - 验证输出维度 [seq_len, vocab_size]（注意：size(0)=seq_len）
     #[test]
     fn test_forward_multi_token_output_shape() {
-        let actor = ActorNetwork::new(100, 64, 64, 1);  // 单层网络 embedding_dim=hidden_dim=64
-        let input_ids = vec![1, 2, 3, 4, 5];  // 5个token
+        let actor = ActorNetwork::new(100, 64, 64, 1); // 单层网络 embedding_dim=hidden_dim=64
+        let input_ids = vec![1, 2, 3, 4, 5]; // 5个token
 
         let output = actor.forward(&input_ids);
 
@@ -619,13 +622,13 @@ mod tests {
         assert_eq!(output.size(1), 100, "size(1) 应返回vocab_size");
 
         // 输出应该是2D张量
-        assert_eq!(output.as_slice().len(), 5 * 100);  // seq_len * vocab_size
+        assert_eq!(output.as_slice().len(), 5 * 100); // seq_len * vocab_size
     }
 
     /// 测试：get_log_probs - 验证log概率的数值范围和性质
     #[test]
     fn test_get_log_probs_value_range() {
-        let actor = ActorNetwork::new(50, 32, 32, 1);  // 单层网络
+        let actor = ActorNetwork::new(50, 32, 32, 1); // 单层网络
         let input_ids = vec![10, 20, 30];
 
         let log_probs = actor.get_log_probs(&input_ids);
@@ -635,11 +638,12 @@ mod tests {
 
         for &val in log_probs.as_slice() {
             // log概率应该 <= 0（因为 log(probability) <= 0）
-            assert!(val <= 0.0 || val == 0.0,
-                "log概率应<=0或为0.0，got {}", val);
+            assert!(val <= 0.0 || val == 0.0, "log概率应<=0或为0.0，got {}", val);
             // log概率应该是有限值或负无穷（当prob=0时）
-            assert!(val.is_finite() || val == f32::NEG_INFINITY || val == 0.0,
-                "log概率应为有限值、负无穷或0.0");
+            assert!(
+                val.is_finite() || val == f32::NEG_INFINITY || val == 0.0,
+                "log概率应为有限值、负无穷或0.0"
+            );
         }
     }
 
@@ -653,7 +657,7 @@ mod tests {
         assert!(actor1.num_parameters() > 0);
 
         // 大embedding_dim和多层级
-        let actor2 = ActorNetwork::new(1000, 512, 2048, 4);  // 注意: num_layers>1时embedding_dim应==hidden_dim? 实际代码中不强制
+        let actor2 = ActorNetwork::new(1000, 512, 2048, 4); // 注意: num_layers>1时embedding_dim应==hidden_dim? 实际代码中不强制
         assert_eq!(actor2.embedding_dim, 512);
         assert_eq!(actor2.hidden_dim, 2048);
         assert_eq!(actor2.num_layers, 4);
@@ -675,13 +679,16 @@ mod tests {
         // output_proj: embedding_dim * vocab_size = 4 * 10 = 40
         // 总计: 40 + 1*160 + 40 = 240
 
-        let expected_embedding = 10 * 4;   // 40
-        let expected_output = 4 * 10;      // 40
+        let expected_embedding = 10 * 4; // 40
+        let expected_output = 4 * 10; // 40
 
         // 参数数至少包含 embedding 和 output_proj
-        assert!(params >= expected_embedding + expected_output,
-            "参数数应>= embedding+output_proj, got {} < {}", 
-            params, expected_embedding + expected_output);
+        assert!(
+            params >= expected_embedding + expected_output,
+            "参数数应>= embedding+output_proj, got {} < {}",
+            params,
+            expected_embedding + expected_output
+        );
     }
 
     /// 测试：GRPOTrainer::train_step - 多prompts场景（覆盖循环逻辑）
@@ -692,11 +699,7 @@ mod tests {
         let mut trainer = GRPOTrainer::new(actor, config, 2);
 
         // 多个prompts
-        let prompts = vec![
-            vec![1, 2, 3],
-            vec![4, 5, 6],
-            vec![7, 8, 9],
-        ];
+        let prompts = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
 
         let result = trainer.train_step(
             &prompts,
@@ -706,7 +709,7 @@ mod tests {
 
         // 结果结构应该有效
         assert!(result.mean_reward > 0.0 || result.mean_reward == 0.0);
-        
+
         // display 方法不应panic
         let _display = result.display();
         assert!(_display.contains("Loss:"));
@@ -717,7 +720,7 @@ mod tests {
     fn test_trainer_minimal_group_size() {
         let actor = ActorNetwork::new(50, 32, 32, 1);
         let config = GRPOConfig::default();
-        let trainer = GRPOTrainer::new(actor, config, 1);  // group_size=1
+        let trainer = GRPOTrainer::new(actor, config, 1); // group_size=1
 
         assert_eq!(trainer.group_size, 1);
 
@@ -739,9 +742,15 @@ mod tests {
         assert_eq!(actor1.num_layers, actor2.num_layers);
 
         // 验证weights也被深拷贝（len相同）
-        assert_eq!(actor1.weights.embedding.len(), actor2.weights.embedding.len());
+        assert_eq!(
+            actor1.weights.embedding.len(),
+            actor2.weights.embedding.len()
+        );
         assert_eq!(actor1.weights.layers.len(), actor2.weights.layers.len());
-        assert_eq!(actor1.weights.output_proj.len(), actor2.weights.output_proj.len());
+        assert_eq!(
+            actor1.weights.output_proj.len(),
+            actor2.weights.output_proj.len()
+        );
 
         // 修改clone不应影响原始
         // （这里只验证独立性，不实际修改因为字段是私有的）
@@ -777,8 +786,8 @@ mod tests {
             total_loss: -1.0,
             policy_loss: -0.5,
             kl_divergence: 0.0,
-            entropy: 1.5,  // 可以>1
-            mean_reward: -0.5,  // 可以是负的
+            entropy: 1.5,      // 可以>1
+            mean_reward: -0.5, // 可以是负的
         };
         assert!(negative_result.display().contains("Loss:"));
     }

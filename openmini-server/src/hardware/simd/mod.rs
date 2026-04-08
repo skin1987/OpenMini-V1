@@ -45,7 +45,7 @@ impl SimdLevel {
                 Self::None
             }
         }
-        
+
         #[cfg(target_arch = "aarch64")]
         {
             // NEON 在 AArch64 上总是可用
@@ -58,13 +58,13 @@ impl SimdLevel {
                 Self::Level128
             }
         }
-        
+
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
         {
             Self::None
         }
     }
-    
+
     /// 获取 SIMD 宽度（位）
     pub fn width_bits(&self) -> usize {
         match self {
@@ -74,7 +74,7 @@ impl SimdLevel {
             Self::Level512 => 512,
         }
     }
-    
+
     /// 获取 SIMD 宽度（f32 元素数）
     pub fn width_f32(&self) -> usize {
         self.width_bits() / 32
@@ -142,7 +142,15 @@ pub trait SimdOps: Send + Sync {
     /// - `m`: 输出行数 M
     /// - `k`: 输入维度 K
     /// - `n`: 输出维度 N
-    fn fused_gemm_relu(&self, input: &[f32], weight: &[f32], bias: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+    fn fused_gemm_relu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        bias: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         for i in 0..m {
             for j in 0..n {
@@ -160,7 +168,14 @@ pub trait SimdOps: Send + Sync {
     ///
     /// 计算: output = silu(input @ weight)
     /// 融合优势: 减少一次中间结果的内存读写
-    fn fused_gemm_silu(&self, input: &[f32], weight: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+    fn fused_gemm_silu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         for i in 0..m {
             for j in 0..n {
@@ -177,7 +192,15 @@ pub trait SimdOps: Send + Sync {
     /// 矩阵乘法 + Add 融合 (Gemm + Add，用于残差连接)
     ///
     /// 计算: output = input @ weight + residual
-    fn fused_gemm_add(&self, input: &[f32], weight: &[f32], residual: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+    fn fused_gemm_add(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        residual: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         for i in 0..m {
             for j in 0..n {
@@ -206,19 +229,28 @@ pub trait SimdOps: Send + Sync {
     ///
     /// # 返回
     /// 输出矩阵 [M x head_dim]
-    fn fused_gemm_softmax(&self, query: &[f32], key: &[f32], value: &[f32], scale: f32, m: usize, k: usize, n: usize) -> Vec<f32> {
+    fn fused_gemm_softmax(
+        &self,
+        query: &[f32],
+        key: &[f32],
+        value: &[f32],
+        scale: f32,
+        m: usize,
+        k: usize,
+        n: usize,
+    ) -> Vec<f32> {
         let value_len = value.len();
         let head_dim = if n > 0 { value_len / n } else { 0 };
-        
+
         if head_dim == 0 || n == 0 || m == 0 || k == 0 {
             return vec![0.0f32; m * head_dim];
         }
-        
+
         let mut output = vec![0.0f32; m * head_dim];
-        
+
         for i in 0..m {
             let mut scores = vec![0.0f32; n];
-            
+
             for j in 0..n {
                 let mut score = 0.0f32;
                 for p in 0..k {
@@ -226,12 +258,12 @@ pub trait SimdOps: Send + Sync {
                 }
                 scores[j] = score * scale;
             }
-            
+
             let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let exp_scores: Vec<f32> = scores.iter().map(|&s| (s - max_score).exp()).collect();
             let sum_exp: f32 = exp_scores.iter().sum();
             let attn_weights: Vec<f32> = exp_scores.iter().map(|&e| e / sum_exp).collect();
-            
+
             for d in 0..head_dim {
                 let mut sum = 0.0f32;
                 for j in 0..n {
@@ -252,55 +284,57 @@ pub trait SimdOps: Send + Sync {
 pub struct ScalarOps;
 
 impl SimdOps for ScalarOps {
-    fn name(&self) -> &'static str { "scalar" }
+    fn name(&self) -> &'static str {
+        "scalar"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         a.iter().zip(b.iter()).map(|(&x, &y)| x + y).collect()
     }
-    
+
     fn mul(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         a.iter().zip(b.iter()).map(|(&x, &y)| x * y).collect()
     }
-    
+
     fn mul_scalar(&self, a: &[f32], scalar: f32) -> Vec<f32> {
         a.iter().map(|&x| x * scalar).collect()
     }
-    
+
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         a.iter().zip(b.iter()).map(|(&x, &y)| x - y).collect()
     }
-    
+
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         a.iter().zip(b.iter()).map(|(&x, &y)| x / y).collect()
     }
-    
+
     fn dot(&self, a: &[f32], b: &[f32]) -> f32 {
         a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
     }
-    
+
     fn sum(&self, a: &[f32]) -> f32 {
         a.iter().sum()
     }
-    
+
     fn max(&self, a: &[f32]) -> f32 {
         a.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
     }
-    
+
     fn min(&self, a: &[f32]) -> f32 {
         a.iter().cloned().fold(f32::INFINITY, f32::min)
     }
-    
+
     fn softmax(&self, a: &[f32]) -> Vec<f32> {
         let max_val = self.max(a);
         let exp_vals: Vec<f32> = a.iter().map(|&x| (x - max_val).exp()).collect();
         let sum_exp: f32 = exp_vals.iter().sum();
         exp_vals.iter().map(|&x| x / sum_exp).collect()
     }
-    
+
     fn relu(&self, a: &[f32]) -> Vec<f32> {
         a.iter().map(|&x| if x > 0.0 { x } else { 0.0 }).collect()
     }
-    
+
     fn silu(&self, a: &[f32]) -> Vec<f32> {
         a.iter().map(|&x| x / (1.0 + (-x).exp())).collect()
     }
@@ -338,7 +372,11 @@ pub fn create_simd_ops() -> Box<dyn SimdOps> {
         Box::new(LasxOps)
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "loongarch64")))]
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "loongarch64"
+    )))]
     {
         Box::new(ScalarOps)
     }
@@ -353,7 +391,7 @@ mod x86;
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unused_imports)]
-pub use x86::{SseOps, Avx2Ops};
+pub use x86::{Avx2Ops, SseOps};
 
 #[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
 pub use x86::Avx512Ops;
@@ -372,11 +410,11 @@ pub use arm::NeonOps;
 // 国产平台 SIMD 实现
 // ============================================================================
 
-mod native;
 mod faster_impl;
+mod native;
 
 #[cfg(target_arch = "loongarch64")]
-pub use native::{LsxOps, LasxOps};
+pub use native::{LasxOps, LsxOps};
 
 #[cfg(all(target_arch = "aarch64", not(target_feature = "sve")))]
 pub use native::PhytiumOps;
@@ -397,51 +435,51 @@ pub use faster_impl::PackedSimdOps;
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_simd_level_detect() {
         let level = SimdLevel::detect();
         // 至少应该有某种 SIMD 支持
         #[cfg(target_arch = "x86_64")]
         assert!(level >= SimdLevel::Level128);
-        
+
         #[cfg(target_arch = "aarch64")]
         assert_eq!(level, SimdLevel::Level128);
     }
-    
+
     #[test]
     fn test_scalar_ops() {
         let ops = ScalarOps;
-        
+
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![2.0, 3.0, 4.0, 5.0];
-        
+
         let sum = ops.add(&a, &b);
         assert_eq!(sum, vec![3.0, 5.0, 7.0, 9.0]);
-        
+
         let product = ops.mul(&a, &b);
         assert_eq!(product, vec![2.0, 6.0, 12.0, 20.0]);
-        
+
         let dot = ops.dot(&a, &b);
         assert!((dot - 40.0).abs() < 1e-5);
     }
-    
+
     #[test]
     fn test_softmax() {
         let ops = ScalarOps;
         let a = vec![1.0, 2.0, 3.0];
         let result = ops.softmax(&a);
-        
+
         let sum: f32 = result.iter().sum();
         assert!((sum - 1.0).abs() < 1e-5);
     }
-    
+
     #[test]
     fn test_create_simd_ops() {
         let ops = create_simd_ops();
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![2.0, 3.0, 4.0, 5.0];
-        
+
         let sum = ops.add(&a, &b);
         assert_eq!(sum.len(), 4);
     }
@@ -464,10 +502,10 @@ mod tests {
     /// 测试 SimdLevel 各变体的 width_f32() 分支（依赖 width_bits）
     #[test]
     fn test_simd_level_width_f32_all_variants() {
-        assert_eq!(SimdLevel::None.width_f32(), 0);       // 0/32=0
-        assert_eq!(SimdLevel::Level128.width_f32(), 4);   // 128/32=4
-        assert_eq!(SimdLevel::Level256.width_f32(), 8);   // 256/32=8
-        assert_eq!(SimdLevel::Level512.width_f32(), 16);  // 512/32=16
+        assert_eq!(SimdLevel::None.width_f32(), 0); // 0/32=0
+        assert_eq!(SimdLevel::Level128.width_f32(), 4); // 128/32=4
+        assert_eq!(SimdLevel::Level256.width_f32(), 8); // 256/32=8
+        assert_eq!(SimdLevel::Level512.width_f32(), 16); // 512/32=16
     }
 
     /// 测试 SimdLevel 的 Default trait 实现（调用 detect()）
@@ -547,8 +585,8 @@ mod tests {
         // SiLU(0) = 0 * sigmoid(0) = 0
         assert!((silu_result[2] - 0.0).abs() < 1e-6);
         // SiLU 对正负输入有不同行为
-        assert!(silu_result[3] > 0.0);  // 正数输入
-        assert!(silu_result[0] < 0.0);  // 负数输入
+        assert!(silu_result[3] > 0.0); // 正数输入
+        assert!(silu_result[0] < 0.0); // 负数输入
     }
 
     /// 测试空输入向量的边界条件
@@ -575,7 +613,7 @@ mod tests {
         assert_eq!(ops.add(&a, &b), vec![8.0]);
         assert_eq!(ops.mul(&a, &b), vec![15.0]);
         assert!((ops.dot(&a, &b) - 15.0).abs() < 1e-6);
-        
+
         // 单元素 softmax 结果应为 [1.0]
         let sm = ops.softmax(&a);
         assert_eq!(sm, vec![1.0]);
@@ -586,9 +624,9 @@ mod tests {
     fn test_fused_gemm_relu_small() {
         let ops = ScalarOps;
         // m=2, k=2, n=2 => 输出 4 个 f32，远小于 20KB
-        let input = vec![1.0, 2.0, 3.0, 4.0];     // [2x2]
-        let weight = vec![0.5, 0.5, 0.5, 0.5];    // [2x2]
-        let bias = vec![0.1, 0.1];                 // [2]
+        let input = vec![1.0, 2.0, 3.0, 4.0]; // [2x2]
+        let weight = vec![0.5, 0.5, 0.5, 0.5]; // [2x2]
+        let bias = vec![0.1, 0.1]; // [2]
 
         let output = ops.fused_gemm_relu(&input, &weight, &bias, 2, 2, 2);
         assert_eq!(output.len(), 4);
@@ -622,11 +660,11 @@ mod tests {
     fn test_fused_gemm_silu_small() {
         let ops = ScalarOps;
         // 小矩阵: m=2, k=2, n=2
-        let input = vec![1.0, 2.0, 3.0, 4.0];     // [2x2]
-        let weight = vec![0.5, 0.5, 0.5, 0.5];    // [2x2]
+        let input = vec![1.0, 2.0, 3.0, 4.0]; // [2x2]
+        let weight = vec![0.5, 0.5, 0.5, 0.5]; // [2x2]
 
         let output = ops.fused_gemm_silu(&input, &weight, 2, 2, 2);
-        assert_eq!(output.len(), 4);  // m*n = 4
+        assert_eq!(output.len(), 4); // m*n = 4
 
         // SiLU 输出应该在 [0, 1) 范围内或接近
         for &v in &output {
@@ -640,9 +678,9 @@ mod tests {
     fn test_fused_gemm_add_small() {
         let ops = ScalarOps;
         // m=2, k=2, n=2
-        let input = vec![1.0, 2.0, 3.0, 4.0];         // [2x2]
-        let weight = vec![0.1, 0.2, 0.3, 0.4];        // [2x2]
-        let residual = vec![0.5, 0.5, 0.5, 0.5];      // [2x2] 残差
+        let input = vec![1.0, 2.0, 3.0, 4.0]; // [2x2]
+        let weight = vec![0.1, 0.2, 0.3, 0.4]; // [2x2]
+        let residual = vec![0.5, 0.5, 0.5, 0.5]; // [2x2] 残差
 
         let output = ops.fused_gemm_add(&input, &weight, &residual, 2, 2, 2);
         assert_eq!(output.len(), 4);
@@ -657,7 +695,7 @@ mod tests {
     fn test_scalar_ops_div_by_zero() {
         let ops = ScalarOps;
         let a = vec![1.0, 2.0, 3.0];
-        let b = vec![0.0, 0.0, 0.0];  // 全零
+        let b = vec![0.0, 0.0, 0.0]; // 全零
 
         let result = ops.div(&a, &b);
 
@@ -665,8 +703,10 @@ mod tests {
         assert_eq!(result.len(), 3);
         for &v in &result {
             // 应该是无穷大或NaN，不是正常有限值
-            assert!(v.is_infinite() || v.is_nan() || v == f32::INFINITY || v == f32::NEG_INFINITY,
-                "除零应产生特殊浮点值");
+            assert!(
+                v.is_infinite() || v.is_nan() || v == f32::INFINITY || v == f32::NEG_INFINITY,
+                "除零应产生特殊浮点值"
+            );
         }
     }
 
@@ -689,7 +729,9 @@ mod tests {
         }
 
         // 最大值应对应最大概率
-        let max_idx = result.iter().enumerate()
+        let max_idx = result
+            .iter()
+            .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .map(|(i, _)| i)
             .unwrap();
@@ -705,10 +747,14 @@ mod tests {
         let result = ops.softmax(&uniform_vals);
 
         // 所有值相同，应该得到均匀分布
-        let expected_prob = 0.25;  // 1/4
+        let expected_prob = 0.25; // 1/4
         for &v in &result {
-            assert!((v - expected_prob).abs() < 1e-5,
-                "均匀输入应产生均匀分布，expected {} got {}", expected_prob, v);
+            assert!(
+                (v - expected_prob).abs() < 1e-5,
+                "均匀输入应产生均匀分布，expected {} got {}",
+                expected_prob,
+                v
+            );
         }
     }
 

@@ -13,8 +13,8 @@
 
 #![allow(dead_code)]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use super::arena::Arena;
 
@@ -56,7 +56,7 @@ impl MemoryPool {
         let arenas = (0..num_arenas)
             .map(|_| Arc::new(Arena::new(arena_size)))
             .collect();
-        
+
         Self {
             arenas,
             arena_size,
@@ -64,7 +64,7 @@ impl MemoryPool {
             num_arenas,
         }
     }
-    
+
     /// 分配内存
     ///
     /// 尝试从当前 Arena 分配，失败则轮询其他 Arena。
@@ -84,22 +84,22 @@ impl MemoryPool {
         if self.num_arenas == 0 {
             return None;
         }
-        
+
         let start_idx = self.current_arena.load(Ordering::Relaxed) % self.num_arenas;
-        
+
         for i in 0..self.num_arenas {
             let idx = (start_idx + i) % self.num_arenas;
-            
+
             if let Some(ptr) = self.arenas[idx].alloc(size, align) {
                 // 更新当前 Arena 索引（使用取模避免无限增长）
                 self.current_arena.store(idx, Ordering::Relaxed);
                 return Some(ptr);
             }
         }
-        
+
         None
     }
-    
+
     /// 重置所有 Arena
     ///
     /// # ⚠️ 线程安全警告
@@ -115,32 +115,32 @@ impl MemoryPool {
         }
         self.current_arena.store(0, Ordering::SeqCst);
     }
-    
+
     /// 获取总容量
     pub fn total_capacity(&self) -> usize {
         self.arena_size * self.num_arenas
     }
-    
+
     /// 获取总已使用量
     pub fn total_used(&self) -> usize {
         self.arenas.iter().map(|a| a.used()).sum()
     }
-    
+
     /// 获取总可用量
     pub fn total_available(&self) -> usize {
         self.arenas.iter().map(|a| a.available()).sum()
     }
-    
+
     /// 获取 Arena 数量
     pub fn num_arenas(&self) -> usize {
         self.num_arenas
     }
-    
+
     /// 获取每个 Arena 的大小
     pub fn arena_size(&self) -> usize {
         self.arena_size
     }
-    
+
     /// 获取内存使用率
     pub fn utilization(&self) -> f64 {
         let total = self.total_capacity();
@@ -164,7 +164,10 @@ impl std::fmt::Debug for MemoryPool {
             .field("arena_size", &self.arena_size)
             .field("total_capacity", &self.total_capacity())
             .field("total_used", &self.total_used())
-            .field("utilization", &format!("{:.2}%", self.utilization() * 100.0))
+            .field(
+                "utilization",
+                &format!("{:.2}%", self.utilization() * 100.0),
+            )
             .finish()
     }
 }
@@ -184,7 +187,7 @@ mod tests {
     #[test]
     fn test_pool_alloc() {
         let pool = MemoryPool::new(1024, 2);
-        
+
         let ptr = pool.alloc(128, 8);
         assert!(ptr.is_some());
         assert!(pool.total_used() > 0);
@@ -193,15 +196,15 @@ mod tests {
     #[test]
     fn test_pool_alloc_switch_arena() {
         let pool = MemoryPool::new(128, 2);
-        
+
         // 填满第一个 Arena
         let ptr1 = pool.alloc(64, 8);
         assert!(ptr1.is_some());
-        
+
         // 继续分配，应该切换到第二个 Arena
         let ptr2 = pool.alloc(64, 8);
         assert!(ptr2.is_some());
-        
+
         // 两个 Arena 都应该有使用
         assert!(pool.total_used() > 0);
     }
@@ -209,11 +212,11 @@ mod tests {
     #[test]
     fn test_pool_exhausted() {
         let pool = MemoryPool::new(64, 1);
-        
+
         // 分配填满 Arena
         let ptr1 = pool.alloc(64, 8);
         assert!(ptr1.is_some());
-        
+
         // 再分配应该失败
         let ptr2 = pool.alloc(64, 8);
         assert!(ptr2.is_none());
@@ -222,10 +225,10 @@ mod tests {
     #[test]
     fn test_pool_reset() {
         let pool = MemoryPool::new(1024, 2);
-        
+
         pool.alloc(128, 8);
         assert!(pool.total_used() > 0);
-        
+
         pool.reset();
         assert_eq!(pool.total_used(), 0);
     }
@@ -234,7 +237,7 @@ mod tests {
     fn test_pool_utilization() {
         let pool = MemoryPool::new(1024, 1);
         assert_eq!(pool.utilization(), 0.0);
-        
+
         pool.alloc(512, 8);
         assert!(pool.utilization() > 0.0);
     }
@@ -251,7 +254,7 @@ mod tests {
         let pool = MemoryPool::new(1024, 0);
         assert_eq!(pool.num_arenas(), 0);
         assert_eq!(pool.total_capacity(), 0);
-        
+
         // 分配应该失败
         let ptr = pool.alloc(64, 8);
         assert!(ptr.is_none());
@@ -288,11 +291,11 @@ mod tests {
     fn test_pool_debug_format() {
         // 测试Debug trait实现
         let pool = MemoryPool::new(2048, 2);
-        
+
         pool.alloc(512, 8);
-        
+
         let debug_str = format!("{:?}", pool);
-        
+
         // 验证包含关键字段
         assert!(debug_str.contains("num_arenas"));
         assert!(debug_str.contains("arena_size"));
@@ -326,9 +329,7 @@ mod tests {
         // 测试在同一Arena中多次小分配
         let pool = MemoryPool::new(1024, 1);
 
-        let ptrs: Vec<_> = (0..10)
-            .map(|_| pool.alloc(64, 8))
-            .collect();
+        let ptrs: Vec<_> = (0..10).map(|_| pool.alloc(64, 8)).collect();
 
         // 所有分配都应该成功
         for ptr in &ptrs {
@@ -366,7 +367,7 @@ mod tests {
 
         // 测试不同的对齐要求：1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024
         let alignments = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
-        
+
         for &align in &alignments {
             let ptr = pool.alloc(64, align);
             assert!(ptr.is_some(), "分配失败: size=64, align={}", align);
@@ -420,11 +421,11 @@ mod tests {
     #[test]
     fn test_pool_arc_sharing() {
         let pool = MemoryPool::new(1024, 2);
-        
+
         // 分配一些内存
         pool.alloc(256, 8);
         assert!(pool.total_used() > 0);
-        
+
         // 由于使用 Arc，可以通过引用共享
         let pool_ref = &pool;
         assert_eq!(pool_ref.num_arenas(), pool.num_arenas());
@@ -478,7 +479,7 @@ mod tests {
                 // 可能 Arena 已满，这也是可接受的行为
                 break;
             }
-            
+
             // 防止无限循环
             if i >= 19 {
                 break;

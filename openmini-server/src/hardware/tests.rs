@@ -4,58 +4,65 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::hardware::{
-        HardwareProfile, HardwareLevel, HardwareClassifier,
-        AdaptiveScheduler, MemoryStrategy,
-        detect_hardware, get_hardware_level, get_recommended_strategy,
-    };
     #[allow(unused_imports)]
     use crate::hardware::detector::{
-        CpuInfo, GpuInfo, MemoryInfo, SimdCapabilities,
-        CpuArch, GpuType, HyperthreadTopology, CacheTopology, NumaTopology,
+        CacheTopology, CpuArch, CpuInfo, GpuInfo, GpuType, HyperthreadTopology, MemoryInfo,
+        NumaTopology, SimdCapabilities,
     };
-    
+    use crate::hardware::{
+        detect_hardware, get_hardware_level, get_recommended_strategy, AdaptiveScheduler,
+        HardwareClassifier, HardwareLevel, HardwareProfile, MemoryStrategy,
+    };
+
     #[test]
     fn test_hardware_detection() {
         let profile = HardwareProfile::detect();
-        
+
         assert!(profile.cpu.physical_cores > 0, "CPU cores should be > 0");
-        assert!(profile.cpu.logical_cores >= profile.cpu.physical_cores, "Logical cores >= physical cores");
+        assert!(
+            profile.cpu.logical_cores >= profile.cpu.physical_cores,
+            "Logical cores >= physical cores"
+        );
         assert!(profile.memory.total_gb > 0, "Memory should be > 0 GB");
-        
-        println!("CPU: {} physical, {} logical cores", 
-                 profile.cpu.physical_cores, profile.cpu.logical_cores);
+
+        println!(
+            "CPU: {} physical, {} logical cores",
+            profile.cpu.physical_cores, profile.cpu.logical_cores
+        );
         println!("Memory: {} GB total", profile.memory.total_gb);
         println!("SIMD: {:?}", profile.cpu.simd);
     }
-    
+
     #[test]
     fn test_hardware_classification() {
         let profile = HardwareProfile::detect();
         let classifier = HardwareClassifier::new(profile);
-        
+
         let level = classifier.level();
         let device_type = classifier.device_type();
-        
-        assert!(level >= HardwareLevel::Entry, "Level should be at least Entry");
-        
+
+        assert!(
+            level >= HardwareLevel::Entry,
+            "Level should be at least Entry"
+        );
+
         println!("Hardware Level: {:?}", level);
         println!("Device Type: {:?}", device_type);
     }
-    
+
     #[test]
     fn test_minimum_requirements() {
         let profile = HardwareProfile::detect();
         let classifier = HardwareClassifier::new(profile);
-        
+
         let strategy = classifier.recommended_strategy();
         println!("Recommended strategy: {:?}", strategy);
     }
-    
+
     #[test]
     fn test_scheduler_creation() {
         let scheduler = AdaptiveScheduler::new();
-        
+
         let config = scheduler.config();
         println!("Schedule Strategy: {:?}", config.strategy);
         println!("Attention Strategy: {:?}", config.attention);
@@ -67,57 +74,57 @@ mod tests {
         println!("KV Cache Size: {} MB", config.kv_cache_size);
         println!("Batch Size: {}", config.batch_size);
     }
-    
+
     #[test]
     fn test_scheduler_dsa_k() {
         let scheduler = AdaptiveScheduler::new();
-        
+
         let k_512 = scheduler.recommended_dsa_k(512);
         let k_1024 = scheduler.recommended_dsa_k(1024);
         let k_4096 = scheduler.recommended_dsa_k(4096);
-        
+
         println!("DSA K for 512: {}", k_512);
         println!("DSA K for 1024: {}", k_1024);
         println!("DSA K for 4096: {}", k_4096);
-        
+
         assert!(k_512 > 0 && k_512 <= 512);
         assert!(k_1024 > 0 && k_1024 <= 1024);
         assert!(k_4096 > 0 && k_4096 <= 4096);
     }
-    
+
     #[test]
     fn test_memory_adjustment() {
         let mut scheduler = AdaptiveScheduler::new();
-        
+
         scheduler.adjust_for_memory(512);
         assert_eq!(scheduler.config().memory, MemoryStrategy::SmallArena);
-        
+
         scheduler.adjust_for_memory(2048);
         assert_eq!(scheduler.config().memory, MemoryStrategy::StandardArena);
-        
+
         scheduler.adjust_for_memory(8192);
         assert_eq!(scheduler.config().memory, MemoryStrategy::PagedAttention);
     }
-    
+
     #[test]
     fn test_sequence_length_adjustment() {
         let mut scheduler = AdaptiveScheduler::new();
-        
+
         scheduler.adjust_for_sequence_length(1024);
         println!("Attention for 1024: {:?}", scheduler.config().attention);
-        
+
         scheduler.adjust_for_sequence_length(8192);
         println!("Attention for 8192: {:?}", scheduler.config().attention);
     }
-    
+
     #[test]
     fn test_convenience_functions() {
         let profile = detect_hardware();
         assert!(profile.cpu.physical_cores > 0);
-        
+
         let level = get_hardware_level();
         assert!(level >= HardwareLevel::Entry);
-        
+
         let strategy = get_recommended_strategy();
         assert!(strategy.use_simd);
     }
@@ -126,16 +133,16 @@ mod tests {
 #[cfg(test)]
 mod apple_silicon_tests {
     #[allow(unused_imports)]
-    use crate::hardware::{HardwareProfile, CpuArch};
-    
+    use crate::hardware::{CpuArch, HardwareProfile};
+
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_apple_silicon_detection() {
         let profile = HardwareProfile::detect();
-        
+
         assert_eq!(profile.cpu.arch, CpuArch::AArch64);
         assert!(profile.cpu.simd.neon);
-        
+
         println!("Apple Silicon detected!");
         println!("NEON support: {}", profile.cpu.simd.neon);
     }
@@ -143,16 +150,16 @@ mod apple_silicon_tests {
 
 #[cfg(test)]
 mod intel_mac_tests {
-    use crate::hardware::{HardwareProfile, CpuArch};
-    
+    use crate::hardware::{CpuArch, HardwareProfile};
+
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_intel_mac_detection() {
         let profile = HardwareProfile::detect();
-        
+
         assert_eq!(profile.cpu.arch, CpuArch::X86_64);
         assert!(profile.cpu.simd.sse42 || profile.cpu.simd.avx2);
-        
+
         println!("Intel Mac detected!");
         println!("SSE4.2 support: {}", profile.cpu.simd.sse42);
         println!("AVX2 support: {}", profile.cpu.simd.avx2);
@@ -161,14 +168,12 @@ mod intel_mac_tests {
 
 #[cfg(test)]
 mod simulated_low_end_tests {
-    use crate::hardware::{
-        HardwareProfile, HardwareClassifier, HardwareLevel, CpuBackendType,
-    };
     use crate::hardware::detector::{
-        CpuInfo, GpuInfo, MemoryInfo, SimdCapabilities,
-        CpuArch, GpuType, HyperthreadTopology, CacheTopology, NumaTopology,
+        CacheTopology, CpuArch, CpuInfo, GpuInfo, GpuType, HyperthreadTopology, MemoryInfo,
+        NumaTopology, SimdCapabilities,
     };
-    
+    use crate::hardware::{CpuBackendType, HardwareClassifier, HardwareLevel, HardwareProfile};
+
     #[test]
     fn test_entry_level_classification() {
         let low_end_profile = HardwareProfile {
@@ -211,14 +216,14 @@ mod simulated_low_end_tests {
             cache: CacheTopology::default(),
             numa: NumaTopology::default(),
         };
-        
+
         let classifier = HardwareClassifier::new(low_end_profile);
         let level = classifier.level();
-        
+
         println!("Entry level profile classified as: {:?}", level);
         assert!(level >= HardwareLevel::Entry);
     }
-    
+
     #[test]
     fn test_mobile_level_classification() {
         let mobile_profile = HardwareProfile {
@@ -261,14 +266,14 @@ mod simulated_low_end_tests {
             cache: CacheTopology::default(),
             numa: NumaTopology::default(),
         };
-        
+
         let classifier = HardwareClassifier::new(mobile_profile);
         let level = classifier.level();
-        
+
         println!("Mobile profile classified as: {:?}", level);
         assert!(level >= HardwareLevel::Entry);
     }
-    
+
     #[test]
     fn test_server_level_classification() {
         let server_profile = HardwareProfile {
@@ -311,10 +316,10 @@ mod simulated_low_end_tests {
             cache: CacheTopology::default(),
             numa: NumaTopology::default(),
         };
-        
+
         let classifier = HardwareClassifier::new(server_profile);
         let level = classifier.level();
-        
+
         println!("Server profile classified as: {:?}", level);
         assert!(level >= HardwareLevel::Server);
     }
@@ -324,7 +329,7 @@ mod simulated_low_end_tests {
     #[test]
     fn test_cross_module_simd_consistency() {
         // 覆盖分支: 跨 SIMD 模块的结果一致性验证
-        use crate::hardware::simd::{SseOps, SimdOps};
+        use crate::hardware::simd::{SimdOps, SseOps};
 
         let sse_ops = SseOps;
         let test_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
@@ -422,8 +427,10 @@ mod simulated_low_end_tests {
 
         // 如果是 ARM 平台，NEON 应该可用
         #[cfg(target_arch = "aarch64")]
-        assert!(simd.neon || cfg!(target_feature = "sve"),
-            "ARM64 should support NEON or SVE");
+        assert!(
+            simd.neon || cfg!(target_feature = "sve"),
+            "ARM64 should support NEON or SVE"
+        );
 
         // 如果支持 SVE2，必须支持 SVE
         if simd.sve2 {
@@ -468,7 +475,8 @@ mod simulated_low_end_tests {
             let ratio = logical as f32 / physical as f32;
             assert!(
                 (ratio - 2.0).abs() < 0.5 || ratio == 1.0,
-                "Hyperthreading ratio unusual: {:.1}", ratio
+                "Hyperthreading ratio unusual: {:.1}",
+                ratio
             );
         } else {
             // 无超线程时，逻辑核数应等于物理核数
@@ -489,7 +497,7 @@ mod simulated_low_end_tests {
         // 3. 激活函数 (ReLU/SiLU)
         // 4. 输出后处理
 
-        use crate::hardware::simd::{SseOps, SimdOps};
+        use crate::hardware::simd::{SimdOps, SseOps};
         let ops = SseOps;
 
         // Step 1: 输入预处理 - 归一化到 [0, 1]

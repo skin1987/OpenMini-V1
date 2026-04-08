@@ -111,7 +111,12 @@ pub struct Request {
 
 impl Request {
     /// 创建新请求
-    pub fn new(request_type: RequestType, session_id: String, payload: Bytes, stream: bool) -> Self {
+    pub fn new(
+        request_type: RequestType,
+        session_id: String,
+        payload: Bytes,
+        stream: bool,
+    ) -> Self {
         Self {
             request_type,
             session_id,
@@ -278,9 +283,9 @@ impl Gateway {
     /// 运行网关主循环
     pub async fn run(&self) -> Result<()> {
         let listener = TcpListener::bind(self.addr).await?;
-        
+
         tracing::info!("Gateway listening on {}", self.addr);
-        
+
         loop {
             if self.shutdown_flag.load(Ordering::Relaxed) {
                 tracing::info!("Gateway shutting down");
@@ -288,19 +293,24 @@ impl Gateway {
             }
 
             let accept_result = timeout(Duration::from_millis(100), listener.accept()).await;
-            
+
             match accept_result {
                 Ok(Ok((stream, peer_addr))) => {
                     let permit = match self.connection_semaphore.clone().try_acquire_owned() {
                         Ok(permit) => permit,
                         Err(_) => {
-                            tracing::warn!("Connection limit reached, rejecting connection from {}", peer_addr);
+                            tracing::warn!(
+                                "Connection limit reached, rejecting connection from {}",
+                                peer_addr
+                            );
                             continue;
                         }
                     };
 
                     self.stats.total_connections.fetch_add(1, Ordering::Relaxed);
-                    self.stats.active_connections.fetch_add(1, Ordering::Relaxed);
+                    self.stats
+                        .active_connections
+                        .fetch_add(1, Ordering::Relaxed);
 
                     let stats = Arc::clone(&self.stats);
                     let shutdown_flag = Arc::clone(&self.shutdown_flag);
@@ -372,7 +382,7 @@ impl Gateway {
 
                     while let Some(request) = Self::parse_request(&mut buffer)? {
                         stats.total_requests.fetch_add(1, Ordering::Relaxed);
-                        
+
                         if session_id.is_none() {
                             session_id = Some(request.session_id.clone());
                         }
@@ -386,7 +396,10 @@ impl Gateway {
 
                                 match write_result {
                                     Ok(Ok(_)) => {
-                                        stats.bytes_sent.fetch_add(response.payload.len() as u64, Ordering::Relaxed);
+                                        stats.bytes_sent.fetch_add(
+                                            response.payload.len() as u64,
+                                            Ordering::Relaxed,
+                                        );
                                         stats.successful_requests.fetch_add(1, Ordering::Relaxed);
                                         stream.flush().await?;
                                     }
@@ -396,7 +409,9 @@ impl Gateway {
                                     }
                                     Err(_) => {
                                         stats.failed_requests.fetch_add(1, Ordering::Relaxed);
-                                        return Err(GatewayError::Timeout("Write timeout".to_string()));
+                                        return Err(GatewayError::Timeout(
+                                            "Write timeout".to_string(),
+                                        ));
                                     }
                                 }
                             }
@@ -480,34 +495,32 @@ impl Gateway {
             Bytes::new()
         };
 
-        Ok(Some(Request::new(request_type, session_id, actual_payload, stream)))
+        Ok(Some(Request::new(
+            request_type,
+            session_id,
+            actual_payload,
+            stream,
+        )))
     }
 
     /// 分发请求到处理器
-    async fn dispatch_request(
-        request: Request,
-        worker_pool: &Arc<ThreadPool>,
-    ) -> Result<Response> {
+    async fn dispatch_request(request: Request, worker_pool: &Arc<ThreadPool>) -> Result<Response> {
         match request.request_type {
-            RequestType::Chat => {
-                Self::handle_chat_request(request, worker_pool).await
-            }
+            RequestType::Chat => Self::handle_chat_request(request, worker_pool).await,
             RequestType::ImageUnderstanding => {
                 Self::handle_image_request(request, worker_pool, false).await
             }
             RequestType::ImageUnderstandingStream => {
                 Self::handle_image_request(request, worker_pool, true).await
             }
-            RequestType::HealthCheck => {
-                Ok(Response::new(
-                    request.session_id,
-                    Bytes::from_static(b"OK"),
-                    true,
-                ))
-            }
-            RequestType::Unknown => {
-                Err(GatewayError::InvalidRequest("Unknown request type".to_string()))
-            }
+            RequestType::HealthCheck => Ok(Response::new(
+                request.session_id,
+                Bytes::from_static(b"OK"),
+                true,
+            )),
+            RequestType::Unknown => Err(GatewayError::InvalidRequest(
+                "Unknown request type".to_string(),
+            )),
         }
     }
 
@@ -524,9 +537,7 @@ impl Gateway {
 
         pool.execute(move || {
             let response = Self::process_chat_sync(session_id, payload);
-            let _ = futures::executor::block_on(async {
-                tx.send(response).await
-            });
+            let _ = futures::executor::block_on(async { tx.send(response).await });
         });
 
         match timeout(REQUEST_TIMEOUT, rx.recv()).await {
@@ -555,9 +566,7 @@ impl Gateway {
 
         pool.execute(move || {
             let response = Self::process_image_sync(session_id, payload);
-            let _ = futures::executor::block_on(async {
-                tx.send(response).await
-            });
+            let _ = futures::executor::block_on(async { tx.send(response).await });
         });
 
         match timeout(REQUEST_TIMEOUT, rx.recv()).await {
@@ -707,13 +716,16 @@ impl ResponseStream {
     /// 发送响应
     pub async fn send(&mut self, payload: Bytes, finished: bool) -> Result<()> {
         if self.finished {
-            return Err(GatewayError::Internal("Stream already finished".to_string()));
+            return Err(GatewayError::Internal(
+                "Stream already finished".to_string(),
+            ));
         }
 
         let response = Response::new(self.session_id.clone(), payload, finished);
-        self.tx.send(response).await.map_err(|_| {
-            GatewayError::Internal("Failed to send response".to_string())
-        })?;
+        self.tx
+            .send(response)
+            .await
+            .map_err(|_| GatewayError::Internal("Failed to send response".to_string()))?;
 
         if finished {
             self.finished = true;
@@ -753,11 +765,7 @@ mod tests {
 
     #[test]
     fn test_response_new() {
-        let response = Response::new(
-            "session-123".to_string(),
-            Bytes::from_static(b"test"),
-            true,
-        );
+        let response = Response::new("session-123".to_string(), Bytes::from_static(b"test"), true);
         assert_eq!(response.session_id, "session-123");
         assert!(response.finished);
         assert!(response.error.is_none());
@@ -765,10 +773,7 @@ mod tests {
 
     #[test]
     fn test_response_with_error() {
-        let response = Response::with_error(
-            "session-123".to_string(),
-            "error message".to_string(),
-        );
+        let response = Response::with_error("session-123".to_string(), "error message".to_string());
         assert!(response.error.is_some());
         assert!(response.finished);
     }
@@ -894,7 +899,9 @@ mod tests {
         stats.total_requests.fetch_add(1000, Ordering::Relaxed);
         stats.successful_requests.fetch_add(950, Ordering::Relaxed);
         stats.failed_requests.fetch_add(50, Ordering::Relaxed);
-        stats.bytes_received.fetch_add(1024 * 1024, Ordering::Relaxed); // 1MB
+        stats
+            .bytes_received
+            .fetch_add(1024 * 1024, Ordering::Relaxed); // 1MB
         stats.bytes_sent.fetch_add(512 * 1024, Ordering::Relaxed); // 512KB
 
         let snapshot = stats.snapshot();
@@ -977,10 +984,7 @@ mod tests {
     fn test_response_error_message_preserved() {
         // 测试错误消息保留
         let error_msg = "Detailed error information for debugging";
-        let response = Response::with_error(
-            "error-session".to_string(),
-            error_msg.to_string(),
-        );
+        let response = Response::with_error("error-session".to_string(), error_msg.to_string());
 
         assert_eq!(response.error.as_deref(), Some(error_msg));
         assert!(response.finished);
@@ -1180,7 +1184,7 @@ mod tests {
         let error_cases: Vec<(&str, &str)> = vec![
             ("timeout error", "request timeout exceeded"),
             ("memory error", "out of memory allocating buffer"),
-            ("", ""), // 空错误消息
+            ("", ""),                                           // 空错误消息
             (long_error_msg.as_str(), long_error_msg.as_str()), // 长错误消息 (<20KB)
         ];
 

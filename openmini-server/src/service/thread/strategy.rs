@@ -5,8 +5,8 @@
 #![allow(dead_code)]
 
 use crate::hardware::{
-    CpuAffinity, HyperthreadTopology, NumaTopology,
-    TaskType, CoreSelectionStrategy, HyperthreadEfficiency,
+    CoreSelectionStrategy, CpuAffinity, HyperthreadEfficiency, HyperthreadTopology, NumaTopology,
+    TaskType,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -61,7 +61,7 @@ impl Default for ParallelExecutionConfig {
         let topology = HyperthreadTopology::detect();
         let numa = NumaTopology::detect();
         let affinity = CpuAffinity::new(topology.clone(), numa);
-        
+
         Self {
             strategy: ParallelStrategy::DataParallel,
             load_balance: LoadBalanceStrategy::Dynamic,
@@ -81,7 +81,7 @@ impl ParallelExecutionConfig {
         config.load_balance = LoadBalanceStrategy::Static;
         config
     }
-    
+
     /// 创建 I/O 密集型配置
     pub fn io_intensive() -> Self {
         let mut config = Self::default();
@@ -89,7 +89,7 @@ impl ParallelExecutionConfig {
         config.load_balance = LoadBalanceStrategy::Dynamic;
         config
     }
-    
+
     /// 创建混合型配置
     pub fn mixed() -> Self {
         let mut config = Self::default();
@@ -115,46 +115,46 @@ impl TaskPartitioner {
     pub fn new(config: ParallelExecutionConfig) -> Self {
         let topology = HyperthreadTopology::detect();
         let efficiency = HyperthreadEfficiency::estimate(&topology, TaskType::ComputeIntensive);
-        
+
         Self {
             config,
             topology,
             efficiency,
         }
     }
-    
+
     /// 使用默认配置创建
     pub fn default_partitioner() -> Self {
         Self::new(ParallelExecutionConfig::default())
     }
-    
+
     /// 划分任务范围
     pub fn partition_range(&self, total: usize) -> Vec<(usize, usize)> {
         if total == 0 {
             return Vec::new();
         }
-        
+
         let num_workers = self.config.parallelism;
         let chunk_size = self.calculate_chunk_size(total, num_workers);
-        
+
         let mut partitions = Vec::with_capacity(num_workers);
         let mut start = 0;
-        
+
         while start < total {
             let end = (start + chunk_size).min(total);
             partitions.push((start, end));
             start = end;
         }
-        
+
         partitions
     }
-    
+
     /// 根据负载均衡策略计算块大小
     fn calculate_chunk_size(&self, total: usize, num_workers: usize) -> usize {
         if num_workers == 0 {
             return total;
         }
-        
+
         match self.config.load_balance {
             LoadBalanceStrategy::Static => {
                 let base_size = total / num_workers;
@@ -175,14 +175,18 @@ impl TaskPartitioner {
             }
         }
     }
-    
+
     /// 划分任务到核心
     pub fn partition_to_cores(&self, total: usize) -> Vec<(usize, usize, usize)> {
         let partitions = self.partition_range(total);
         let affinity = CpuAffinity::new(self.topology.clone(), NumaTopology::detect());
-        let cores = affinity.select_cores(self.config.strategy.to_core_strategy(), Some(partitions.len()));
-        
-        partitions.into_iter()
+        let cores = affinity.select_cores(
+            self.config.strategy.to_core_strategy(),
+            Some(partitions.len()),
+        );
+
+        partitions
+            .into_iter()
             .enumerate()
             .map(|(i, (start, end))| {
                 let core_id = cores.get(i).copied().unwrap_or(i);
@@ -190,24 +194,24 @@ impl TaskPartitioner {
             })
             .collect()
     }
-    
+
     /// 获取最优并行度
     pub fn optimal_parallelism(&self, task_size: usize) -> usize {
         if task_size < self.config.min_granularity {
             return 1;
         }
-        
+
         let max_parallel = self.config.parallelism;
         let task_based = task_size / self.config.min_granularity;
-        
+
         max_parallel.min(task_based)
     }
-    
+
     /// 获取配置
     pub fn config(&self) -> &ParallelExecutionConfig {
         &self.config
     }
-    
+
     /// 获取拓扑
     pub fn topology(&self) -> &HyperthreadTopology {
         &self.topology
@@ -248,7 +252,7 @@ impl DynamicScheduler {
         } else {
             total
         };
-        
+
         Self {
             current: Arc::new(AtomicUsize::new(0)),
             total,
@@ -256,7 +260,7 @@ impl DynamicScheduler {
             config,
         }
     }
-    
+
     /// 获取下一个任务范围
     pub fn next_chunk(&self) -> Option<(usize, usize)> {
         loop {
@@ -264,9 +268,9 @@ impl DynamicScheduler {
             if start >= self.total {
                 return None;
             }
-            
+
             let end = (start + self.chunk_size).min(self.total);
-            
+
             match self.current.compare_exchange_weak(
                 start,
                 end,
@@ -278,13 +282,13 @@ impl DynamicScheduler {
             }
         }
     }
-    
+
     /// 获取剩余任务数
     pub fn remaining(&self) -> usize {
         let current = self.current.load(Ordering::Relaxed);
         self.total.saturating_sub(current)
     }
-    
+
     /// 重置调度器
     pub fn reset(&self) {
         self.current.store(0, Ordering::SeqCst);
@@ -313,7 +317,7 @@ impl GuidedScheduler {
             min_chunk,
         }
     }
-    
+
     /// 获取下一个任务范围
     pub fn next_chunk(&self) -> Option<(usize, usize)> {
         loop {
@@ -321,11 +325,11 @@ impl GuidedScheduler {
             if start >= self.total {
                 return None;
             }
-            
+
             let remaining = self.total - start;
             let chunk_size = (remaining / self.num_workers).max(self.min_chunk);
             let end = (start + chunk_size).min(self.total);
-            
+
             match self.current.compare_exchange_weak(
                 start,
                 end,
@@ -337,7 +341,7 @@ impl GuidedScheduler {
             }
         }
     }
-    
+
     /// 获取剩余任务数
     pub fn remaining(&self) -> usize {
         let current = self.current.load(Ordering::Relaxed);
@@ -373,25 +377,29 @@ impl CacheFriendlyLayout {
     /// 从硬件检测创建
     pub fn from_hardware() -> Self {
         let cache = crate::hardware::CacheTopology::detect();
-        
+
         Self {
             cache_line_size: cache.cache_line_size(),
-            l1_cache_size: cache.l1_data_caches.first()
+            l1_cache_size: cache
+                .l1_data_caches
+                .first()
                 .map(|c| c.size_kb * 1024)
                 .unwrap_or(32 * 1024),
-            l2_cache_size: cache.l2_caches.first()
+            l2_cache_size: cache
+                .l2_caches
+                .first()
                 .map(|c| c.size_kb * 1024)
                 .unwrap_or(256 * 1024),
             l3_cache_size: cache.total_l3_size_kb() * 1024,
         }
     }
-    
+
     /// 计算对齐到缓存行的大小
     pub fn align_to_cache_line(&self, size: usize) -> usize {
         let mask = self.cache_line_size - 1;
         (size + mask) & !mask
     }
-    
+
     /// 计算适合 L1 缓存的块大小
     pub fn l1_friendly_block_size(&self, element_size: usize) -> usize {
         if element_size == 0 {
@@ -399,7 +407,7 @@ impl CacheFriendlyLayout {
         }
         self.l1_cache_size / element_size / 2
     }
-    
+
     /// 计算适合 L2 缓存的块大小
     pub fn l2_friendly_block_size(&self, element_size: usize) -> usize {
         if element_size == 0 {
@@ -412,41 +420,41 @@ impl CacheFriendlyLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parallel_config_defaults() {
         let config = ParallelExecutionConfig::default();
         assert!(config.parallelism > 0);
         assert!(config.min_granularity > 0);
     }
-    
+
     #[test]
     fn test_task_partitioner() {
         let partitioner = TaskPartitioner::default_partitioner();
-        
+
         let partitions = partitioner.partition_range(1000);
         assert!(!partitions.is_empty());
-        
+
         let total: usize = partitions.iter().map(|(s, e)| e - s).sum();
         assert_eq!(total, 1000);
     }
-    
+
     #[test]
     fn test_dynamic_scheduler() {
         let config = ParallelExecutionConfig::default();
         let scheduler = DynamicScheduler::new(100, config);
-        
+
         let mut total = 0;
         while let Some((start, end)) = scheduler.next_chunk() {
             total += end - start;
         }
         assert_eq!(total, 100);
     }
-    
+
     #[test]
     fn test_guided_scheduler() {
         let scheduler = GuidedScheduler::new(100, 4, 10);
-        
+
         let mut total = 0;
         let mut chunks = 0;
         while let Some((start, end)) = scheduler.next_chunk() {
@@ -456,29 +464,29 @@ mod tests {
         assert_eq!(total, 100);
         assert!(chunks > 0);
     }
-    
+
     #[test]
     fn test_cache_friendly_layout() {
         let layout = CacheFriendlyLayout::from_hardware();
-        
+
         assert!(layout.cache_line_size >= 16);
-        
+
         let aligned = layout.align_to_cache_line(100);
         assert_eq!(aligned % layout.cache_line_size, 0);
         assert!(aligned >= 100);
     }
-    
+
     #[test]
     fn test_optimal_parallelism() {
         let partitioner = TaskPartitioner::default_partitioner();
-        
+
         let small_parallelism = partitioner.optimal_parallelism(10);
         assert_eq!(small_parallelism, 1);
-        
+
         let large_parallelism = partitioner.optimal_parallelism(10000);
         assert!(large_parallelism > 0);
     }
-    
+
     #[test]
     fn test_partition_to_cores() {
         let partitioner = TaskPartitioner::default_partitioner();
@@ -636,7 +644,7 @@ mod tests {
         assert_eq!(layout.align_to_cache_line(65), 128);
 
         // 测试L1友好的块大小
-        let l1_block = layout.l1_friendly_block_size(4);  // f32大小
+        let l1_block = layout.l1_friendly_block_size(4); // f32大小
         assert!(l1_block > 0);
 
         // 测试element_size为0的情况

@@ -50,41 +50,59 @@ impl StreamingBlock {
         }
     }
 
-    pub fn write_token(&mut self, local_pos: usize, k: &[f32], v: &[f32], config: &StreamingAttentionConfig) -> Result<(), String> {
+    pub fn write_token(
+        &mut self,
+        local_pos: usize,
+        k: &[f32],
+        v: &[f32],
+        config: &StreamingAttentionConfig,
+    ) -> Result<(), String> {
         if local_pos >= config.block_size {
-            return Err(format!("Local position {} exceeds block size {}", local_pos, config.block_size));
+            return Err(format!(
+                "Local position {} exceeds block size {}",
+                local_pos, config.block_size
+            ));
         }
-        
+
         if self.is_full {
             return Err("Block is already full".to_string());
         }
-        
+
         let offset = local_pos * config.num_heads * config.head_dim;
         let chunk_size = config.num_heads * config.head_dim;
-        
+
         if offset + chunk_size > self.k_data.len() {
-            return Err(format!("Offset {} out of bounds for block data size {}", offset + chunk_size, self.k_data.len()));
+            return Err(format!(
+                "Offset {} out of bounds for block data size {}",
+                offset + chunk_size,
+                self.k_data.len()
+            ));
         }
-        
+
         self.k_data[offset..offset + chunk_size].copy_from_slice(k);
         self.v_data[offset..offset + chunk_size].copy_from_slice(v);
-        
+
         if local_pos >= self.num_tokens {
             self.num_tokens = local_pos + 1;
         }
-        
+
         if self.num_tokens >= config.block_size {
             self.is_full = true;
         }
-        
+
         Ok(())
     }
 
-    pub fn read_tokens(&self, start: usize, len: usize, config: &StreamingAttentionConfig) -> Option<(Vec<f32>, Vec<f32>)> {
+    pub fn read_tokens(
+        &self,
+        start: usize,
+        len: usize,
+        config: &StreamingAttentionConfig,
+    ) -> Option<(Vec<f32>, Vec<f32>)> {
         if start >= self.num_tokens {
             return None;
         }
-        
+
         let actual_len = len.min(self.num_tokens - start);
         if actual_len == 0 {
             return None;
@@ -97,8 +115,10 @@ impl StreamingBlock {
         for i in 0..actual_len {
             let src_offset = (start + i) * chunk_size;
             let dst_offset = i * chunk_size;
-            k_out[dst_offset..dst_offset + chunk_size].copy_from_slice(&self.k_data[src_offset..src_offset + chunk_size]);
-            v_out[dst_offset..dst_offset + chunk_size].copy_from_slice(&self.v_data[src_offset..src_offset + chunk_size]);
+            k_out[dst_offset..dst_offset + chunk_size]
+                .copy_from_slice(&self.k_data[src_offset..src_offset + chunk_size]);
+            v_out[dst_offset..dst_offset + chunk_size]
+                .copy_from_slice(&self.v_data[src_offset..src_offset + chunk_size]);
         }
 
         Some((k_out, v_out))
@@ -132,7 +152,7 @@ impl OnlineSoftmaxState {
     /// 更新状态：添加新的分数和值
     fn update(&mut self, score: f32, value: &[f32]) {
         let new_max = self.max_score.max(score);
-        
+
         if new_max > self.max_score {
             let scale_factor = (self.max_score - new_max).exp();
             self.scale *= scale_factor;
@@ -142,10 +162,10 @@ impl OnlineSoftmaxState {
             self.exp_sum *= scale_factor;
             self.max_score = new_max;
         }
-        
+
         let exp_score = (score - self.max_score).exp();
         self.exp_sum += exp_score;
-        
+
         for (i, &val) in value.iter().enumerate() {
             self.weighted_sum[i] += exp_score * val;
         }
@@ -154,7 +174,10 @@ impl OnlineSoftmaxState {
     /// 获取最终输出
     fn finalize(&self) -> Vec<f32> {
         if self.exp_sum > 0.0 {
-            self.weighted_sum.iter().map(|&v| v / self.exp_sum).collect()
+            self.weighted_sum
+                .iter()
+                .map(|&v| v / self.exp_sum)
+                .collect()
         } else {
             vec![0.0; self.weighted_sum.len()]
         }
@@ -196,16 +219,22 @@ impl StreamingAttention {
     pub fn write(&mut self, pos: usize, k: &[f32], v: &[f32]) -> Result<(), String> {
         let expected_len = self.config.num_heads * self.config.head_dim;
         if k.len() != expected_len || v.len() != expected_len {
-            return Err(format!("KV length mismatch: expected {}, got k={}, v={}", 
-                expected_len, k.len(), v.len()));
+            return Err(format!(
+                "KV length mismatch: expected {}, got k={}, v={}",
+                expected_len,
+                k.len(),
+                v.len()
+            ));
         }
 
         let block_idx = pos / self.config.block_size;
         let local_pos = pos % self.config.block_size;
 
         if block_idx >= self.config.max_blocks {
-            return Err(format!("Position {} exceeds max blocks (block_idx={}, max={})", 
-                pos, block_idx, self.config.max_blocks));
+            return Err(format!(
+                "Position {} exceeds max blocks (block_idx={}, max={})",
+                pos, block_idx, self.config.max_blocks
+            ));
         }
 
         if block_idx >= self.blocks.len() {
@@ -363,7 +392,7 @@ impl StreamingAttention {
                 // 对每个 token 计算注意力分数
                 for t in 0..tokens_to_process {
                     let token_offset = t * chunk_size + h_offset;
-                    
+
                     // 计算 QK^T
                     let mut qk_score = 0.0f32;
                     for d in 0..self.config.head_dim {
@@ -373,7 +402,7 @@ impl StreamingAttention {
 
                     // 提取该 token 的 V
                     let v_slice = &v[token_offset..token_offset + self.config.head_dim];
-                    
+
                     // 更新在线 softmax 状态
                     state.update(qk_score, v_slice);
                 }
@@ -392,7 +421,12 @@ impl StreamingAttention {
         StreamingAttentionStats {
             total_tokens: self.total_tokens,
             active_blocks: self.allocated_blocks,
-            memory_used_mb: (self.allocated_blocks * self.config.block_size * self.config.num_heads * self.config.head_dim * 4) / (1024 * 1024),
+            memory_used_mb: (self.allocated_blocks
+                * self.config.block_size
+                * self.config.num_heads
+                * self.config.head_dim
+                * 4)
+                / (1024 * 1024),
         }
     }
 
@@ -402,7 +436,7 @@ impl StreamingAttention {
         self.allocated_blocks = 0;
         self.total_tokens = 0;
         self.max_position = 0;
-        
+
         // 重置所有块
         for block in &self.blocks {
             if let Ok(mut b) = block.write() {
@@ -467,7 +501,11 @@ mod tests {
         let mut attn = StreamingAttention::new(config.clone());
 
         // 测试超出最大块数的写入
-        let result = attn.write(config.max_blocks * config.block_size, &vec![1.0; 8], &vec![1.0; 8]);
+        let result = attn.write(
+            config.max_blocks * config.block_size,
+            &vec![1.0; 8],
+            &vec![1.0; 8],
+        );
         assert!(result.is_err(), "Should fail when exceeding max blocks");
     }
 
@@ -487,7 +525,7 @@ mod tests {
         let output = attn.incremental_attention(&query, 7, 1.0);
 
         assert_eq!(output.len(), config.num_heads * config.head_dim);
-        
+
         // 输出应该不是全零（因为有有效的 KV 数据）
         let sum: f32 = output.iter().sum();
         assert!(sum > 0.0, "Output should not be all zeros");
@@ -496,17 +534,17 @@ mod tests {
     #[test]
     fn test_online_softmax_state() {
         let mut state = OnlineSoftmaxState::new(4);
-        
+
         // 添加一些分数和值
         state.update(1.0, &[1.0, 2.0, 3.0, 4.0]);
         state.update(2.0, &[2.0, 3.0, 4.0, 5.0]);
         state.update(0.5, &[0.5, 1.0, 1.5, 2.0]);
-        
+
         let output = state.finalize();
-        
+
         // 输出应该是加权和除以 exp 和
         assert!(output.iter().all(|&x| x.is_finite()));
-        
+
         // 验证权重和约为 1（softmax 性质）
         // 由于是按维度归一化，每个维度应该有合理的值
         assert!(output[0] > 0.0 && output[0] < 10.0);
@@ -525,7 +563,10 @@ mod tests {
 
         // 读取超出范围
         let result = attn.read_range(100, 10);
-        assert!(result.is_none(), "Should return None for out of bounds read");
+        assert!(
+            result.is_none(),
+            "Should return None for out of bounds read"
+        );
     }
 
     #[test]
@@ -556,9 +597,9 @@ mod tests {
         }
 
         assert_eq!(attn.total_tokens(), 8);
-        
+
         attn.clear();
-        
+
         assert_eq!(attn.total_tokens(), 0);
         assert_eq!(attn.active_blocks(), 0);
     }
@@ -575,8 +616,12 @@ mod tests {
         let mut attn = StreamingAttention::new(config.clone());
 
         for i in 0..1000 {
-            attn.write(i, &vec![1.0; config.num_heads * config.head_dim], 
-                          &vec![2.0; config.num_heads * config.head_dim]).unwrap();
+            attn.write(
+                i,
+                &vec![1.0; config.num_heads * config.head_dim],
+                &vec![2.0; config.num_heads * config.head_dim],
+            )
+            .unwrap();
         }
 
         let stats = attn.stats();
@@ -658,8 +703,8 @@ mod tests {
         // 注意力计算 - 测试incremental_attention方法
         let config = StreamingAttentionConfig {
             block_size: 256,
-            num_heads: 1,  // 简化：单头
-            head_dim: 32,  // hidden_size=32
+            num_heads: 1, // 简化：单头
+            head_dim: 32, // hidden_size=32
             max_blocks: 16,
         };
         let output_dim = config.num_heads * config.head_dim;
@@ -668,21 +713,15 @@ mod tests {
 
         // 添加一些KV对
         for i in 0..10 {
-            let k: Vec<f32> = (0..head_dim)
-                .map(|j| (i * j) as f32 * 0.01)
-                .collect();
-            let v: Vec<f32> = (0..head_dim)
-                .map(|j| j as f32 * 0.1)
-                .collect();
+            let k: Vec<f32> = (0..head_dim).map(|j| (i * j) as f32 * 0.01).collect();
+            let v: Vec<f32> = (0..head_dim).map(|j| j as f32 * 0.1).collect();
 
             let result = sa.write(i, &k, &v);
             assert!(result.is_ok());
         }
 
         // 新的query向量
-        let q: Vec<f32> = (0..head_dim)
-            .map(|i| i as f32 * 0.5)
-            .collect();
+        let q: Vec<f32> = (0..head_dim).map(|i| i as f32 * 0.5).collect();
 
         // 计算注意力输出
         let output = sa.incremental_attention(&q, 9, 1.0); // pos=9, scale=1.0
@@ -695,7 +734,10 @@ mod tests {
         assert!(sum != 0.0, "Output should not be all zeros");
 
         // 验证所有值都是有限的（无NaN或Inf）
-        assert!(output.iter().all(|&x| x.is_finite()), "All values should be finite");
+        assert!(
+            output.iter().all(|&x| x.is_finite()),
+            "All values should be finite"
+        );
     }
 
     #[test]
@@ -791,7 +833,7 @@ mod tests {
 
         let correct_len = config.num_heads * config.head_dim;
         let wrong_k = vec![1.0; correct_len + 1]; // K长度错误
-        let correct_v = vec![2.0; correct_len];   // V长度正确
+        let correct_v = vec![2.0; correct_len]; // V长度正确
 
         let result = sa.write(0, &wrong_k, &correct_v);
         assert!(result.is_err(), "Should fail when K length mismatch");
@@ -816,7 +858,10 @@ mod tests {
 
         // 空状态下应该返回零向量
         assert_eq!(output.len(), config.num_heads * config.head_dim);
-        assert!(output.iter().all(|&x| x == 0.0), "Empty state should return zero vector");
+        assert!(
+            output.iter().all(|&x| x == 0.0),
+            "Empty state should return zero vector"
+        );
     }
 
     #[test]
@@ -828,7 +873,8 @@ mod tests {
         // 写入10个token
         for i in 0..10 {
             let kv_len = config.num_heads * config.head_dim;
-            sa.write(i, &vec![i as f32; kv_len], &vec![i as f32 * 2.0; kv_len]).unwrap();
+            sa.write(i, &vec![i as f32; kv_len], &vec![i as f32 * 2.0; kv_len])
+                .unwrap();
         }
 
         // 读取中间的一部分 [3, 7)
@@ -853,9 +899,11 @@ mod tests {
         let mut sa = StreamingAttention::new(config.clone());
 
         // 写入跨越多个块的token（block_size=4，所以每4个token一个新块）
-        for i in 0..12 { // 12个token会跨越3个块
+        for i in 0..12 {
+            // 12个token会跨越3个块
             let kv_len = config.num_heads * config.head_dim;
-            sa.write(i, &vec![i as f32; kv_len], &vec![i as f32; kv_len]).unwrap();
+            sa.write(i, &vec![i as f32; kv_len], &vec![i as f32; kv_len])
+                .unwrap();
         }
 
         assert_eq!(sa.total_tokens(), 12);
@@ -872,10 +920,10 @@ mod tests {
     fn test_online_softmax_single_update() {
         // 测试在线softmax的单次更新
         let mut state = OnlineSoftmaxState::new(4);
-        
+
         state.update(0.0, &[1.0, 1.0, 1.0, 1.0]);
         let output = state.finalize();
-        
+
         // 单次更新时，输出应该等于输入（因为没有归一化竞争）
         assert!((output[0] - 1.0).abs() < 0.01);
     }
@@ -884,19 +932,22 @@ mod tests {
     fn test_online_softmax_extreme_values() {
         // 测试在线softmax的极端值处理
         let mut state = OnlineSoftmaxState::new(2);
-        
+
         // 添加非常大的分数
         state.update(1000.0, &[1.0, 2.0]);
         // 添加非常小的分数
         state.update(-1000.0, &[3.0, 4.0]);
-        
+
         let output = state.finalize();
-        
+
         // 应该能正常处理而不产生NaN或溢出
         assert!(output.iter().all(|&x| x.is_finite()));
         // 大分数对应的值应该占主导（第一个值应该接近1.0，第二个接近2.0，因为大分数的权重极大）
         // 由于数值稳定性，输出应该主要受第一次更新影响
-        assert!(output[0] > 0.0 && output[1] > 0.0, "Output should be positive");
+        assert!(
+            output[0] > 0.0 && output[1] > 0.0,
+            "Output should be positive"
+        );
     }
 
     #[test]
@@ -917,24 +968,32 @@ mod tests {
         }
 
         let stats = sa.stats();
-        
+
         // 验证内存使用量为正数且合理
         assert!(stats.memory_used_mb > 0, "Memory usage should be positive");
-        assert!(stats.active_blocks >= 1, "Should have at least one active block");
-        
+        assert!(
+            stats.active_blocks >= 1,
+            "Should have at least one active block"
+        );
+
         // 按照实际实现的公式计算：allocated_blocks * block_size * num_heads * head_dim * 4 / (1024*1024)
         // 注意：实际实现只乘了4（不是8），可能是只计算了K或V的内存
-        let expected_mb = (stats.active_blocks * config.block_size * config.num_heads * config.head_dim * 4) / (1024 * 1024);
-        
-        assert_eq!(stats.memory_used_mb, expected_mb,
-                   "Memory usage {} should equal expected {}", stats.memory_used_mb, expected_mb);
+        let expected_mb =
+            (stats.active_blocks * config.block_size * config.num_heads * config.head_dim * 4)
+                / (1024 * 1024);
+
+        assert_eq!(
+            stats.memory_used_mb, expected_mb,
+            "Memory usage {} should equal expected {}",
+            stats.memory_used_mb, expected_mb
+        );
     }
 
     #[test]
     fn test_default_config_values() {
         // 测试默认配置值
         let config = StreamingAttentionConfig::default();
-        
+
         assert_eq!(config.block_size, 512);
         assert_eq!(config.num_heads, 32);
         assert_eq!(config.head_dim, 128);
@@ -966,8 +1025,11 @@ mod tests {
         // 验证每个位置的值都能正确读回
         for &pos in &positions {
             let (k, _) = sa.read_range(pos, 1).expect("Should be able to read");
-            assert!((k[0] - pos as f32).abs() < 0.01, 
-                    "Value at position {} should match", pos);
+            assert!(
+                (k[0] - pos as f32).abs() < 0.01,
+                "Value at position {} should match",
+                pos
+            );
         }
     }
 }

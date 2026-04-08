@@ -147,9 +147,9 @@ impl ImagePreprocessor {
                     let v11 = image[[y1, x1, ch]] as f32;
 
                     let v = v00 * (1.0 - dx) * (1.0 - dy)
-                          + v01 * dx * (1.0 - dy)
-                          + v10 * (1.0 - dx) * dy
-                          + v11 * dx * dy;
+                        + v01 * dx * (1.0 - dy)
+                        + v10 * (1.0 - dx) * dy
+                        + v11 * dx * dy;
 
                     result[[y, x, ch]] = v.round().clamp(0.0, 255.0) as u8;
                 }
@@ -267,16 +267,24 @@ mod tests {
         // 创建2x2 RGB图像数据 (H, W, C)
         let mut image = Array3::<u8>::zeros((2, 2, 3));
         // 填充像素值：红、绿、蓝、灰
-        image[[0, 0, 0]] = 255; image[[0, 0, 1]] = 0;   image[[0, 0, 2]] = 0;     // 红
-        image[[0, 1, 0]] = 0;   image[[0, 1, 1]] = 255; image[[0, 1, 2]] = 0;     // 绿
-        image[[1, 0, 0]] = 0;   image[[1, 0, 1]] = 0;   image[[1, 0, 2]] = 255;   // 蓝
-        image[[1, 1, 0]] = 128; image[[1, 1, 1]] = 128; image[[1, 1, 2]] = 128;   // 灰
+        image[[0, 0, 0]] = 255;
+        image[[0, 0, 1]] = 0;
+        image[[0, 0, 2]] = 0; // 红
+        image[[0, 1, 0]] = 0;
+        image[[0, 1, 1]] = 255;
+        image[[0, 1, 2]] = 0; // 绿
+        image[[1, 0, 0]] = 0;
+        image[[1, 0, 1]] = 0;
+        image[[1, 0, 2]] = 255; // 蓝
+        image[[1, 1, 0]] = 128;
+        image[[1, 1, 1]] = 128;
+        image[[1, 1, 2]] = 128; // 灰
 
         let tensor = preprocessor.preprocess(&image);
         assert!(tensor.is_ok());
         let t = tensor.unwrap();
         assert_eq!(t.shape(), &[2, 2, 3]); // HWC格式
-        // 验证像素值正确转换（无归一化时应该等于原始值）
+                                           // 验证像素值正确转换（无归一化时应该等于原始值）
         assert!((t[[0, 0, 0]] - 255.0).abs() < 0.01); // 红色通道
     }
 
@@ -379,7 +387,7 @@ mod tests {
             target_width: 16,
             normalize: true,
             mean: [0.5, 0.5, 0.5], // mean=0.5
-            std: [0.5, 0.5, 0.5],   // std=0.5
+            std: [0.5, 0.5, 0.5],  // std=0.5
         };
         let preprocessor = ImagePreprocessor::new(config);
 
@@ -391,7 +399,11 @@ mod tests {
 
         // 验证归一化范围合理：(128/255 - 0.5) / 0.5 ≈ 0.0039
         for &val in normalized.iter() {
-            assert!(val >= -3.0 && val <= 3.0, "Normalized value {} out of range", val);
+            assert!(
+                val >= -3.0 && val <= 3.0,
+                "Normalized value {} out of range",
+                val
+            );
         }
     }
 

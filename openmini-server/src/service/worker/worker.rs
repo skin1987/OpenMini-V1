@@ -5,11 +5,11 @@
 
 #![allow(dead_code)]
 
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::model::inference::InferenceEngine;
 
@@ -68,7 +68,10 @@ impl Task {
             return Err("Invalid task data: incomplete");
         }
         let task_data = data[12..12 + len].to_vec();
-        Ok(Self { id, data: task_data })
+        Ok(Self {
+            id,
+            data: task_data,
+        })
     }
 }
 
@@ -110,7 +113,11 @@ impl TaskResult {
             return Err("Invalid result data: incomplete");
         }
         let result_data = data[13..13 + len].to_vec();
-        Ok(Self { task_id, success, data: result_data })
+        Ok(Self {
+            task_id,
+            success,
+            data: result_data,
+        })
     }
 }
 
@@ -144,7 +151,7 @@ impl Worker {
             engine: None,
         }
     }
-    
+
     /// 加载模型
     ///
     /// # 参数
@@ -250,8 +257,13 @@ impl Worker {
 
     /// 处理任务
     fn process_task(&self, task: Task) -> TaskResult {
-        let result_data = format!("Worker {} processed task {}: {} bytes received",
-            self.id, task.id, task.data.len()).into_bytes();
+        let result_data = format!(
+            "Worker {} processed task {}: {} bytes received",
+            self.id,
+            task.id,
+            task.data.len()
+        )
+        .into_bytes();
         TaskResult {
             task_id: task.id,
             success: true,
@@ -300,7 +312,10 @@ mod tests {
 
         // 验证初始状态为 IDLE
         let state = worker.state();
-        assert_eq!(state.load(std::sync::atomic::Ordering::SeqCst), WORKER_STATE_IDLE);
+        assert_eq!(
+            state.load(std::sync::atomic::Ordering::SeqCst),
+            WORKER_STATE_IDLE
+        );
 
         // 验证心跳时间已设置
         let heartbeat = worker.last_heartbeat();
@@ -319,14 +334,18 @@ mod tests {
         );
 
         // 模拟状态转换为 BUSY
-        worker.state().store(WORKER_STATE_BUSY, std::sync::atomic::Ordering::SeqCst);
+        worker
+            .state()
+            .store(WORKER_STATE_BUSY, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             worker.state().load(std::sync::atomic::Ordering::SeqCst),
             WORKER_STATE_BUSY
         );
 
         // 模拟状态转换为 DEAD
-        worker.state().store(WORKER_STATE_DEAD, std::sync::atomic::Ordering::SeqCst);
+        worker
+            .state()
+            .store(WORKER_STATE_DEAD, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             worker.state().load(std::sync::atomic::Ordering::SeqCst),
             WORKER_STATE_DEAD
@@ -418,14 +437,8 @@ mod tests {
         let worker3 = Worker::new(2);
 
         // 每个 Worker 应该有独立的状态
-        assert_ne!(
-            worker1.state().as_ptr(),
-            worker2.state().as_ptr()
-        );
-        assert_ne!(
-            worker2.state().as_ptr(),
-            worker3.state().as_ptr()
-        );
+        assert_ne!(worker1.state().as_ptr(), worker2.state().as_ptr());
+        assert_ne!(worker2.state().as_ptr(), worker3.state().as_ptr());
 
         // 所有 Worker 初始状态都应该是 IDLE
         assert_eq!(
@@ -448,10 +461,7 @@ mod tests {
     /// 覆盖分支：序列化和反序列化的往返一致性
     #[test]
     fn test_task_serialize_deserialize_roundtrip() {
-        let original_task = Task::new(
-            12345,
-            b"test data for roundtrip".to_vec()
-        );
+        let original_task = Task::new(12345, b"test data for roundtrip".to_vec());
 
         let serialized = original_task.serialize();
         let deserialized = Task::deserialize(&serialized).unwrap();
@@ -574,7 +584,8 @@ mod tests {
     fn test_worker_heartbeat_update() {
         let worker = Worker::new(1);
 
-        let initial_heartbeat = worker.last_heartbeat()
+        let initial_heartbeat = worker
+            .last_heartbeat()
             .load(std::sync::atomic::Ordering::SeqCst);
 
         // 等待一小段时间确保时间戳不同
@@ -585,7 +596,8 @@ mod tests {
 
         // 创建新worker并验证其心跳时间 >= 前面的
         let worker2 = Worker::new(2);
-        let later_heartbeat = worker2.last_heartbeat()
+        let later_heartbeat = worker2
+            .last_heartbeat()
             .load(std::sync::atomic::Ordering::SeqCst);
 
         assert!(later_heartbeat >= initial_heartbeat);

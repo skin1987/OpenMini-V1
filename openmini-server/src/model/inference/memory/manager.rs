@@ -19,12 +19,12 @@ use dashmap::DashMap;
 use ndarray::Array2;
 use parking_lot::{Mutex, RwLock};
 
+use super::simd_ops::SimdVectorOps;
 #[allow(unused_imports)]
 use super::{
-    InstantMemory, LongTermMemory, MemoryConfig, MemoryLevel,
-    ShortTermMemory, EvictionStrategy, PaddingStrategy,
+    EvictionStrategy, InstantMemory, LongTermMemory, MemoryConfig, MemoryLevel, PaddingStrategy,
+    ShortTermMemory,
 };
-use super::simd_ops::SimdVectorOps;
 
 /// 搜索结果项
 #[derive(Debug, Clone)]
@@ -50,7 +50,13 @@ impl SearchResult {
     /// - `level`: 来源记忆层级
     /// - `timestamp`: 数据时间戳
     /// - `importance`: 重要性分数
-    pub fn new(data: Array2<f32>, score: f32, level: MemoryLevel, timestamp: u64, importance: f32) -> Self {
+    pub fn new(
+        data: Array2<f32>,
+        score: f32,
+        level: MemoryLevel,
+        timestamp: u64,
+        importance: f32,
+    ) -> Self {
         Self {
             data,
             score,
@@ -195,43 +201,46 @@ impl DMNMetrics {
     /// 转换为 Prometheus 格式
     pub fn to_prometheus_format(&self) -> String {
         let mut output = String::new();
-        
+
         // 记忆计数指标
         output.push_str("# HELP dmn_memory_count Number of memories per level\n");
         output.push_str("# TYPE dmn_memory_count gauge\n");
-        
+
         let level_mapping = [
             ("instant_memory_count", "instant"),
             ("short_term_memory_count", "short_term"),
             ("long_term_memory_count", "long_term"),
         ];
-        
+
         for (key, level) in level_mapping.iter() {
             if let Some(value) = self.metrics.get(*key) {
-                output.push_str(&format!("dmn_memory_count{{level=\"{}\"}} {}\n", level, value));
+                output.push_str(&format!(
+                    "dmn_memory_count{{level=\"{}\"}} {}\n",
+                    level, value
+                ));
             }
         }
-        
+
         // 缓存命中率
         output.push_str("# HELP dmn_cache_hit_rate Cache hit rate\n");
         output.push_str("# TYPE dmn_cache_hit_rate gauge\n");
-        
+
         if let Some(value) = self.metrics.get("cache_hit_rate") {
             output.push_str(&format!("dmn_cache_hit_rate {}\n", value));
         }
-        
+
         // 缓存大小
         output.push_str("# HELP dmn_cache_size Current cache size\n");
         output.push_str("# TYPE dmn_cache_size gauge\n");
-        
+
         if let Some(value) = self.metrics.get("cache_size") {
             output.push_str(&format!("dmn_cache_size {}\n", value));
         }
-        
+
         // 操作计数器
         output.push_str("# HELP dmn_operations_total Total operation counts\n");
         output.push_str("# TYPE dmn_operations_total counter\n");
-        
+
         let op_mapping = [
             ("total_reads", "reads"),
             ("total_writes", "writes"),
@@ -240,13 +249,16 @@ impl DMNMetrics {
             ("demotions", "demotions"),
             ("compressions", "compressions"),
         ];
-        
+
         for (key, op) in op_mapping.iter() {
             if let Some(value) = self.metrics.get(*key) {
-                output.push_str(&format!("dmn_operations_total{{operation=\"{}\"}} {}\n", op, value));
+                output.push_str(&format!(
+                    "dmn_operations_total{{operation=\"{}\"}} {}\n",
+                    op, value
+                ));
             }
         }
-        
+
         output
     }
 }
@@ -291,7 +303,11 @@ impl MemoryCoordinator {
     /// - `promotion_threshold`: 提升到长期记忆的重要性阈值
     /// - `demotion_threshold`: 降级到短期记忆的重要性阈值
     /// - `consolidation_interval_secs`: 巩固操作的时间间隔（秒）
-    pub fn new(promotion_threshold: f32, demotion_threshold: f32, consolidation_interval_secs: u64) -> Self {
+    pub fn new(
+        promotion_threshold: f32,
+        demotion_threshold: f32,
+        consolidation_interval_secs: u64,
+    ) -> Self {
         Self {
             promotion_threshold,
             demotion_threshold,
@@ -311,7 +327,8 @@ impl MemoryCoordinator {
 
     /// 标记巩固完成
     pub fn mark_consolidation(&self) {
-        self.last_consolidation.store(current_timestamp(), Ordering::Relaxed);
+        self.last_consolidation
+            .store(current_timestamp(), Ordering::Relaxed);
     }
 
     /// 记录提升
@@ -382,7 +399,7 @@ pub struct MemoryManager {
 }
 
 /// 克隆说明：
-/// 
+///
 /// - 克隆会复制缓存和 LRU 队列，但不会复制配置变更回调
 /// - 克隆后的实例与原实例共享底层存储（instant、short_term、long_term）
 /// - 统计计数器会复制当前值，但之后独立累加
@@ -417,15 +434,24 @@ impl fmt::Debug for MemoryManager {
             .field("short_term", &"<RwLock<ShortTermMemory>>")
             .field("long_term", &"<RwLock<LongTermMemory>>")
             .field("config", &self.config.read())
-            .field("current_session_id", &self.current_session_id.load(Ordering::Relaxed))
+            .field(
+                "current_session_id",
+                &self.current_session_id.load(Ordering::Relaxed),
+            )
             .field("coordinator", &self.coordinator)
             .field("cache_size", &self.cache.len())
             .field("cache_capacity", &self.cache_capacity)
             .field("read_count", &self.read_count.load(Ordering::Relaxed))
             .field("write_count", &self.write_count.load(Ordering::Relaxed))
             .field("search_count", &self.search_count.load(Ordering::Relaxed))
-            .field("compression_count", &self.compression_count.load(Ordering::Relaxed))
-            .field("config_callbacks", &format!("{} callbacks", self.config_callbacks.lock().len()))
+            .field(
+                "compression_count",
+                &self.compression_count.load(Ordering::Relaxed),
+            )
+            .field(
+                "config_callbacks",
+                &format!("{} callbacks", self.config_callbacks.lock().len()),
+            )
             .finish()
     }
 }
@@ -499,7 +525,11 @@ impl MemoryManager {
             }
             MemoryLevel::ShortTerm => {
                 let mut stm = self.short_term.write();
-                stm.write(data, timestamp, Some(self.current_session_id.load(Ordering::Relaxed)));
+                stm.write(
+                    data,
+                    timestamp,
+                    Some(self.current_session_id.load(Ordering::Relaxed)),
+                );
             }
             MemoryLevel::LongTerm => {
                 let key = format!("mem_{}", timestamp);
@@ -524,7 +554,13 @@ impl MemoryManager {
     }
 
     /// 写入记忆（带键）
-    pub fn write_with_key(&self, level: MemoryLevel, key: String, data: Array2<f32>, importance: f32) {
+    pub fn write_with_key(
+        &self,
+        level: MemoryLevel,
+        key: String,
+        data: Array2<f32>,
+        importance: f32,
+    ) {
         self.write_count.fetch_add(1, Ordering::Relaxed);
         let timestamp = current_timestamp();
 
@@ -541,7 +577,11 @@ impl MemoryManager {
             }
             MemoryLevel::ShortTerm => {
                 let mut stm = self.short_term.write();
-                stm.write(data.clone(), timestamp, Some(self.current_session_id.load(Ordering::Relaxed)));
+                stm.write(
+                    data.clone(),
+                    timestamp,
+                    Some(self.current_session_id.load(Ordering::Relaxed)),
+                );
                 self.cache.insert(key.clone(), data);
                 self.update_lru(&key);
             }
@@ -562,11 +602,11 @@ impl MemoryManager {
     }
 
     /// 缓存驱逐：LRU 策略移除最久未使用的条目
-    /// 
+    ///
     /// 每次只移除一个条目，避免并发驱逐时过度移除
     fn evict_cache_entries(&self) {
         let mut lru = self.cache_lru.lock();
-        
+
         if let Some(key) = lru.pop_front() {
             self.cache.remove(&key);
         }
@@ -632,7 +672,7 @@ impl MemoryManager {
                 let ltm = self.long_term.read();
                 ltm.read(key)
             };
-            
+
             if let Some(data) = data {
                 self.cache.insert(key.to_string(), data.clone());
                 self.update_lru(key);
@@ -650,7 +690,9 @@ impl MemoryManager {
         ltm.search(query, top_k)
             .into_iter()
             .map(|(idx, score)| {
-                let data = ltm.items.get(idx)
+                let data = ltm
+                    .items
+                    .get(idx)
                     .map(|i| i.data.clone())
                     .unwrap_or_else(|| Array2::zeros((0, 0)));
                 (data, score)
@@ -732,7 +774,8 @@ impl MemoryManager {
         }
 
         scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scores.into_iter()
+        scores
+            .into_iter()
             .take(top_k)
             .map(|(data, score)| SearchResult::new(data, score, MemoryLevel::Instant, 0, 1.0))
             .collect()
@@ -744,7 +787,7 @@ impl MemoryManager {
             let stm = self.short_term.read();
             stm.read_all().into_iter().collect()
         };
-        
+
         let mut scores: Vec<(Array2<f32>, f32)> = Vec::with_capacity(items.len());
         for data in items {
             let score = Self::compute_similarity(query, &data);
@@ -752,7 +795,8 @@ impl MemoryManager {
         }
 
         scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scores.into_iter()
+        scores
+            .into_iter()
             .take(top_k)
             .map(|(data, score)| SearchResult::new(data, score, MemoryLevel::ShortTerm, 0, 1.0))
             .collect()
@@ -782,12 +826,14 @@ impl MemoryManager {
         results.sort_by(|a, b| {
             let score_a = a.score * 0.6 + a.importance * 0.4;
             let score_b = b.score * 0.6 + b.importance * 0.4;
-            score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
 
     /// 计算相似度（使用 SIMD 加速）
-    /// 
+    ///
     /// 要求两个矩阵的列数相同，否则返回 0.0
     fn compute_similarity(a: &Array2<f32>, b: &Array2<f32>) -> f32 {
         if a.is_empty() || b.is_empty() {
@@ -800,21 +846,21 @@ impl MemoryManager {
         }
 
         let simd_ops = SimdVectorOps::new();
-        
+
         let a_slice: &[f32] = a.as_slice().unwrap_or(&[]);
         let b_slice: &[f32] = b.as_slice().unwrap_or(&[]);
-        
+
         if a_slice.is_empty() || b_slice.is_empty() {
             return 0.0;
         }
-        
+
         let min_len = a_slice.len().min(b_slice.len());
-        
+
         simd_ops.cosine_similarity(&a_slice[..min_len], &b_slice[..min_len])
     }
 
     /// 提升到长期记忆
-    /// 
+    ///
     /// 只有当 key 在缓存中存在时才能提升，否则返回 false
     pub fn promote_to_long_term(&self, key: &str, importance: f32) -> bool {
         if !self.coordinator.should_promote(importance) {
@@ -824,7 +870,7 @@ impl MemoryManager {
         // 必须从缓存中获取对应 key 的数据
         let data = match self.cache.get(key) {
             Some(cached) => cached.clone(),
-            None => return false,  // 找不到对应 key，提升失败
+            None => return false, // 找不到对应 key，提升失败
         };
 
         let timestamp = current_timestamp();
@@ -918,7 +964,6 @@ impl MemoryManager {
 
     /// 开始会话
     pub fn start_session(&mut self) -> u64 {
-        
         self.current_session_id.fetch_add(1, Ordering::Relaxed) + 1
     }
 
@@ -1067,7 +1112,7 @@ impl MemoryManager {
     }
 
     /// 合并所有记忆
-    /// 
+    ///
     /// 只合并维度一致的记忆，维度不一致的会被过滤掉
     pub fn merge_all_memory(&self) -> Array2<f32> {
         let mut all_data: Vec<Array2<f32>> = Vec::new();
@@ -1082,9 +1127,10 @@ impl MemoryManager {
 
         // 先确定基准维度
         let dim = all_data[0].ncols();
-        
+
         // 先过滤维度不一致的数据，再计算总行数
-        let all_data: Vec<Array2<f32>> = all_data.into_iter()
+        let all_data: Vec<Array2<f32>> = all_data
+            .into_iter()
             .filter(|data| data.ncols() == dim)
             .collect();
 
@@ -1277,7 +1323,12 @@ mod tests {
         let manager = MemoryManager::default();
 
         let data = Array2::ones((5, 128));
-        manager.write_with_key(MemoryLevel::LongTerm, "test_key".to_string(), data.clone(), 1.0);
+        manager.write_with_key(
+            MemoryLevel::LongTerm,
+            "test_key".to_string(),
+            data.clone(),
+            1.0,
+        );
 
         let cached = manager.get_unchecked("test_key");
         assert!(cached.is_some());
@@ -1419,9 +1470,14 @@ mod tests {
         let manager = MemoryManager::new(config);
 
         let data = Array2::ones((5, 128));
-        
+
         for i in 0..300 {
-            manager.write_with_key(MemoryLevel::LongTerm, format!("key{}", i), data.clone(), 1.0);
+            manager.write_with_key(
+                MemoryLevel::LongTerm,
+                format!("key{}", i),
+                data.clone(),
+                1.0,
+            );
         }
 
         assert!(manager.cache_size() <= 64, "缓存大小应不超过容量");
@@ -1502,7 +1558,12 @@ mod tests {
         let manager = MemoryManager::default();
 
         let data = Array2::ones((5, 128));
-        manager.write_with_key(MemoryLevel::LongTerm, "custom_key".to_string(), data.clone(), 0.8);
+        manager.write_with_key(
+            MemoryLevel::LongTerm,
+            "custom_key".to_string(),
+            data.clone(),
+            0.8,
+        );
 
         let cached = manager.get_unchecked("custom_key");
         assert!(cached.is_some());

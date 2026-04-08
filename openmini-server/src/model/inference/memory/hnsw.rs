@@ -45,12 +45,12 @@ mod constants {
     pub const DEFAULT_EF_CONSTRUCTION: usize = 200;
     pub const DEFAULT_EF_SEARCH: usize = 50;
     pub const DEFAULT_SEED: u64 = 42;
-    
+
     pub const MIN_LEVEL: usize = 4;
     pub const MAX_LEVEL: usize = 16;
-    
+
     pub const DEFAULT_HEURISTIC_DIVERSITY_FACTOR: f32 = 0.7;
-    
+
     pub const DISTANCE_UNROLL_FACTOR: usize = 4;
 }
 
@@ -243,7 +243,9 @@ impl PartialOrd for SearchResult {
 
 impl Ord for SearchResult {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.distance.partial_cmp(&other.distance).unwrap_or(std::cmp::Ordering::Equal)
+        self.distance
+            .partial_cmp(&other.distance)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -330,7 +332,7 @@ impl HNSWIndex {
     #[inline]
     fn distance(v1: &[f32], v2: &[f32]) -> f32 {
         use constants::DISTANCE_UNROLL_FACTOR;
-        
+
         let len = v1.len();
         let chunks = len / DISTANCE_UNROLL_FACTOR;
         let remainder = len % DISTANCE_UNROLL_FACTOR;
@@ -394,14 +396,14 @@ impl HNSWIndex {
         level: usize,
     ) -> Vec<SearchResult> {
         let nodes = self.nodes.read();
-        
+
         let entry_node = match nodes.get(&entry_id) {
             Some(node) => node,
             None => return Vec::new(),
         };
 
         let entry_distance = Self::distance(query, &entry_node.vector);
-        
+
         let mut visited = HashSet::with_capacity(ef * 2);
         visited.insert(entry_id);
 
@@ -444,7 +446,9 @@ impl HNSWIndex {
 
                 let dist = Self::distance(query, &neighbor_node.vector);
 
-                if results.len() < ef || dist < results.peek().map(|r| r.distance).unwrap_or(f32::MAX) {
+                if results.len() < ef
+                    || dist < results.peek().map(|r| r.distance).unwrap_or(f32::MAX)
+                {
                     candidates.push(SearchResult {
                         id: neighbor_id,
                         distance: -dist,
@@ -463,25 +467,26 @@ impl HNSWIndex {
         }
 
         let mut result_vec: Vec<SearchResult> = results.into_iter().collect();
-        result_vec.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+        result_vec.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         result_vec
     }
 
-    fn select_neighbors(
-        &self,
-        candidates: &[SearchResult],
-        m: usize,
-        query: &[f32],
-    ) -> Vec<usize> {
+    fn select_neighbors(&self, candidates: &[SearchResult], m: usize, query: &[f32]) -> Vec<usize> {
         match self.config.neighbor_selection {
             NeighborSelection::Simple => {
                 let mut sorted = candidates.to_vec();
-                sorted.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+                sorted.sort_by(|a, b| {
+                    a.distance
+                        .partial_cmp(&b.distance)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 sorted.iter().take(m).map(|r| r.id).collect()
             }
-            NeighborSelection::Heuristic => {
-                self.select_neighbors_heuristic(candidates, m, query)
-            }
+            NeighborSelection::Heuristic => self.select_neighbors_heuristic(candidates, m, query),
         }
     }
 
@@ -498,7 +503,11 @@ impl HNSWIndex {
         let diversity_factor = self.config.heuristic_diversity_factor;
 
         let mut sorted = candidates.to_vec();
-        sorted.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut selected: Vec<usize> = Vec::with_capacity(m);
         let mut selected_vectors: Vec<Vec<f32>> = Vec::with_capacity(m);
@@ -636,7 +645,11 @@ impl HNSWIndex {
                     if let Some(neighbor) = nodes.get_mut(&neighbor_id) {
                         neighbor.add_neighbor(level, id);
                         let neighbor_neighbors = neighbor.get_neighbors(level).to_vec();
-                        let m_max = if level == 0 { self.config.m * 2 } else { self.config.m };
+                        let m_max = if level == 0 {
+                            self.config.m * 2
+                        } else {
+                            self.config.m
+                        };
 
                         if neighbor_neighbors.len() > m_max {
                             Some((neighbor.vector.clone(), m_max))
@@ -649,12 +662,7 @@ impl HNSWIndex {
                 };
 
                 if let Some((vector, m_max)) = neighbor_vector {
-                    let results = self.greedy_search(
-                        &vector,
-                        neighbor_id,
-                        m_max,
-                        level,
-                    );
+                    let results = self.greedy_search(&vector, neighbor_id, m_max, level);
                     let selected = self.select_neighbors(&results, m_max, &vector);
 
                     let mut nodes = self.nodes.write();
@@ -988,9 +996,18 @@ mod tests {
 
     #[test]
     fn test_search_result_ordering() {
-        let r1 = SearchResult { id: 0, distance: 0.5 };
-        let r2 = SearchResult { id: 1, distance: 0.3 };
-        let r3 = SearchResult { id: 2, distance: 0.7 };
+        let r1 = SearchResult {
+            id: 0,
+            distance: 0.5,
+        };
+        let r2 = SearchResult {
+            id: 1,
+            distance: 0.3,
+        };
+        let r3 = SearchResult {
+            id: 2,
+            distance: 0.7,
+        };
 
         let mut heap = BinaryHeap::new();
         heap.push(r1);
@@ -1082,7 +1099,10 @@ mod tests {
             index.insert(i, vector);
         }
 
-        let query = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let query = vec![
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ];
         let results = index.search(&query, 5);
 
         assert!(!results.is_empty());
@@ -1129,7 +1149,13 @@ mod tests {
         let results_simple = index_simple.search(&query, 5);
         let results_heuristic = index_heuristic.search(&query, 5);
 
-        assert!(!results_simple.is_empty(), "Simple search should return results");
-        assert!(!results_heuristic.is_empty(), "Heuristic search should return results");
+        assert!(
+            !results_simple.is_empty(),
+            "Simple search should return results"
+        );
+        assert!(
+            !results_heuristic.is_empty(),
+            "Heuristic search should return results"
+        );
     }
 }

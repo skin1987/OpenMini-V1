@@ -47,19 +47,25 @@ pub struct GpuDeviceInfo {
 pub trait GpuOps: Send + Sync {
     /// 获取设备信息
     fn device_info(&self) -> &GpuDeviceInfo;
-    
+
     /// 矩阵乘法: C = A @ B
     fn matmul(&self, a: &Array2<f32>, b: &Array2<f32>) -> Result<Array2<f32>>;
-    
+
     /// 批量矩阵乘法
     fn batch_matmul(&self, a: &[Array2<f32>], b: &[Array2<f32>]) -> Result<Vec<Array2<f32>>>;
-    
+
     /// Softmax
     fn softmax(&self, input: &Array2<f32>) -> Result<Array2<f32>>;
-    
+
     /// Layer Normalization
-    fn layer_norm(&self, input: &Array2<f32>, gamma: &[f32], beta: &[f32], eps: f32) -> Result<Array2<f32>>;
-    
+    fn layer_norm(
+        &self,
+        input: &Array2<f32>,
+        gamma: &[f32],
+        beta: &[f32],
+        eps: f32,
+    ) -> Result<Array2<f32>>;
+
     /// 注意力计算
     fn attention(
         &self,
@@ -68,10 +74,10 @@ pub trait GpuOps: Send + Sync {
         value: &Array2<f32>,
         mask: Option<&Array2<f32>>,
     ) -> Result<Array2<f32>>;
-    
+
     /// 同步设备
     fn synchronize(&self) -> Result<()>;
-    
+
     /// 获取可用显存
     fn available_memory(&self) -> Result<usize>;
 }
@@ -120,24 +126,24 @@ impl GpuBackend {
                 return Some(GpuBackend::Metal(metal));
             }
         }
-        
+
         #[cfg(feature = "cuda")]
         {
             if let Ok(cuda) = crate::hardware::gpu::cuda::CudaBackend::new() {
                 return Some(GpuBackend::Cuda(cuda));
             }
         }
-        
+
         #[cfg(feature = "vulkan")]
         {
             if let Ok(vulkan) = crate::hardware::gpu::vulkan::VulkanBackend::new() {
                 return Some(GpuBackend::Vulkan(vulkan));
             }
         }
-        
+
         None
     }
-    
+
     /// 获取后端类型
     pub fn backend_type(&self) -> GpuBackendType {
         match self {
@@ -174,7 +180,7 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
+
     fn matmul(&self, a: &Array2<f32>, b: &Array2<f32>) -> Result<Array2<f32>> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -191,7 +197,7 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
+
     fn batch_matmul(&self, a: &[Array2<f32>], b: &[Array2<f32>]) -> Result<Vec<Array2<f32>>> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -208,7 +214,7 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
+
     fn softmax(&self, input: &Array2<f32>) -> Result<Array2<f32>> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -225,8 +231,14 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
-    fn layer_norm(&self, input: &Array2<f32>, gamma: &[f32], beta: &[f32], eps: f32) -> Result<Array2<f32>> {
+
+    fn layer_norm(
+        &self,
+        input: &Array2<f32>,
+        gamma: &[f32],
+        beta: &[f32],
+        eps: f32,
+    ) -> Result<Array2<f32>> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
             GpuBackend::Metal(metal) => metal.layer_norm(input, gamma, beta, eps),
@@ -242,7 +254,7 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
+
     fn attention(
         &self,
         query: &Array2<f32>,
@@ -265,7 +277,7 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
+
     fn synchronize(&self) -> Result<()> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -282,7 +294,7 @@ impl GpuOps for GpuBackend {
             GpuBackend::_Phantom => unreachable!("GpuBackend::_Phantom cannot be called"),
         }
     }
-    
+
     fn available_memory(&self) -> Result<usize> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -373,7 +385,7 @@ mod tests {
         // 测试detect方法返回Option类型（不panic即可）
         // 在没有实际GPU的环境中，应该返回None
         let result = GpuBackend::detect();
-        
+
         // 无论是否有GPU，都不应该panic
         match result {
             Some(backend) => {
@@ -390,7 +402,7 @@ mod tests {
     fn test_create_gpu_ops_returns_option() {
         // 测试create_gpu_ops工厂方法
         let result = create_gpu_ops();
-        
+
         // 应该返回Option，不panic
         match result {
             Some(_ops) => {
@@ -436,11 +448,11 @@ mod tests {
         let sizes = vec![
             0,
             1024,
-            1024 * 1024, // 1MB
-            1024 * 1024 * 1024, // 1GB
-            8 * 1024 * 1024 * 1024, // 8GB
+            1024 * 1024,             // 1MB
+            1024 * 1024 * 1024,      // 1GB
+            8 * 1024 * 1024 * 1024,  // 8GB
             24 * 1024 * 1024 * 1024, // 24GB
-            usize::MAX, // 极大值
+            usize::MAX,              // 极大值
         ];
 
         for size in sizes {
@@ -485,9 +497,7 @@ mod tests {
     /// 覆盖分支：features字段的边界条件
     #[test]
     fn test_gpu_device_info_many_features() {
-        let features: Vec<String> = (0..100)
-            .map(|i| format!("Feature_{}", i))
-            .collect();
+        let features: Vec<String> = (0..100).map(|i| format!("Feature_{}", i)).collect();
 
         let info = GpuDeviceInfo {
             name: "GPU with many features".to_string(),
@@ -769,7 +779,11 @@ mod tests {
                 GpuBackendType::Vulkan => "vulkan",
                 GpuBackendType::None => "none",
             };
-            assert_eq!(result, expected_str, "Pattern match failed for {:?}", backend_type);
+            assert_eq!(
+                result, expected_str,
+                "Pattern match failed for {:?}",
+                backend_type
+            );
         }
     }
 }

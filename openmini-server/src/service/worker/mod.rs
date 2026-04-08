@@ -8,4 +8,4 @@ pub mod pool;
 pub mod worker;
 
 pub use pool::WorkerPool;
-pub use worker::{Worker, get_worker_id, is_worker_process};
+pub use worker::{get_worker_id, is_worker_process, Worker};

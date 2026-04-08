@@ -75,25 +75,25 @@ impl std::fmt::Display for CpuBackendType {
 pub trait CpuOps: Send + Sync {
     /// 返回后端名称
     fn backend_name(&self) -> &'static str;
-    
+
     /// 返回后端类型
     fn backend_type(&self) -> CpuBackendType;
-    
+
     /// 向量点积: x · y
     fn dot(&self, x: &[f32], y: &[f32]) -> Result<f32>;
-    
+
     /// 向量加法: y = alpha * x + y
     fn axpy(&self, alpha: f32, x: &[f32], y: &mut [f32]) -> Result<()>;
-    
+
     /// 向量缩放: x = alpha * x
     fn scale(&self, alpha: f32, x: &mut [f32]);
-    
+
     /// 向量范数: ||x||_2
     fn nrm2(&self, x: &[f32]) -> f32;
-    
+
     /// 向量复制: y = x
     fn copy(&self, x: &[f32], y: &mut [f32]) -> Result<()>;
-    
+
     /// 矩阵乘法: C = alpha * A * B + beta * C
     fn gemm(
         &self,
@@ -103,13 +103,13 @@ pub trait CpuOps: Send + Sync {
         beta: f32,
         c: &mut Array2<f32>,
     ) -> Result<()>;
-    
+
     /// 矩阵-向量乘法: y = alpha * A * x + beta * y
     fn gemv(&self, alpha: f32, a: &Array2<f32>, x: &[f32], beta: f32, y: &mut [f32]) -> Result<()>;
-    
+
     /// Softmax: x_i = exp(x_i) / sum(exp(x))
     fn softmax(&self, x: &mut [f32]) -> Result<()>;
-    
+
     /// 返回线程数
     fn num_threads(&self) -> usize;
 }
@@ -200,7 +200,7 @@ impl CpuBackend {
         {
             return CpuBackendType::Blas;
         }
-        
+
         #[cfg(target_arch = "x86_64")]
         {
             if std::is_x86_feature_detected!("avx") {
@@ -217,25 +217,25 @@ impl CpuBackend {
 
         CpuBackendType::Rust
     }
-    
+
     /// 创建最优后端实例
     pub fn create() -> Box<dyn CpuOps> {
         let backend_type = Self::detect();
         Self::create_from_type(backend_type)
     }
-    
+
     /// 根据指定类型创建后端实例
     pub fn create_from_type(backend_type: CpuBackendType) -> Box<dyn CpuOps> {
         match backend_type {
             #[cfg(any(feature = "blas-openblas", feature = "blas-mkl"))]
             CpuBackendType::Blas => Box::new(blas::BlasBackend::new()),
-            
+
             #[cfg(target_arch = "x86_64")]
             CpuBackendType::Avx => Box::new(avx::AvxBackend::new()),
-            
+
             #[cfg(target_arch = "aarch64")]
             CpuBackendType::Neon => Box::new(neon::NeonBackend::new()),
-            
+
             _ => Box::new(RustBackend::new()),
         }
     }
@@ -291,7 +291,7 @@ impl CpuBackend {
             false
         }
     }
-    
+
     /// 检测是否有 BLAS 支持
     #[allow(dead_code)]
     pub fn has_blas() -> bool {
@@ -306,7 +306,7 @@ impl CpuBackend {
         let simd = Self::get_simd_info();
         let recommended_backend = Self::detect();
         let rayon_threads = rayon::current_num_threads();
-        
+
         CpuInfoDetail {
             arch,
             physical_cores,
@@ -316,35 +316,47 @@ impl CpuBackend {
             rayon_threads,
         }
     }
-    
+
     fn get_arch() -> String {
         #[cfg(target_arch = "x86_64")]
-        { "x86_64".to_string() }
-        
+        {
+            "x86_64".to_string()
+        }
+
         #[cfg(target_arch = "aarch64")]
-        { "aarch64".to_string() }
-        
+        {
+            "aarch64".to_string()
+        }
+
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        { "unknown".to_string() }
+        {
+            "unknown".to_string()
+        }
     }
-    
+
     fn get_simd_info() -> SimdInfo {
         let mut info = SimdInfo::default();
-        
+
         #[cfg(target_arch = "x86_64")]
         {
             info.avx = std::is_x86_feature_detected!("avx");
             info.avx2 = std::is_x86_feature_detected!("avx2");
             info.avx512 = std::is_x86_feature_detected!("avx512f");
-            info.best_width = if info.avx512 { 512 } else if info.avx { 256 } else { 128 };
+            info.best_width = if info.avx512 {
+                512
+            } else if info.avx {
+                256
+            } else {
+                128
+            };
         }
-        
+
         #[cfg(target_arch = "aarch64")]
         {
             info.neon = std::is_aarch64_feature_detected!("neon");
             info.best_width = if info.neon { 128 } else { 0 };
         }
-        
+
         info
     }
 }
@@ -370,18 +382,18 @@ impl CpuOps for RustBackend {
     fn backend_name(&self) -> &'static str {
         "Rust (fallback)"
     }
-    
+
     fn backend_type(&self) -> CpuBackendType {
         CpuBackendType::Rust
     }
-    
+
     fn dot(&self, x: &[f32], y: &[f32]) -> Result<f32> {
         if x.len() != y.len() {
             bail!("向量维度不匹配: x({}) y({})", x.len(), y.len());
         }
         Ok(x.iter().zip(y.iter()).map(|(&a, &b)| a * b).sum())
     }
-    
+
     fn axpy(&self, alpha: f32, x: &[f32], y: &mut [f32]) -> Result<()> {
         if x.len() != y.len() {
             bail!("向量维度不匹配: x({}) y({})", x.len(), y.len());
@@ -391,16 +403,16 @@ impl CpuOps for RustBackend {
         }
         Ok(())
     }
-    
+
     fn scale(&self, alpha: f32, x: &mut [f32]) {
         x.iter_mut().for_each(|xi| *xi *= alpha);
     }
-    
+
     fn nrm2(&self, x: &[f32]) -> f32 {
         let sum: f32 = x.iter().map(|&xi| xi * xi).sum();
         sum.sqrt()
     }
-    
+
     fn copy(&self, x: &[f32], y: &mut [f32]) -> Result<()> {
         if x.len() != y.len() {
             bail!("向量维度不匹配: x({}) y({})", x.len(), y.len());
@@ -408,7 +420,7 @@ impl CpuOps for RustBackend {
         y.copy_from_slice(x);
         Ok(())
     }
-    
+
     fn gemm(
         &self,
         alpha: f32,
@@ -419,17 +431,17 @@ impl CpuOps for RustBackend {
     ) -> Result<()> {
         let (m, k) = a.dim();
         let (k2, n) = b.dim();
-        
+
         if k != k2 {
             bail!("矩阵维度不匹配: A({}×{}) B({}×{})", m, k, k2, n);
         }
-        
+
         if beta == 0.0 {
             c.fill(0.0);
         } else {
             c.mapv_inplace(|x| x * beta);
         }
-        
+
         for i in 0..m {
             for j in 0..n {
                 let mut sum = 0.0f32;
@@ -439,26 +451,26 @@ impl CpuOps for RustBackend {
                 c[[i, j]] += alpha * sum;
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn gemv(&self, alpha: f32, a: &Array2<f32>, x: &[f32], beta: f32, y: &mut [f32]) -> Result<()> {
         let (m, n) = a.dim();
-        
+
         if n != x.len() {
             bail!("矩阵-向量维度不匹配: A({}×{}) x({})", m, n, x.len());
         }
         if m != y.len() {
             bail!("输出向量大小不匹配: y({}) 期望({})", y.len(), m);
         }
-        
+
         if beta == 0.0 {
             y.fill(0.0);
         } else {
             y.iter_mut().for_each(|yi| *yi *= beta);
         }
-        
+
         for i in 0..m {
             let mut sum = 0.0f32;
             for j in 0..n {
@@ -466,32 +478,32 @@ impl CpuOps for RustBackend {
             }
             y[i] += alpha * sum;
         }
-        
+
         Ok(())
     }
-    
+
     fn softmax(&self, x: &mut [f32]) -> Result<()> {
         if x.is_empty() {
             return Ok(());
         }
-        
+
         let max_val = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         let mut sum = 0.0f32;
-        
+
         for xi in x.iter_mut() {
             *xi = (*xi - max_val).exp();
             sum += *xi;
         }
-        
+
         if sum > 0.0 {
             for xi in x.iter_mut() {
                 *xi /= sum;
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn num_threads(&self) -> usize {
         self.num_threads
     }
@@ -505,35 +517,39 @@ impl CpuOps for RustBackend {
 impl CpuOps for blas::BlasBackend {
     fn backend_name(&self) -> &'static str {
         #[cfg(feature = "blas-openblas")]
-        { "OpenBLAS" }
+        {
+            "OpenBLAS"
+        }
         #[cfg(feature = "blas-mkl")]
-        { "Intel MKL" }
+        {
+            "Intel MKL"
+        }
     }
-    
+
     fn backend_type(&self) -> CpuBackendType {
         CpuBackendType::Blas
     }
-    
+
     fn dot(&self, x: &[f32], y: &[f32]) -> Result<f32> {
         self.dot(x, y)
     }
-    
+
     fn axpy(&self, alpha: f32, x: &[f32], y: &mut [f32]) -> Result<()> {
         self.axpy(alpha, x, y)
     }
-    
+
     fn scale(&self, alpha: f32, x: &mut [f32]) {
         self.scale(alpha, x);
     }
-    
+
     fn nrm2(&self, x: &[f32]) -> f32 {
         self.nrm2(x)
     }
-    
+
     fn copy(&self, x: &[f32], y: &mut [f32]) -> Result<()> {
         self.copy(x, y)
     }
-    
+
     fn gemm(
         &self,
         alpha: f32,
@@ -544,33 +560,33 @@ impl CpuOps for blas::BlasBackend {
     ) -> Result<()> {
         self.gemm(alpha, a, b, beta, c)
     }
-    
+
     fn gemv(&self, alpha: f32, a: &Array2<f32>, x: &[f32], beta: f32, y: &mut [f32]) -> Result<()> {
         self.gemv(alpha, a, x, beta, y)
     }
-    
+
     fn softmax(&self, x: &mut [f32]) -> Result<()> {
         if x.is_empty() {
             return Ok(());
         }
-        
+
         let max_val = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         let mut sum = 0.0f32;
-        
+
         for xi in x.iter_mut() {
             *xi = (*xi - max_val).exp();
             sum += *xi;
         }
-        
+
         if sum > 0.0 {
             for xi in x.iter_mut() {
                 *xi /= sum;
             }
         }
-        
+
         Ok(())
     }
-    
+
     fn num_threads(&self) -> usize {
         self.num_threads()
     }
@@ -585,31 +601,31 @@ impl CpuOps for avx::AvxBackend {
             "AVX"
         }
     }
-    
+
     fn backend_type(&self) -> CpuBackendType {
         CpuBackendType::Avx
     }
-    
+
     fn dot(&self, x: &[f32], y: &[f32]) -> Result<f32> {
         self.dot(x, y)
     }
-    
+
     fn axpy(&self, alpha: f32, x: &[f32], y: &mut [f32]) -> Result<()> {
         self.axpy(alpha, x, y)
     }
-    
+
     fn scale(&self, alpha: f32, x: &mut [f32]) {
         self.scale(alpha, x);
     }
-    
+
     fn nrm2(&self, x: &[f32]) -> f32 {
         self.nrm2(x)
     }
-    
+
     fn copy(&self, x: &[f32], y: &mut [f32]) -> Result<()> {
         self.copy(x, y)
     }
-    
+
     fn gemm(
         &self,
         alpha: f32,
@@ -620,26 +636,34 @@ impl CpuOps for avx::AvxBackend {
     ) -> Result<()> {
         let (m, k) = a.dim();
         let (k2, n) = b.dim();
-        
-        let a_slice = a.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
-        let b_slice = b.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 B 不是连续存储"))?;
-        let c_slice = c.as_slice_mut().ok_or_else(|| anyhow::anyhow!("矩阵 C 不是连续存储"))?;
-        
+
+        let a_slice = a
+            .as_slice()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
+        let b_slice = b
+            .as_slice()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 B 不是连续存储"))?;
+        let c_slice = c
+            .as_slice_mut()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 C 不是连续存储"))?;
+
         self.gemm(alpha, a_slice, m, k, b_slice, k2, n, beta, c_slice)
     }
-    
+
     fn gemv(&self, alpha: f32, a: &Array2<f32>, x: &[f32], beta: f32, y: &mut [f32]) -> Result<()> {
         let (m, n) = a.dim();
-        
-        let a_slice = a.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
-        
+
+        let a_slice = a
+            .as_slice()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
+
         self.gemv(alpha, a_slice, m, n, x, beta, y)
     }
-    
+
     fn softmax(&self, x: &mut [f32]) -> Result<()> {
         self.softmax(x)
     }
-    
+
     fn num_threads(&self) -> usize {
         self.num_threads()
     }
@@ -650,31 +674,31 @@ impl CpuOps for neon::NeonBackend {
     fn backend_name(&self) -> &'static str {
         "NEON"
     }
-    
+
     fn backend_type(&self) -> CpuBackendType {
         CpuBackendType::Neon
     }
-    
+
     fn dot(&self, x: &[f32], y: &[f32]) -> Result<f32> {
         self.dot(x, y)
     }
-    
+
     fn axpy(&self, alpha: f32, x: &[f32], y: &mut [f32]) -> Result<()> {
         self.axpy(alpha, x, y)
     }
-    
+
     fn scale(&self, alpha: f32, x: &mut [f32]) {
         self.scale(alpha, x);
     }
-    
+
     fn nrm2(&self, x: &[f32]) -> f32 {
         self.nrm2(x)
     }
-    
+
     fn copy(&self, x: &[f32], y: &mut [f32]) -> Result<()> {
         self.copy(x, y)
     }
-    
+
     fn gemm(
         &self,
         alpha: f32,
@@ -685,26 +709,34 @@ impl CpuOps for neon::NeonBackend {
     ) -> Result<()> {
         let (m, k) = a.dim();
         let (k2, n) = b.dim();
-        
-        let a_slice = a.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
-        let b_slice = b.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 B 不是连续存储"))?;
-        let c_slice = c.as_slice_mut().ok_or_else(|| anyhow::anyhow!("矩阵 C 不是连续存储"))?;
-        
+
+        let a_slice = a
+            .as_slice()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
+        let b_slice = b
+            .as_slice()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 B 不是连续存储"))?;
+        let c_slice = c
+            .as_slice_mut()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 C 不是连续存储"))?;
+
         self.gemm(alpha, a_slice, m, k, b_slice, k2, n, beta, c_slice)
     }
-    
+
     fn gemv(&self, alpha: f32, a: &Array2<f32>, x: &[f32], beta: f32, y: &mut [f32]) -> Result<()> {
         let (m, n) = a.dim();
-        
-        let a_slice = a.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
-        
+
+        let a_slice = a
+            .as_slice()
+            .ok_or_else(|| anyhow::anyhow!("矩阵 A 不是连续存储"))?;
+
         self.gemv(alpha, a_slice, m, n, x, beta, y)
     }
-    
+
     fn softmax(&self, x: &mut [f32]) -> Result<()> {
         self.softmax(x)
     }
-    
+
     fn num_threads(&self) -> usize {
         self.num_threads()
     }
@@ -797,10 +829,10 @@ mod tests {
         backend.axpy(2.0, &x, &mut y).unwrap();
 
         // 验证结果
-        assert!((y[0] - 12.0).abs() < 1e-5);   // 2*1 + 10
-        assert!((y[1] - 24.0).abs() < 1e-5);   // 2*2 + 20
-        assert!((y[2] - 36.0).abs() < 1e-5);   // 2*3 + 30
-        assert!((y[3] - 48.0).abs() < 1e-5);   // 2*4 + 40
+        assert!((y[0] - 12.0).abs() < 1e-5); // 2*1 + 10
+        assert!((y[1] - 24.0).abs() < 1e-5); // 2*2 + 20
+        assert!((y[2] - 36.0).abs() < 1e-5); // 2*3 + 30
+        assert!((y[3] - 48.0).abs() < 1e-5); // 2*4 + 40
     }
 
     /// 测试scale操作 (x = alpha * x)
@@ -825,17 +857,10 @@ mod tests {
         let backend = CpuBackend::create();
 
         // A: 2x3矩阵
-        let a = Array2::from_shape_vec((2, 3), vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ]).unwrap();
+        let a = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
         // B: 3x2矩阵
-        let b = Array2::from_shape_vec((3, 2), vec![
-            7.0, 8.0,
-            9.0, 10.0,
-            11.0, 12.0,
-        ]).unwrap();
+        let b = Array2::from_shape_vec((3, 2), vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
 
         // C: 2x2零矩阵
         let mut c = Array2::from_elem((2, 2), 0.0);
@@ -860,10 +885,7 @@ mod tests {
         let backend = CpuBackend::create();
 
         // A: 2x3矩阵
-        let a = Array2::from_shape_vec((2, 3), vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ]).unwrap();
+        let a = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
         // x: 长度为3的向量
         let x = vec![1.0, 2.0, 3.0];
@@ -886,8 +908,8 @@ mod tests {
     fn test_dot_dimension_mismatch() {
         let backend = CpuBackend::create();
 
-        let x = vec![1.0, 2.0, 3.0];  // 长度3
-        let y = vec![1.0, 2.0];       // 长度2
+        let x = vec![1.0, 2.0, 3.0]; // 长度3
+        let y = vec![1.0, 2.0]; // 长度2
 
         let result = backend.dot(&x, &y);
 
@@ -947,8 +969,7 @@ mod tests {
         if simd.avx || simd.avx2 || simd.avx512 || simd.neon {
             // 如果有任何SIMD支持，应该显示特性名称
             assert!(
-                display_output.contains("AVX") ||
-                display_output.contains("NEON"),
+                display_output.contains("AVX") || display_output.contains("NEON"),
                 "SIMD显示应包含AVX或NEON"
             );
         } else {
@@ -981,7 +1002,10 @@ mod tests {
 
         // 后端类型应该在已知范围内
         match detected_type {
-            CpuBackendType::Blas | CpuBackendType::Avx | CpuBackendType::Neon | CpuBackendType::Rust => {}
+            CpuBackendType::Blas
+            | CpuBackendType::Avx
+            | CpuBackendType::Neon
+            | CpuBackendType::Rust => {}
         }
     }
 }

@@ -106,8 +106,8 @@ fn test_model_config() {
 
 #[test]
 fn test_vision_encoder() {
-    use openmini_server::model::inference::model::{ModelConfig, MultimodalTransformer};
     use ndarray::Array3;
+    use openmini_server::model::inference::model::{ModelConfig, MultimodalTransformer};
 
     let model = MultimodalTransformer::new(ModelConfig::default());
     let image = Array3::from_shape_vec((224, 224, 3), vec![128u8; 224 * 224 * 3]).unwrap();
@@ -124,7 +124,7 @@ fn test_sampler_parameters() {
         .with_top_p(0.8)
         .with_top_k(100)
         .with_max_new_tokens(512);
-    
+
     assert!((params.temperature - 0.7).abs() < 1e-5);
     assert!((params.top_p - 0.8).abs() < 1e-5);
     assert_eq!(params.top_k, 100);

@@ -57,18 +57,18 @@
 
 #![allow(dead_code)]
 
-use ndarray::{Array1, Array2, Array3, Axis, s, Zip};
-use rand::Rng;
-use rand::distributions::{WeightedIndex, Distribution};
-use once_cell::sync::Lazy;
 use dashmap::DashMap;
-use std::time::Instant;
-use std::ops::AddAssign;
+use ndarray::{s, Array1, Array2, Array3, Axis, Zip};
+use once_cell::sync::Lazy;
+use rand::distributions::{Distribution, WeightedIndex};
+use rand::Rng;
 use rayon::prelude::*;
+use std::ops::AddAssign;
+use std::time::Instant;
 
-use super::sampler::GenerateParams;
-use super::error::{InferenceError, InferenceResult};
 use super::dsa::{self, DSATopKConfig};
+use super::error::{InferenceError, InferenceResult};
+use super::sampler::GenerateParams;
 
 impl From<ndarray::ShapeError> for InferenceError {
     fn from(e: ndarray::ShapeError) -> Self {
@@ -140,11 +140,10 @@ struct MaskCacheEntry {
 /// 动态掩码缓存（使用 DashMap 实现高并发安全）
 /// DashMap 使用分片锁，比单一 Mutex 并发性能更优
 /// 使用时间戳实现真正的 LRU 淘汰策略
-/// 
+///
 /// # 缓存条件
 /// 仅当 `seq_len == kv_seq_len ≤ 2048` 且内存占用 ≤ 64MB 时缓存
-static DYNAMIC_MASK_CACHE: Lazy<DashMap<(usize, usize), MaskCacheEntry>> = 
-    Lazy::new(DashMap::new);
+static DYNAMIC_MASK_CACHE: Lazy<DashMap<(usize, usize), MaskCacheEntry>> = Lazy::new(DashMap::new);
 
 /// 掩码缓存最大序列长度（仅缓存正方形掩码）
 const MASK_CACHE_MAX_SEQ_LEN: usize = 2048;
@@ -153,7 +152,7 @@ const MASK_CACHE_MAX_SEQ_LEN: usize = 2048;
 const MASK_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// RoPE 预计算表结构
-/// 
+///
 /// 当 max_positions <= 8192 时，预计算完整的 cos/sin 表以避免实时计算
 /// 内存占用：max_positions * half_dim * 2 * 4 bytes
 /// 例如：8192 * 64 * 2 * 4 = 4MB
@@ -171,24 +170,29 @@ const ROPE_PRECOMPUTE_MAX_POSITIONS: usize = 8192;
 /// RoPE 预计算表缓存
 /// Key: (theta_bits, head_dim, max_positions)
 /// Value: 预计算的频率向量和 cos/sin 表
-static ROPE_TABLES_CACHE: Lazy<DashMap<(u32, usize, usize), std::sync::Arc<RopeTables>>> = 
+static ROPE_TABLES_CACHE: Lazy<DashMap<(u32, usize, usize), std::sync::Arc<RopeTables>>> =
     Lazy::new(DashMap::new);
 
 /// 获取或创建 RoPE 预计算表
-fn get_rope_tables(theta: f32, head_dim: usize, max_positions: usize) -> std::sync::Arc<RopeTables> {
+fn get_rope_tables(
+    theta: f32,
+    head_dim: usize,
+    max_positions: usize,
+) -> std::sync::Arc<RopeTables> {
     let key = (theta.to_bits(), head_dim, max_positions);
-    
-    ROPE_TABLES_CACHE.entry(key)
+
+    ROPE_TABLES_CACHE
+        .entry(key)
         .or_insert_with(|| {
             let half_dim = head_dim / 2;
             let freqs: Vec<f32> = (0..half_dim)
                 .map(|i| 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32))
                 .collect();
-            
+
             let (cos_table, sin_table) = if max_positions <= ROPE_PRECOMPUTE_MAX_POSITIONS {
                 let mut cos_t = Array2::zeros((max_positions, half_dim));
                 let mut sin_t = Array2::zeros((max_positions, half_dim));
-                
+
                 for pos in 0..max_positions {
                     for (i, &freq) in freqs.iter().enumerate() {
                         let angle = pos as f32 * freq;
@@ -200,7 +204,7 @@ fn get_rope_tables(theta: f32, head_dim: usize, max_positions: usize) -> std::sy
             } else {
                 (None, None)
             };
-            
+
             std::sync::Arc::new(RopeTables {
                 freqs,
                 cos_table,
@@ -267,7 +271,7 @@ pub struct ModelConfig {
     pub mhc_epsilon: f32,
     pub unk_token_id: usize,
     // ====== AttnRes 配置 ======
-    pub use_attnres: bool,           // 是否启用（默认 true，向后兼容无需配置）
+    pub use_attnres: bool, // 是否启用（默认 true，向后兼容无需配置）
     pub attnres_num_blocks: Option<usize>, // None = 自适应，Some(n) = 手动指定
 }
 
@@ -390,20 +394,20 @@ impl KVCache {
     /// 形状检查仅在 debug 模式下执行，release 模式下跳过以提升性能
     pub fn update(&mut self, k: &Array3<f32>, v: &Array3<f32>) -> InferenceResult<()> {
         let new_len = k.dim().0;
-        
+
         debug_assert_eq!(k.dim(), v.dim(), "K and V must have same shape");
         debug_assert_eq!(k.dim().1, self.k_cache.dim().1, "num_heads mismatch");
         debug_assert_eq!(k.dim().2, self.k_cache.dim().2, "head_dim mismatch");
-        
+
         let available = self.max_seq_len.saturating_sub(self.seq_len);
-        
+
         if new_len > available {
             return Err(InferenceError::generation(format!(
                 "KV cache capacity exceeded: trying to add {} tokens but only {} available (max: {}, current: {})",
                 new_len, available, self.max_seq_len, self.seq_len
             )));
         }
-        
+
         self.k_cache
             .slice_mut(s![self.seq_len..self.seq_len + new_len, .., ..])
             .assign(k);
@@ -411,7 +415,7 @@ impl KVCache {
             .slice_mut(s![self.seq_len..self.seq_len + new_len, .., ..])
             .assign(v);
         self.seq_len += new_len;
-        
+
         Ok(())
     }
 
@@ -434,80 +438,90 @@ impl KVCache {
     }
 
     pub fn save(&self, path: &std::path::Path) -> InferenceResult<()> {
-        let k_standard = self.k_cache.clone().into_shape_with_order(
-            (self.seq_len, self.k_cache.dim().1, self.k_cache.dim().2)
-        ).map_err(|e| InferenceError::generation(format!("Failed to reshape K cache: {}", e)))?;
-        let v_standard = self.v_cache.clone().into_shape_with_order(
-            (self.seq_len, self.v_cache.dim().1, self.v_cache.dim().2)
-        ).map_err(|e| InferenceError::generation(format!("Failed to reshape V cache: {}", e)))?;
-        
+        let k_standard = self
+            .k_cache
+            .clone()
+            .into_shape_with_order((self.seq_len, self.k_cache.dim().1, self.k_cache.dim().2))
+            .map_err(|e| InferenceError::generation(format!("Failed to reshape K cache: {}", e)))?;
+        let v_standard = self
+            .v_cache
+            .clone()
+            .into_shape_with_order((self.seq_len, self.v_cache.dim().1, self.v_cache.dim().2))
+            .map_err(|e| InferenceError::generation(format!("Failed to reshape V cache: {}", e)))?;
+
         let k_standard_layout = k_standard.as_standard_layout();
         let v_standard_layout = v_standard.as_standard_layout();
-        
-        let k_slice = k_standard_layout.as_slice()
+
+        let k_slice = k_standard_layout
+            .as_slice()
             .ok_or_else(|| InferenceError::generation("K cache is not contiguous in memory"))?;
-        let v_slice = v_standard_layout.as_slice()
+        let v_slice = v_standard_layout
+            .as_slice()
             .ok_or_else(|| InferenceError::generation("V cache is not contiguous in memory"))?;
-        
+
         let k_bytes: &[u8] = bytemuck::cast_slice(k_slice);
         let v_bytes: &[u8] = bytemuck::cast_slice(v_slice);
-        
+
         let metadata = KVCacheMetadata {
             seq_len: self.seq_len,
             max_seq_len: self.max_seq_len,
             num_heads: self.k_cache.dim().1,
             head_dim: self.k_cache.dim().2,
         };
-        
+
         let mut file = std::fs::File::create(path)
             .map_err(|e| InferenceError::io(format!("Failed to create KV cache file: {}", e)))?;
-        
+
         serde_json::to_writer(&mut file, &metadata)
             .map_err(|e| InferenceError::io(format!("Failed to write KV cache metadata: {}", e)))?;
-        
+
         use std::io::Write;
         file.write_all(k_bytes)
             .map_err(|e| InferenceError::io(format!("Failed to write K cache: {}", e)))?;
         file.write_all(v_bytes)
             .map_err(|e| InferenceError::io(format!("Failed to write V cache: {}", e)))?;
-        
+
         Ok(())
     }
 
     pub fn load(path: &std::path::Path) -> InferenceResult<Self> {
         let mut file = std::fs::File::open(path)
             .map_err(|e| InferenceError::io(format!("Failed to open KV cache file: {}", e)))?;
-        
+
         let metadata: KVCacheMetadata = serde_json::from_reader(&mut file)
             .map_err(|e| InferenceError::io(format!("Failed to read KV cache metadata: {}", e)))?;
-        
+
         use std::io::Read;
         let k_size = metadata.max_seq_len * metadata.num_heads * metadata.head_dim;
         let v_size = k_size;
-        
+
         let mut k_bytes = vec![0u8; k_size * std::mem::size_of::<f32>()];
         let mut v_bytes = vec![0u8; v_size * std::mem::size_of::<f32>()];
-        
+
         file.read_exact(&mut k_bytes)
             .map_err(|e| InferenceError::io(format!("Failed to read K cache: {}", e)))?;
         file.read_exact(&mut v_bytes)
             .map_err(|e| InferenceError::io(format!("Failed to read V cache: {}", e)))?;
-        
-        let k_data: Vec<f32> = bytemuck::allocation::try_cast_vec(k_bytes)
-            .map_err(|(_, e)| InferenceError::io(format!("Failed to convert K cache bytes: {:?}", e)))?;
-        let v_data: Vec<f32> = bytemuck::allocation::try_cast_vec(v_bytes)
-            .map_err(|(_, e)| InferenceError::io(format!("Failed to convert V cache bytes: {:?}", e)))?;
-        
+
+        let k_data: Vec<f32> = bytemuck::allocation::try_cast_vec(k_bytes).map_err(|(_, e)| {
+            InferenceError::io(format!("Failed to convert K cache bytes: {:?}", e))
+        })?;
+        let v_data: Vec<f32> = bytemuck::allocation::try_cast_vec(v_bytes).map_err(|(_, e)| {
+            InferenceError::io(format!("Failed to convert V cache bytes: {:?}", e))
+        })?;
+
         let k_cache: Array3<f32> = Array3::from_shape_vec(
             (metadata.max_seq_len, metadata.num_heads, metadata.head_dim),
-            k_data
-        ).map_err(|e| InferenceError::generation(format!("Failed to reshape K cache: {}", e)))?;
-        
+            k_data,
+        )
+        .map_err(|e| InferenceError::generation(format!("Failed to reshape K cache: {}", e)))?;
+
         let v_cache: Array3<f32> = Array3::from_shape_vec(
             (metadata.max_seq_len, metadata.num_heads, metadata.head_dim),
-            v_data
-        ).map_err(|e| InferenceError::generation(format!("Failed to reshape V cache: {}", e)))?;
-        
+            v_data,
+        )
+        .map_err(|e| InferenceError::generation(format!("Failed to reshape V cache: {}", e)))?;
+
         Ok(Self {
             k_cache,
             v_cache,
@@ -602,7 +616,9 @@ impl MLACache {
 
     /// 对比标准 KV Cache 的内存节省比例
     pub fn compression_ratio(&self, kv_dim: usize) -> f32 {
-        if kv_dim == 0 { return 0.0; }
+        if kv_dim == 0 {
+            return 0.0;
+        }
         let standard = kv_dim * 2;
         1.0 - (self.latent_dim as f32 / standard as f32)
     }
@@ -725,29 +741,34 @@ impl MoEWeights {
     ///
     /// # 返回
     /// - 输出张量 (seq_len, hidden_size)
-    pub fn forward(&self, x: &Array2<f32>, modality_ids: Option<&Array1<usize>>) -> InferenceResult<Array2<f32>> {
+    pub fn forward(
+        &self,
+        x: &Array2<f32>,
+        modality_ids: Option<&Array1<usize>>,
+    ) -> InferenceResult<Array2<f32>> {
         let seq_len = x.nrows();
         let hidden_size = x.ncols();
 
-        let router_input = if let (Some(mod_ids), Some(ref mod_embeds)) = (modality_ids, &self.modality_embeds) {
-            let mut mod_embed_matrix = Array2::zeros((seq_len, hidden_size));
-            for i in 0..seq_len {
-                let mod_id = mod_ids[i];
-                if let Some(embed) = mod_embeds.get(&mod_id) {
-                    mod_embed_matrix.row_mut(i).assign(embed);
+        let router_input =
+            if let (Some(mod_ids), Some(ref mod_embeds)) = (modality_ids, &self.modality_embeds) {
+                let mut mod_embed_matrix = Array2::zeros((seq_len, hidden_size));
+                for i in 0..seq_len {
+                    let mod_id = mod_ids[i];
+                    if let Some(embed) = mod_embeds.get(&mod_id) {
+                        mod_embed_matrix.row_mut(i).assign(embed);
+                    }
                 }
-            }
-            x + &mod_embed_matrix
-        } else {
-            x.clone()
-        };
+                x + &mod_embed_matrix
+            } else {
+                x.clone()
+            };
 
         let router_logits = linear(&router_input, &self.router);
         let (indices, weights, offsets) = top_k_selection(&router_logits, self.top_k);
 
-        let mut expert_token_map: std::collections::HashMap<usize, Vec<(usize, f32)>> = 
+        let mut expert_token_map: std::collections::HashMap<usize, Vec<(usize, f32)>> =
             std::collections::HashMap::new();
-        
+
         for i in 0..seq_len {
             let start = offsets[i];
             let end = offsets[i + 1];
@@ -765,9 +786,9 @@ impl MoEWeights {
 
         let expert_results: Vec<(usize, Array2<f32>, Vec<(usize, f32)>)> = {
             let should_parallelize = self.experts.len() > 2 && expert_token_map.len() > 1;
-            
+
             let has_large_expert = expert_token_map.values().any(|v| v.len() > 4);
-            
+
             if should_parallelize && has_large_expert {
                 expert_token_map
                     .into_par_iter()
@@ -775,17 +796,17 @@ impl MoEWeights {
                         if expert_idx >= self.experts.len() || token_weights.is_empty() {
                             return None;
                         }
-                        
+
                         let expert = &self.experts[expert_idx];
                         let num_tokens = token_weights.len();
-                        
+
                         let mut expert_input = Array2::zeros((num_tokens, hidden_size));
                         for (t_idx, &(token_idx, _)) in token_weights.iter().enumerate() {
                             expert_input.row_mut(t_idx).assign(&x.row(token_idx));
                         }
 
                         let expert_output = expert.forward(&expert_input);
-                        
+
                         let mut weighted_output = Array2::zeros((num_tokens, hidden_size));
                         for (t_idx, &(_, weight)) in token_weights.iter().enumerate() {
                             let scale = weight;
@@ -795,7 +816,7 @@ impl MoEWeights {
                                     *out = scale * exp;
                                 });
                         }
-                        
+
                         Some((expert_idx, weighted_output, token_weights))
                     })
                     .collect()
@@ -806,17 +827,17 @@ impl MoEWeights {
                         if expert_idx >= self.experts.len() || token_weights.is_empty() {
                             return None;
                         }
-                        
+
                         let expert = &self.experts[expert_idx];
                         let num_tokens = token_weights.len();
-                        
+
                         let mut expert_input = Array2::zeros((num_tokens, hidden_size));
                         for (t_idx, &(token_idx, _)) in token_weights.iter().enumerate() {
                             expert_input.row_mut(t_idx).assign(&x.row(token_idx));
                         }
 
                         let expert_output = expert.forward(&expert_input);
-                        
+
                         let mut weighted_output = Array2::zeros((num_tokens, hidden_size));
                         for (t_idx, &(_, weight)) in token_weights.iter().enumerate() {
                             let scale = weight;
@@ -826,7 +847,7 @@ impl MoEWeights {
                                     *out = scale * exp;
                                 });
                         }
-                        
+
                         Some((expert_idx, weighted_output, token_weights))
                     })
                     .collect()
@@ -994,7 +1015,7 @@ pub fn rms_norm(x: &Array2<f32>, weight: &Array1<f32>, eps: f32) -> Array2<f32> 
 /// 应用旋转位置编码（RoPE）
 ///
 /// 使用预计算的频率表和 cos/sin 表进行高效计算，避免多余的 reshape 和内存分配
-/// 
+///
 /// # 性能优化
 /// - 当 max_positions <= 8192 时，使用预计算的 cos/sin 表直接查表
 /// - 当 max_positions > 8192 时，回退到实时计算以避免内存占用过大
@@ -1008,46 +1029,46 @@ pub fn apply_rotary_emb(
 ) -> InferenceResult<Array2<f32>> {
     let seq_len = x.nrows();
     let total_dim = x.ncols();
-    
+
     if total_dim != num_heads * head_dim {
         return Err(InferenceError::config(format!(
             "Input dimension {} doesn't match num_heads({}) * head_dim({})",
             total_dim, num_heads, head_dim
         )));
     }
-    
+
     if head_dim % 2 != 0 {
         return Err(InferenceError::config(format!(
             "head_dim must be even for RoPE, got {}",
             head_dim
         )));
     }
-    
+
     let half_dim = head_dim / 2;
     let default_positions: Array1<usize> = (0..seq_len).collect();
     let pos = positions.unwrap_or(&default_positions);
-    
+
     let max_pos = pos.iter().max().copied().unwrap_or(0) + 1;
     let tables = get_rope_tables(theta, head_dim, max_pos);
-    
+
     let mut output = x.clone();
-    
+
     if let (Some(cos_table), Some(sin_table)) = (&tables.cos_table, &tables.sin_table) {
         for (pos_idx, &p) in pos.iter().enumerate() {
             if p >= tables.max_positions {
                 continue;
             }
-            
+
             for h in 0..num_heads {
                 let base_idx = h * head_dim;
-                
+
                 for i in 0..half_dim {
                     let c = cos_table[[p, i]];
                     let s = sin_table[[p, i]];
-                    
+
                     let x0 = x[[pos_idx, base_idx + 2 * i]];
                     let x1 = x[[pos_idx, base_idx + 2 * i + 1]];
-                    
+
                     output[[pos_idx, base_idx + 2 * i]] = x0 * c - x1 * s;
                     output[[pos_idx, base_idx + 2 * i + 1]] = x0 * s + x1 * c;
                 }
@@ -1056,24 +1077,24 @@ pub fn apply_rotary_emb(
     } else {
         for (pos_idx, &p) in pos.iter().enumerate() {
             let pos_f = p as f32;
-            
+
             for h in 0..num_heads {
                 let base_idx = h * head_dim;
-                
+
                 for i in 0..half_dim {
                     let angle = pos_f * tables.freqs[i];
                     let (c, s) = (angle.cos(), angle.sin());
-                    
+
                     let x0 = x[[pos_idx, base_idx + 2 * i]];
                     let x1 = x[[pos_idx, base_idx + 2 * i + 1]];
-                    
+
                     output[[pos_idx, base_idx + 2 * i]] = x0 * c - x1 * s;
                     output[[pos_idx, base_idx + 2 * i + 1]] = x0 * s + x1 * c;
                 }
             }
         }
     }
-    
+
     Ok(output)
 }
 
@@ -1105,48 +1126,51 @@ pub fn create_causal_mask(seq_len: usize, kv_seq_len: usize) -> Array2<f32> {
     let max_len = *RUNTIME_MASK_MAX_SEQ_LEN;
     let mask_elements = seq_len * kv_seq_len;
     let mask_bytes = mask_elements * std::mem::size_of::<f32>();
-    
+
     let should_cache = seq_len == kv_seq_len
         && seq_len <= MASK_CACHE_MAX_SEQ_LEN
         && mask_bytes <= MASK_CACHE_MAX_BYTES;
-    
+
     if should_cache {
         let key = (seq_len, kv_seq_len);
-        
+
         if let Some(mut entry) = DYNAMIC_MASK_CACHE.get_mut(&key) {
             entry.last_access = Instant::now();
             return entry.mask.clone();
         }
-        
+
         let mask = CAUSAL_MASK.slice(s![0..seq_len, 0..kv_seq_len]).to_owned();
-        
+
         if DYNAMIC_MASK_CACHE.len() >= MASK_CACHE_SIZE {
             let mut entries: Vec<_> = DYNAMIC_MASK_CACHE
                 .iter()
                 .map(|entry| (*entry.key(), entry.value().last_access))
                 .collect();
             entries.sort_by_key(|(_, t)| *t);
-            
+
             for (key, _) in entries.into_iter().take(4) {
                 DYNAMIC_MASK_CACHE.remove(&key);
             }
         }
-        
-        DYNAMIC_MASK_CACHE.insert(key, MaskCacheEntry {
-            mask: mask.clone(),
-            last_access: Instant::now(),
-        });
-        
+
+        DYNAMIC_MASK_CACHE.insert(
+            key,
+            MaskCacheEntry {
+                mask: mask.clone(),
+                last_access: Instant::now(),
+            },
+        );
+
         return mask;
     }
-    
+
     let offset = kv_seq_len.saturating_sub(seq_len);
-    
+
     if seq_len <= max_len && kv_seq_len <= max_len {
         if offset == 0 {
             return CAUSAL_MASK.slice(s![0..seq_len, 0..kv_seq_len]).to_owned();
         }
-        
+
         let mut m = CAUSAL_MASK.slice(s![0..seq_len, 0..kv_seq_len]).to_owned();
         for i in 0..seq_len {
             let visible_end = (offset + i + 1).min(kv_seq_len);
@@ -1154,7 +1178,7 @@ pub fn create_causal_mask(seq_len: usize, kv_seq_len: usize) -> Array2<f32> {
         }
         return m;
     }
-    
+
     let mut mask = Array2::zeros((seq_len, kv_seq_len));
     for i in 0..seq_len {
         for j in 0..kv_seq_len {
@@ -1170,7 +1194,9 @@ pub fn create_causal_mask(seq_len: usize, kv_seq_len: usize) -> Array2<f32> {
 
 /// Softmax（向量化实现）
 pub fn softmax(x: &Array2<f32>) -> Array2<f32> {
-    let max_vals = x.map_axis(Axis(1), |row| row.iter().copied().fold(f32::NEG_INFINITY, |a, b| a.max(b)));
+    let max_vals = x.map_axis(Axis(1), |row| {
+        row.iter().copied().fold(f32::NEG_INFINITY, |a, b| a.max(b))
+    });
     let shifted = x - &max_vals.insert_axis(Axis(1));
     let exps = shifted.mapv(|v| if v == f32::NEG_INFINITY { 0.0 } else { v.exp() });
     let exp_sums: Array1<f32> = exps.map_axis(Axis(1), |row| row.iter().sum());
@@ -1181,7 +1207,7 @@ pub fn softmax(x: &Array2<f32>) -> Array2<f32> {
 ///
 /// 返回的权重已对 top-k 候选进行 softmax 归一化。
 /// 若实际候选数少于 k，则只返回实际数量的结果，不填充。
-/// 
+///
 /// # 返回
 /// - `indices`: 展平的专家索引向量
 /// - `weights`: 展平的权重向量
@@ -1218,7 +1244,8 @@ pub fn top_k_selection(logits: &Array2<f32>, k: usize) -> (Vec<usize>, Vec<f32>,
     offsets.push(0);
 
     for row in logits.axis_iter(Axis(0)) {
-        let mut idx_and_val: Vec<(usize, f32)> = row.iter().enumerate().map(|(i, &v)| (i, v)).collect();
+        let mut idx_and_val: Vec<(usize, f32)> =
+            row.iter().enumerate().map(|(i, &v)| (i, v)).collect();
         let len = idx_and_val.len();
         let actual_k = k.min(len);
 
@@ -1227,21 +1254,27 @@ pub fn top_k_selection(logits: &Array2<f32>, k: usize) -> (Vec<usize>, Vec<f32>,
                 b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
             });
         }
-        
+
         let top_k: Vec<(usize, f32)> = idx_and_val.into_iter().take(actual_k).collect();
-        
-        let max_logit = top_k.iter().map(|(_, v)| *v).fold(f32::NEG_INFINITY, |a, b| a.max(b));
+
+        let max_logit = top_k
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(f32::NEG_INFINITY, |a, b| a.max(b));
         let exp_sum: f32 = top_k.iter().map(|(_, v)| (v - max_logit).exp()).sum();
 
         let (norm_weights, norm_indices): (Vec<f32>, Vec<usize>) = if exp_sum > 0.0 {
-            top_k.iter()
+            top_k
+                .iter()
                 .map(|(idx, val)| ((val - max_logit).exp() / exp_sum, *idx))
                 .unzip()
         } else {
-            let uniform_weight = if actual_k > 0 { 1.0 / actual_k as f32 } else { 0.0 };
-            top_k.iter()
-                .map(|(idx, _)| (uniform_weight, *idx))
-                .unzip()
+            let uniform_weight = if actual_k > 0 {
+                1.0 / actual_k as f32
+            } else {
+                0.0
+            };
+            top_k.iter().map(|(idx, _)| (uniform_weight, *idx)).unzip()
         };
 
         indices.extend(norm_indices);
@@ -1269,21 +1302,24 @@ fn prepare_qkv(
     positions: Option<&Array1<usize>>,
 ) -> InferenceResult<(Array3<f32>, Array3<f32>, Array3<f32>)> {
     let seq_len = x.nrows();
-    
+
     let q = linear(x, q_proj);
     let k = linear(x, k_proj);
     let v = linear(x, v_proj);
-    
+
     let q = apply_rotary_emb(&q, num_heads, head_dim, rope_theta, positions)?;
     let k = apply_rotary_emb(&k, num_kv_heads, head_dim, rope_theta, positions)?;
-    
-    let q = q.into_shape_with_order((seq_len, num_heads, head_dim))
+
+    let q = q
+        .into_shape_with_order((seq_len, num_heads, head_dim))
         .reshape_err("Failed to reshape Q tensor for attention")?;
-    let k = k.into_shape_with_order((seq_len, num_kv_heads, head_dim))
+    let k = k
+        .into_shape_with_order((seq_len, num_kv_heads, head_dim))
         .reshape_err("Failed to reshape K tensor for attention")?;
-    let v = v.into_shape_with_order((seq_len, num_kv_heads, head_dim))
+    let v = v
+        .into_shape_with_order((seq_len, num_kv_heads, head_dim))
         .reshape_err("Failed to reshape V tensor for attention")?;
-    
+
     Ok((q, k, v))
 }
 
@@ -1296,53 +1332,59 @@ fn expand_gqa(
 ) -> InferenceResult<(Array3<f32>, Array3<f32>)> {
     let kv_seq_len = k.dim().0;
     let head_dim = k.dim().2;
-    
+
     if num_kv_heads >= num_heads {
         return Ok((k.clone(), v.clone()));
     }
-    
+
     let repeat_factor = num_heads / num_kv_heads;
-    
+
     let k_expanded = {
         let mut expanded = Array3::zeros((kv_seq_len, num_heads, head_dim));
         for h in 0..num_kv_heads {
             let start = h * repeat_factor;
             let end = start + repeat_factor;
-            let k_slice = k.slice(s![.., h..h+1, ..]);
-            let broadcast_k = k_slice.broadcast((kv_seq_len, repeat_factor, head_dim))
-                .ok_or_else(|| InferenceError::generation("Failed to broadcast K for GQA expansion"))?;
-            expanded.slice_mut(s![.., start..end, ..]).assign(&broadcast_k);
+            let k_slice = k.slice(s![.., h..h + 1, ..]);
+            let broadcast_k = k_slice
+                .broadcast((kv_seq_len, repeat_factor, head_dim))
+                .ok_or_else(|| {
+                    InferenceError::generation("Failed to broadcast K for GQA expansion")
+                })?;
+            expanded
+                .slice_mut(s![.., start..end, ..])
+                .assign(&broadcast_k);
         }
         expanded
     };
-    
+
     let v_expanded = {
         let mut expanded = Array3::zeros((kv_seq_len, num_heads, head_dim));
         for h in 0..num_kv_heads {
             let start = h * repeat_factor;
             let end = start + repeat_factor;
-            let v_slice = v.slice(s![.., h..h+1, ..]);
-            let broadcast_v = v_slice.broadcast((kv_seq_len, repeat_factor, head_dim))
-                .ok_or_else(|| InferenceError::generation("Failed to broadcast V for GQA expansion"))?;
-            expanded.slice_mut(s![.., start..end, ..]).assign(&broadcast_v);
+            let v_slice = v.slice(s![.., h..h + 1, ..]);
+            let broadcast_v = v_slice
+                .broadcast((kv_seq_len, repeat_factor, head_dim))
+                .ok_or_else(|| {
+                    InferenceError::generation("Failed to broadcast V for GQA expansion")
+                })?;
+            expanded
+                .slice_mut(s![.., start..end, ..])
+                .assign(&broadcast_v);
         }
         expanded
     };
-    
+
     Ok((k_expanded, v_expanded))
 }
 
 /// 计算注意力分数（批量矩阵乘法）
-fn compute_attention_scores(
-    q: &Array3<f32>,
-    k: &Array3<f32>,
-    scale: f32,
-) -> Array3<f32> {
+fn compute_attention_scores(q: &Array3<f32>, k: &Array3<f32>, scale: f32) -> Array3<f32> {
     let (seq_len, num_heads, _head_dim) = q.dim();
     let kv_seq_len = k.dim().0;
-    
+
     let mut scores = Array3::zeros((num_heads, seq_len, kv_seq_len));
-    
+
     for h in 0..num_heads {
         let q_h = q.slice(s![.., h, ..]);
         let k_h = k.slice(s![.., h, ..]);
@@ -1350,32 +1392,29 @@ fn compute_attention_scores(
         let scores_h = q_h.dot(&k_h_t) * scale;
         scores.index_axis_mut(Axis(0), h).assign(&scores_h);
     }
-    
+
     scores
 }
 
 /// 计算注意力输出（批量矩阵乘法）
-fn compute_attention_output(
-    attn: &Array3<f32>,
-    v: &Array3<f32>,
-) -> Array2<f32> {
+fn compute_attention_output(attn: &Array3<f32>, v: &Array3<f32>) -> Array2<f32> {
     let (num_heads, seq_len, _kv_seq_len) = attn.dim();
     let head_dim = v.dim().2;
-    
+
     let mut output = Array2::zeros((seq_len, num_heads * head_dim));
-    
+
     for h in 0..num_heads {
         let attn_h = attn.slice(s![h, .., ..]);
         let v_h = v.slice(s![.., h, ..]);
         let output_h = attn_h.dot(&v_h);
-        
+
         for s in 0..seq_len {
             for d in 0..head_dim {
                 output[[s, h * head_dim + d]] = output_h[[s, d]];
             }
         }
     }
-    
+
     output
 }
 
@@ -1386,24 +1425,28 @@ fn apply_causal_mask_and_softmax(
     kv_seq_len: usize,
 ) -> InferenceResult<Array3<f32>> {
     let num_heads = scores.dim().0;
-    
+
     let causal_mask = create_causal_mask(seq_len, kv_seq_len);
-    
-    let scores_2d = scores.clone().into_shape_with_order((num_heads * seq_len, kv_seq_len))
+
+    let scores_2d = scores
+        .clone()
+        .into_shape_with_order((num_heads * seq_len, kv_seq_len))
         .reshape_err("Failed to reshape scores for softmax")?;
-    
-    let mask_broadcast = causal_mask.view()
+
+    let mask_broadcast = causal_mask
+        .view()
         .insert_axis(Axis(0))
         .broadcast((num_heads, seq_len, kv_seq_len))
         .ok_or_else(|| InferenceError::generation("Failed to broadcast causal mask"))?
         .to_owned()
         .into_shape_with_order((num_heads * seq_len, kv_seq_len))
         .reshape_err("Failed to reshape broadcast mask")?;
-    
+
     let masked_scores = &scores_2d + &mask_broadcast;
     let attn_2d = softmax(&masked_scores);
-    
-    attn_2d.into_shape_with_order((num_heads, seq_len, kv_seq_len))
+
+    attn_2d
+        .into_shape_with_order((num_heads, seq_len, kv_seq_len))
         .reshape_err("Failed to reshape attn back")
 }
 
@@ -1420,11 +1463,7 @@ fn apply_causal_mask_and_softmax_2d(
 }
 
 impl AttentionWeights {
-    pub fn forward(
-        &self,
-        x: &Array2<f32>,
-        config: &ModelConfig,
-    ) -> InferenceResult<Array2<f32>> {
+    pub fn forward(&self, x: &Array2<f32>, config: &ModelConfig) -> InferenceResult<Array2<f32>> {
         self.forward_with_cache(x, config, None, None)
     }
 
@@ -1441,9 +1480,15 @@ impl AttentionWeights {
         let head_dim = config.head_dim;
 
         let (q, mut k, mut v) = prepare_qkv(
-            x, &self.q_proj, &self.k_proj, &self.v_proj,
-            num_heads, num_kv_heads, head_dim,
-            config.rope_theta, positions
+            x,
+            &self.q_proj,
+            &self.k_proj,
+            &self.v_proj,
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            config.rope_theta,
+            positions,
         )?;
 
         if let Some(cache) = kv_cache {
@@ -1459,28 +1504,40 @@ impl AttentionWeights {
         let (k_expanded, v_expanded) = expand_gqa(&k, &v, num_heads, num_kv_heads)?;
 
         let use_dsa = config.use_dsa && kv_seq_len >= config.dsa_short_seq_threshold;
-        
+
         if use_dsa {
             let dsa_config = config.dsa_config();
-            let q_2d = q.clone().into_shape_with_order((seq_len, num_heads * head_dim))
+            let q_2d = q
+                .clone()
+                .into_shape_with_order((seq_len, num_heads * head_dim))
                 .reshape_err("Failed to reshape Q for DSA")?;
-            let k_2d = k_expanded.clone().into_shape_with_order((kv_seq_len, num_heads * head_dim))
+            let k_2d = k_expanded
+                .clone()
+                .into_shape_with_order((kv_seq_len, num_heads * head_dim))
                 .reshape_err("Failed to reshape K for DSA")?;
-            let v_2d = v_expanded.into_shape_with_order((kv_seq_len, num_heads * head_dim))
+            let v_2d = v_expanded
+                .into_shape_with_order((kv_seq_len, num_heads * head_dim))
                 .reshape_err("Failed to reshape V for DSA")?;
-            
+
             let dsa_output = dsa::multihead_sparse_attention(
-                &q_2d, &k_2d, &v_2d, num_heads, head_dim, &dsa_config, true
-            ).map_err(|e| InferenceError::generation(format!("DSA attention failed: {}", e)))?;
-            
+                &q_2d,
+                &k_2d,
+                &v_2d,
+                num_heads,
+                head_dim,
+                &dsa_config,
+                true,
+            )
+            .map_err(|e| InferenceError::generation(format!("DSA attention failed: {}", e)))?;
+
             let output = linear(&dsa_output, &self.o_proj);
             return Ok(output);
         }
 
         let scores = compute_attention_scores(&q, &k_expanded, scale);
-        
+
         let attn = apply_causal_mask_and_softmax(&scores, seq_len, kv_seq_len)?;
-        
+
         let output = compute_attention_output(&attn, &v_expanded);
 
         let output = linear(&output, &self.o_proj);
@@ -1500,11 +1557,15 @@ impl AttentionWeights {
 /// - 每列和 = 1（列随机）
 fn sinkhorn_knopp(mut matrix: Array2<f32>, iterations: usize, eps: f32) -> Array2<f32> {
     for _ in 0..iterations {
-        let row_sums = matrix.sum_axis(Axis(1)).mapv(|s| if s < eps { 1.0 } else { s });
+        let row_sums = matrix
+            .sum_axis(Axis(1))
+            .mapv(|s| if s < eps { 1.0 } else { s });
         let row_inv: Array2<f32> = row_sums.mapv(|s| 1.0 / s).insert_axis(Axis(1));
         matrix = &matrix * &row_inv;
 
-        let col_sums = matrix.sum_axis(Axis(0)).mapv(|s| if s < eps { 1.0 } else { s });
+        let col_sums = matrix
+            .sum_axis(Axis(0))
+            .mapv(|s| if s < eps { 1.0 } else { s });
         let col_inv: Array2<f32> = col_sums.mapv(|s| 1.0 / s).insert_axis(Axis(0));
         matrix = &matrix * &col_inv;
     }
@@ -1621,10 +1682,14 @@ fn mhc_residual(
 
     let mut output = x.clone();
     for h in 0..num_heads {
-        let delta_h = delta.slice(ndarray::s![.., .., h.min(d_heads - 1)]).to_owned();
+        let delta_h = delta
+            .slice(ndarray::s![.., .., h.min(d_heads - 1)])
+            .to_owned();
         let h_res_h = h_res_array.slice(ndarray::s![.., .., h]).to_owned();
         let constrained_h = h_res_h.dot(&delta_h);
-        output.slice_mut(ndarray::s![.., .., h]).add_assign(&constrained_h);
+        output
+            .slice_mut(ndarray::s![.., .., h])
+            .add_assign(&constrained_h);
     }
 
     Ok(output)
@@ -1652,10 +1717,22 @@ impl TransformerLayerWeights {
 
         Self {
             attention: AttentionWeights {
-                q_proj: Array2::zeros((config.num_attention_heads * config.head_dim, config.hidden_size)),
-                k_proj: Array2::zeros((config.num_key_value_heads * config.head_dim, config.hidden_size)),
-                v_proj: Array2::zeros((config.num_key_value_heads * config.head_dim, config.hidden_size)),
-                o_proj: Array2::zeros((config.hidden_size, config.num_attention_heads * config.head_dim)),
+                q_proj: Array2::zeros((
+                    config.num_attention_heads * config.head_dim,
+                    config.hidden_size,
+                )),
+                k_proj: Array2::zeros((
+                    config.num_key_value_heads * config.head_dim,
+                    config.hidden_size,
+                )),
+                v_proj: Array2::zeros((
+                    config.num_key_value_heads * config.head_dim,
+                    config.hidden_size,
+                )),
+                o_proj: Array2::zeros((
+                    config.hidden_size,
+                    config.num_attention_heads * config.head_dim,
+                )),
             },
             mla,
             ffn: FFNWeights {
@@ -1672,12 +1749,18 @@ impl TransformerLayerWeights {
             input_layernorm: Array1::ones(config.hidden_size),
             post_attention_layernorm: Array1::ones(config.hidden_size),
             mhc_dynamic_proj: if config.use_mhc {
-                Some(Array2::zeros((config.num_attention_heads, config.hidden_size)))
+                Some(Array2::zeros((
+                    config.num_attention_heads,
+                    config.hidden_size,
+                )))
             } else {
                 None
             },
             mhc_static_proj: if config.use_mhc {
-                Some(Array2::zeros((config.num_attention_heads, config.hidden_size)))
+                Some(Array2::zeros((
+                    config.num_attention_heads,
+                    config.hidden_size,
+                )))
             } else {
                 None
             },
@@ -1696,11 +1779,15 @@ impl TransformerLayerWeights {
         mla: Option<MLAWeights>,
     ) -> Self {
         let experts = if let Some(ref moe_q) = q_weights.moe {
-            moe_q.experts.iter().map(|e| FFNWeights {
-                gate_proj: e.gate_proj.clone(),
-                up_proj: e.up_proj.clone(),
-                down_proj: e.down_proj.clone(),
-            }).collect()
+            moe_q
+                .experts
+                .iter()
+                .map(|e| FFNWeights {
+                    gate_proj: e.gate_proj.clone(),
+                    up_proj: e.up_proj.clone(),
+                    down_proj: e.down_proj.clone(),
+                })
+                .collect()
         } else {
             (0..config.moe_num_experts)
                 .map(|_| FFNWeights {
@@ -1711,11 +1798,15 @@ impl TransformerLayerWeights {
                 .collect()
         };
 
-        let moe_router = q_weights.moe.as_ref()
+        let moe_router = q_weights
+            .moe
+            .as_ref()
             .map(|m| m.router.clone())
             .unwrap_or_else(|| Array2::zeros((config.moe_num_experts, config.hidden_size)));
 
-        let moe_top_k = q_weights.moe.as_ref()
+        let moe_top_k = q_weights
+            .moe
+            .as_ref()
             .map(|m| m.top_k)
             .unwrap_or(config.moe_top_k);
 
@@ -1741,12 +1832,18 @@ impl TransformerLayerWeights {
             input_layernorm: q_weights.input_layernorm.clone(),
             post_attention_layernorm: q_weights.post_attention_layernorm.clone(),
             mhc_dynamic_proj: if config.use_mhc {
-                Some(Array2::zeros((config.num_attention_heads, config.hidden_size)))
+                Some(Array2::zeros((
+                    config.num_attention_heads,
+                    config.hidden_size,
+                )))
             } else {
                 None
             },
             mhc_static_proj: if config.use_mhc {
-                Some(Array2::zeros((config.num_attention_heads, config.hidden_size)))
+                Some(Array2::zeros((
+                    config.num_attention_heads,
+                    config.hidden_size,
+                )))
             } else {
                 None
             },
@@ -1774,7 +1871,7 @@ impl TransformerLayerWeights {
         layer_idx: usize,
         kv_cache: Option<&mut KVCache>,
         positions: Option<&Array1<usize>>,
-        block_summary: Option<&mut super::attn_res::BlockSummary>,  // ★ 新增
+        block_summary: Option<&mut super::attn_res::BlockSummary>, // ★ 新增
     ) -> InferenceResult<Array2<f32>> {
         // ====== AttnRes: 块边界深度聚合 ======
         let x = if config.use_attnres {
@@ -1783,7 +1880,7 @@ impl TransformerLayerWeights {
                     Some(ref bs) if bs.is_block_start(layer_idx) && layer_idx > 0 => {
                         bs.aggregate(pq, x)?
                     }
-                    _ => x.clone()
+                    _ => x.clone(),
                 }
             } else {
                 x.clone()
@@ -1799,21 +1896,45 @@ impl TransformerLayerWeights {
             if let Some(ref mla) = self.mla {
                 self.mla_forward_with_cache(&normed, mla, config, kv_cache, positions)?
             } else {
-                self.attention.forward_with_cache(&normed, config, kv_cache, positions)?
+                self.attention
+                    .forward_with_cache(&normed, config, kv_cache, positions)?
             }
         } else {
-            self.attention.forward_with_cache(&normed, config, kv_cache, positions)?
+            self.attention
+                .forward_with_cache(&normed, config, kv_cache, positions)?
         };
 
         let hidden = if config.use_mhc {
-            if let (Some(ref dyn_proj), Some(ref sta_proj)) = (&self.mhc_dynamic_proj, &self.mhc_static_proj) {
-                let x_3d = normed.clone().into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
-                    .map_err(|e| InferenceError::generation(format!("mHC reshape x failed: {}", e)))?;
-                let delta_3d = attn.clone().into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
-                    .map_err(|e| InferenceError::generation(format!("mHC reshape delta failed: {}", e)))?;
-                let out_3d = mhc_residual(&x_3d, &delta_3d, dyn_proj, sta_proj, config.num_attention_heads, config.head_dim, config.mhc_sinkhorn_iterations, config.mhc_epsilon)?;
-                out_3d.into_shape_with_order((seq_len, config.num_attention_heads * config.head_dim))
-                    .map_err(|e| InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e)))?
+            if let (Some(ref dyn_proj), Some(ref sta_proj)) =
+                (&self.mhc_dynamic_proj, &self.mhc_static_proj)
+            {
+                let x_3d = normed
+                    .clone()
+                    .into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
+                    .map_err(|e| {
+                        InferenceError::generation(format!("mHC reshape x failed: {}", e))
+                    })?;
+                let delta_3d = attn
+                    .clone()
+                    .into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
+                    .map_err(|e| {
+                        InferenceError::generation(format!("mHC reshape delta failed: {}", e))
+                    })?;
+                let out_3d = mhc_residual(
+                    &x_3d,
+                    &delta_3d,
+                    dyn_proj,
+                    sta_proj,
+                    config.num_attention_heads,
+                    config.head_dim,
+                    config.mhc_sinkhorn_iterations,
+                    config.mhc_epsilon,
+                )?;
+                out_3d
+                    .into_shape_with_order((seq_len, config.num_attention_heads * config.head_dim))
+                    .map_err(|e| {
+                        InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e))
+                    })?
             } else {
                 &normed + &attn
             }
@@ -1826,14 +1947,46 @@ impl TransformerLayerWeights {
         if layer_idx % 3 == 2 {
             let moe_out = self.moe.forward(&normed2, None)?;
             if config.use_mhc {
-                if let (Some(ref dyn_proj), Some(ref sta_proj)) = (&self.mhc_dynamic_proj, &self.mhc_static_proj) {
-                    let h_3d = hidden.clone().into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
-                        .map_err(|e| InferenceError::generation(format!("mHC reshape h failed: {}", e)))?;
-                    let d_3d = moe_out.into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
-                        .map_err(|e| InferenceError::generation(format!("mHC reshape moe failed: {}", e)))?;
-                    let out_3d = mhc_residual(&h_3d, &d_3d, dyn_proj, sta_proj, config.num_attention_heads, config.head_dim, config.mhc_sinkhorn_iterations, config.mhc_epsilon)?;
-                    let output = out_3d.into_shape_with_order((seq_len, config.num_attention_heads * config.head_dim))
-                        .map_err(|e| InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e)))?;
+                if let (Some(ref dyn_proj), Some(ref sta_proj)) =
+                    (&self.mhc_dynamic_proj, &self.mhc_static_proj)
+                {
+                    let h_3d = hidden
+                        .clone()
+                        .into_shape_with_order((
+                            seq_len,
+                            config.head_dim,
+                            config.num_attention_heads,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC reshape h failed: {}", e))
+                        })?;
+                    let d_3d = moe_out
+                        .into_shape_with_order((
+                            seq_len,
+                            config.head_dim,
+                            config.num_attention_heads,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC reshape moe failed: {}", e))
+                        })?;
+                    let out_3d = mhc_residual(
+                        &h_3d,
+                        &d_3d,
+                        dyn_proj,
+                        sta_proj,
+                        config.num_attention_heads,
+                        config.head_dim,
+                        config.mhc_sinkhorn_iterations,
+                        config.mhc_epsilon,
+                    )?;
+                    let output = out_3d
+                        .into_shape_with_order((
+                            seq_len,
+                            config.num_attention_heads * config.head_dim,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e))
+                        })?;
 
                     // ====== AttnRes: 块结束更新摘要 ======
                     if config.use_attnres {
@@ -1876,14 +2029,46 @@ impl TransformerLayerWeights {
         } else {
             let ffn_out = self.ffn.forward(&normed2);
             if config.use_mhc {
-                if let (Some(ref dyn_proj), Some(ref sta_proj)) = (&self.mhc_dynamic_proj, &self.mhc_static_proj) {
-                    let h_3d = hidden.clone().into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
-                        .map_err(|e| InferenceError::generation(format!("mHC reshape h failed: {}", e)))?;
-                    let d_3d = ffn_out.into_shape_with_order((seq_len, config.head_dim, config.num_attention_heads))
-                        .map_err(|e| InferenceError::generation(format!("mHC reshape ffn failed: {}", e)))?;
-                    let out_3d = mhc_residual(&h_3d, &d_3d, dyn_proj, sta_proj, config.num_attention_heads, config.head_dim, config.mhc_sinkhorn_iterations, config.mhc_epsilon)?;
-                    let output = out_3d.into_shape_with_order((seq_len, config.num_attention_heads * config.head_dim))
-                        .map_err(|e| InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e)))?;
+                if let (Some(ref dyn_proj), Some(ref sta_proj)) =
+                    (&self.mhc_dynamic_proj, &self.mhc_static_proj)
+                {
+                    let h_3d = hidden
+                        .clone()
+                        .into_shape_with_order((
+                            seq_len,
+                            config.head_dim,
+                            config.num_attention_heads,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC reshape h failed: {}", e))
+                        })?;
+                    let d_3d = ffn_out
+                        .into_shape_with_order((
+                            seq_len,
+                            config.head_dim,
+                            config.num_attention_heads,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC reshape ffn failed: {}", e))
+                        })?;
+                    let out_3d = mhc_residual(
+                        &h_3d,
+                        &d_3d,
+                        dyn_proj,
+                        sta_proj,
+                        config.num_attention_heads,
+                        config.head_dim,
+                        config.mhc_sinkhorn_iterations,
+                        config.mhc_epsilon,
+                    )?;
+                    let output = out_3d
+                        .into_shape_with_order((
+                            seq_len,
+                            config.num_attention_heads * config.head_dim,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e))
+                        })?;
 
                     // ====== AttnRes: 块结束更新摘要 ======
                     if config.use_attnres {
@@ -1941,9 +2126,8 @@ impl TransformerLayerWeights {
         let latent_dim = mla.latent_dim();
         let half_latent = latent_dim / 2;
 
-        let (q_reshaped, c_kv, k_full, uv_reshaped) = self.mla_prepare_qkv(
-            x, mla, config, num_heads, num_kv_heads, head_dim, positions
-        )?;
+        let (q_reshaped, c_kv, k_full, uv_reshaped) =
+            self.mla_prepare_qkv(x, mla, config, num_heads, num_kv_heads, head_dim, positions)?;
 
         let (k_reshaped, uv_reshaped) = if let Some(cache) = kv_cache {
             cache.update(&k_full, &uv_reshaped)?;
@@ -1955,13 +2139,15 @@ impl TransformerLayerWeights {
         let kv_seq_len = k_reshaped.dim().0;
         let scale = 1.0 / (head_dim as f32).sqrt();
 
-        let (k_expanded, v_expanded) = expand_gqa(&k_reshaped, &uv_reshaped, num_heads, num_kv_heads)?;
+        let (k_expanded, v_expanded) =
+            expand_gqa(&k_reshaped, &uv_reshaped, num_heads, num_kv_heads)?;
 
         let use_dsa = config.use_dsa && kv_seq_len >= config.dsa_short_seq_threshold;
 
         if use_dsa {
-            let uq_proj = mla.uq_proj.as_ref()
-                .ok_or_else(|| InferenceError::config("MLA-DSA requires uq_proj for latent space sparse attention"))?;
+            let uq_proj = mla.uq_proj.as_ref().ok_or_else(|| {
+                InferenceError::config("MLA-DSA requires uq_proj for latent space sparse attention")
+            })?;
 
             let qk_latent_dim = uq_proj.dim().1;
 
@@ -1985,18 +2171,34 @@ impl TransformerLayerWeights {
             let dsa_config = config.dsa_config();
 
             let dsa_output = dsa::multihead_sparse_attention_3d(
-                &q_latent_3d, &c_k_3d, &c_v_3d,
-                num_heads, qk_latent_dim, &dsa_config, true
-            ).map_err(|e| InferenceError::generation(format!("MLA-DSA 3D latent sparse attention failed: {}", e)))?;
+                &q_latent_3d,
+                &c_k_3d,
+                &c_v_3d,
+                num_heads,
+                qk_latent_dim,
+                &dsa_config,
+                true,
+            )
+            .map_err(|e| {
+                InferenceError::generation(format!(
+                    "MLA-DSA 3D latent sparse attention failed: {}",
+                    e
+                ))
+            })?;
 
-            let dsa_output_2d = dsa_output.clone().into_shape_with_order((seq_len, qk_latent_dim * num_heads))
-                .map_err(|e| InferenceError::generation(format!("MLA-DSA 3D→2D reshape failed: {}", e)))?;
+            let dsa_output_2d = dsa_output
+                .clone()
+                .into_shape_with_order((seq_len, qk_latent_dim * num_heads))
+                .map_err(|e| {
+                    InferenceError::generation(format!("MLA-DSA 3D→2D reshape failed: {}", e))
+                })?;
             let output = linear(&dsa_output_2d, &mla.o_proj);
             return Ok(output);
         }
 
-        let uq_proj = mla.uq_proj.as_ref()
-            .ok_or_else(|| InferenceError::config("MLA requires uq_proj for latent output projection"))?;
+        let uq_proj = mla.uq_proj.as_ref().ok_or_else(|| {
+            InferenceError::config("MLA requires uq_proj for latent output projection")
+        })?;
 
         let scores = compute_attention_scores(&q_reshaped, &k_expanded, scale);
 
@@ -2006,7 +2208,9 @@ impl TransformerLayerWeights {
 
         let mut head_outputs: Vec<Array2<f32>> = Vec::with_capacity(num_heads);
         for h in 0..num_heads {
-            let out_h = attn_output.slice(s![.., h * head_dim..(h + 1) * head_dim]).to_owned();
+            let out_h = attn_output
+                .slice(s![.., h * head_dim..(h + 1) * head_dim])
+                .to_owned();
             let out_latent_h = out_h.dot(uq_proj);
             head_outputs.push(out_latent_h);
         }
@@ -2015,7 +2219,9 @@ impl TransformerLayerWeights {
         let mut concat_output = Array2::zeros((seq_len, total_out_dim));
         for (h, out_h) in head_outputs.iter().enumerate() {
             let d = out_h.dim().1;
-            concat_output.slice_mut(s![.., h * d..(h + 1) * d]).assign(out_h);
+            concat_output
+                .slice_mut(s![.., h * d..(h + 1) * d])
+                .assign(out_h);
         }
 
         let output = linear(&concat_output, &mla.o_proj);
@@ -2058,14 +2264,15 @@ impl TransformerLayerWeights {
         let latent_dim = mla.latent_dim();
         let half_latent = latent_dim / 2;
 
-        let uq_proj = mla.uq_proj.as_ref()
+        let uq_proj = mla
+            .uq_proj
+            .as_ref()
             .ok_or_else(|| InferenceError::config("true MLA requires uq_proj"))?;
 
         let qk_latent_dim = uq_proj.dim().1;
 
-        let (q_reshaped, c_kv, _k_full, _uv_reshaped) = self.mla_prepare_qkv(
-            x, mla, config, num_heads, num_kv_heads, head_dim, positions
-        )?;
+        let (q_reshaped, c_kv, _k_full, _uv_reshaped) =
+            self.mla_prepare_qkv(x, mla, config, num_heads, num_kv_heads, head_dim, positions)?;
 
         if let Some(ref mut cache) = mla_cache {
             cache.update(&c_kv)?;
@@ -2102,7 +2309,9 @@ impl TransformerLayerWeights {
         let mut concat_output = Array2::zeros((seq_len, total_out_dim));
         for (h, out_h) in head_outputs.iter().enumerate() {
             let d = out_h.dim().1;
-            concat_output.slice_mut(s![.., h * d..(h + 1) * d]).assign(out_h);
+            concat_output
+                .slice_mut(s![.., h * d..(h + 1) * d])
+                .assign(out_h);
         }
 
         let final_output = linear(&concat_output, &mla.o_proj);
@@ -2133,7 +2342,9 @@ impl TransformerLayerWeights {
 
         let c_kv = linear(x, &mla.dkv_proj);
 
-        let c_kv_reshaped = c_kv.to_owned().to_shape((seq_len, 2, mla.latent_dim() / 2))
+        let c_kv_reshaped = c_kv
+            .to_owned()
+            .to_shape((seq_len, 2, mla.latent_dim() / 2))
             .reshape_err("Failed to reshape KV latent for MLA")?
             .into_owned();
 
@@ -2143,37 +2354,59 @@ impl TransformerLayerWeights {
         let uk = linear(&c_k, &mla.uk_proj);
         let uv = linear(&c_v, &mla.uv_proj);
 
-        let (q_out, k_out, uk_for_attention) = if let (Some(ref qr), Some(ref kr)) = (&mla.qr_proj, &mla.kr_proj) {
+        let (q_out, k_out, uk_for_attention) = if let (Some(ref qr), Some(ref kr)) =
+            (&mla.qr_proj, &mla.kr_proj)
+        {
             let q_rope = linear(x, qr);
             let k_rope = linear(x, kr);
-            let q_rope_out = apply_rotary_emb(&q_rope, num_heads, head_dim, config.rope_theta, positions)?;
-            let k_rope_out = apply_rotary_emb(&k_rope, num_kv_heads, head_dim, config.rope_theta, positions)?;
+            let q_rope_out =
+                apply_rotary_emb(&q_rope, num_heads, head_dim, config.rope_theta, positions)?;
+            let k_rope_out = apply_rotary_emb(
+                &k_rope,
+                num_kv_heads,
+                head_dim,
+                config.rope_theta,
+                positions,
+            )?;
             let q_combined = &q + &q_rope_out;
-            let uk_reshaped = uk.to_owned().to_shape((seq_len, num_kv_heads, head_dim))
+            let uk_reshaped = uk
+                .to_owned()
+                .to_shape((seq_len, num_kv_heads, head_dim))
                 .reshape_err("Failed to reshape UK for MLA attention")?
                 .into_owned();
             (q_combined, k_rope_out, uk_reshaped)
         } else {
             let q_out = apply_rotary_emb(&q, num_heads, head_dim, config.rope_theta, positions)?;
-            let uk_reshaped = uk.to_owned().to_shape((seq_len, num_kv_heads, head_dim))
+            let uk_reshaped = uk
+                .to_owned()
+                .to_shape((seq_len, num_kv_heads, head_dim))
                 .reshape_err("Failed to reshape UK for MLA RoPE")?
                 .into_owned();
-            let uk_2d = uk_reshaped.clone().to_shape((seq_len, num_kv_heads * head_dim))
+            let uk_2d = uk_reshaped
+                .clone()
+                .to_shape((seq_len, num_kv_heads * head_dim))
                 .reshape_err("Failed to reshape UK back for MLA RoPE")?
                 .into_owned();
-            let k_out = apply_rotary_emb(&uk_2d, num_kv_heads, head_dim, config.rope_theta, positions)?;
+            let k_out =
+                apply_rotary_emb(&uk_2d, num_kv_heads, head_dim, config.rope_theta, positions)?;
             (q_out, k_out, uk_reshaped)
         };
 
-        let q_reshaped = q_out.to_owned().to_shape((seq_len, num_heads, head_dim))
+        let q_reshaped = q_out
+            .to_owned()
+            .to_shape((seq_len, num_heads, head_dim))
             .reshape_err("Failed to reshape Q for MLA attention")?
             .into_owned();
 
-        let k_reshaped = k_out.to_owned().to_shape((seq_len, num_kv_heads, head_dim))
+        let k_reshaped = k_out
+            .to_owned()
+            .to_shape((seq_len, num_kv_heads, head_dim))
             .reshape_err("Failed to reshape K for MLA attention")?
             .into_owned();
 
-        let uv_reshaped = uv.to_owned().to_shape((seq_len, num_kv_heads, head_dim))
+        let uv_reshaped = uv
+            .to_owned()
+            .to_shape((seq_len, num_kv_heads, head_dim))
             .reshape_err("Failed to reshape UV for MLA attention")?
             .into_owned();
 
@@ -2237,14 +2470,18 @@ impl PaddingMode {
         let feature_dim = audio.ncols();
         let padded_len = seq_len + 2 * pad_size;
         let mut padded = Array2::zeros((padded_len, feature_dim));
-        
-        padded.slice_mut(s![pad_size..pad_size + seq_len, ..]).assign(audio);
-        
+
+        padded
+            .slice_mut(s![pad_size..pad_size + seq_len, ..])
+            .assign(audio);
+
         match self {
             PaddingMode::Replicate => {
                 for i in 0..pad_size {
                     padded.slice_mut(s![i, ..]).assign(&audio.slice(s![0, ..]));
-                    padded.slice_mut(s![pad_size + seq_len + i, ..]).assign(&audio.slice(s![seq_len - 1, ..]));
+                    padded
+                        .slice_mut(s![pad_size + seq_len + i, ..])
+                        .assign(&audio.slice(s![seq_len - 1, ..]));
                 }
             }
             PaddingMode::Zero => {
@@ -2253,15 +2490,19 @@ impl PaddingMode {
             PaddingMode::Reflect => {
                 for i in 0..pad_size {
                     if i + 1 <= seq_len {
-                        padded.slice_mut(s![pad_size - 1 - i, ..]).assign(&audio.slice(s![i + 1, ..]));
+                        padded
+                            .slice_mut(s![pad_size - 1 - i, ..])
+                            .assign(&audio.slice(s![i + 1, ..]));
                     }
                     if seq_len > pad_size + i + 1 {
-                        padded.slice_mut(s![pad_size + seq_len + i, ..]).assign(&audio.slice(s![seq_len - 2 - i, ..]));
+                        padded
+                            .slice_mut(s![pad_size + seq_len + i, ..])
+                            .assign(&audio.slice(s![seq_len - 2 - i, ..]));
                     }
                 }
             }
         }
-        
+
         padded
     }
 }
@@ -2325,7 +2566,7 @@ impl AudioEncoderWeights {
         let seq_len = audio.nrows();
         let audio_feature_dim = audio.ncols();
         let hidden_size = self.conv1.ncols();
-        
+
         if audio_feature_dim * 3 != self.conv1.nrows() {
             return Err(InferenceError::config(format!(
                 "Audio feature dimension mismatch: expected {}, got {}",
@@ -2333,85 +2574,93 @@ impl AudioEncoderWeights {
                 audio_feature_dim
             )));
         }
-        
+
         let audio_padded = self.padding_mode.apply_padding(audio, 1);
-        
+
         let mut audio_expanded = Array2::zeros((seq_len, audio_feature_dim * 3));
         for t in 0..seq_len {
-            audio_expanded.slice_mut(s![t, 0..audio_feature_dim])
+            audio_expanded
+                .slice_mut(s![t, 0..audio_feature_dim])
                 .assign(&audio_padded.slice(s![t, ..]));
-            audio_expanded.slice_mut(s![t, audio_feature_dim..2*audio_feature_dim])
-                .assign(&audio_padded.slice(s![t+1, ..]));
-            audio_expanded.slice_mut(s![t, 2*audio_feature_dim..])
-                .assign(&audio_padded.slice(s![t+2, ..]));
+            audio_expanded
+                .slice_mut(s![t, audio_feature_dim..2 * audio_feature_dim])
+                .assign(&audio_padded.slice(s![t + 1, ..]));
+            audio_expanded
+                .slice_mut(s![t, 2 * audio_feature_dim..])
+                .assign(&audio_padded.slice(s![t + 2, ..]));
         }
-        
+
         let x = linear(&audio_expanded, &self.conv1);
-        
+
         let pos_embed = if seq_len <= self.pos_embed.nrows() {
             self.pos_embed.slice(s![0..seq_len, ..]).to_owned()
         } else {
             self.interpolate_pos_embed_1d(seq_len, hidden_size)
         };
-        
+
         let mut x = &x + &pos_embed;
-        
+
         for layer in &self.layers {
             x = self.audio_layer_forward(&x, layer)?;
         }
-        
+
         Ok(linear(&x, &self.proj))
     }
 
-    fn audio_layer_forward(&self, x: &Array2<f32>, layer: &AudioLayerWeights) -> InferenceResult<Array2<f32>> {
+    fn audio_layer_forward(
+        &self,
+        x: &Array2<f32>,
+        layer: &AudioLayerWeights,
+    ) -> InferenceResult<Array2<f32>> {
         let seq_len = x.nrows();
         let hidden_size = x.ncols();
-        
+
         let normed = rms_norm(x, &layer.norm1, 1e-5);
-        
+
         let qkv = linear(&normed, &layer.attn_qkv);
-        let qkv_3d = qkv.into_shape_with_order((seq_len, 3, hidden_size))
+        let qkv_3d = qkv
+            .into_shape_with_order((seq_len, 3, hidden_size))
             .map_err(|e| InferenceError::generation(format!("Failed to reshape QKV: {}", e)))?;
-        
+
         let q: Array2<f32> = qkv_3d.slice(s![.., 0, ..]).to_owned();
         let k: Array2<f32> = qkv_3d.slice(s![.., 1, ..]).to_owned();
         let v: Array2<f32> = qkv_3d.slice(s![.., 2, ..]).to_owned();
-        
+
         let scale = 1.0 / (hidden_size as f32).sqrt();
         let k_t = k.t().to_owned();
         let scores = q.dot(&k_t) * scale;
         let attn = softmax(&scores);
         let attn_out = attn.dot(&v);
-        
+
         let mut x = x + &linear(&attn_out, &layer.attn_proj);
-        
+
         let normed2 = rms_norm(&x, &layer.norm2, 1e-5);
         let mlp_hidden = linear(&normed2, &layer.mlp_fc1);
         let mlp_hidden = mlp_hidden.mapv(|v| v.max(0.0));
         let mlp_out = linear(&mlp_hidden, &layer.mlp_fc2);
-        
+
         x = &x + &mlp_out;
-        
+
         Ok(x)
     }
 
     fn interpolate_pos_embed_1d(&self, target_len: usize, hidden_size: usize) -> Array2<f32> {
         let orig_len = self.pos_embed.nrows();
         let mut pos_embed = Array2::zeros((target_len, hidden_size));
-        
+
         for t in 0..target_len {
             let src_t = (t as f32) * (orig_len as f32 - 1.0) / (target_len as f32 - 1.0).max(1.0);
             let t0 = src_t.floor() as usize;
             let t1 = (t0 + 1).min(orig_len - 1);
             let dt = src_t - t0 as f32;
-            
+
             for h in 0..hidden_size {
                 let v0 = self.pos_embed[[t0, h]];
                 let v1 = self.pos_embed[[t1, h]];
                 pos_embed[[t, h]] = v0 * (1.0 - dt) + v1 * dt;
             }
         }
-        
+
         pos_embed
     }
 }
@@ -2502,7 +2751,7 @@ impl VisionEncoderWeights {
     }
 
     /// 对图像像素进行标准化
-    /// 
+    ///
     /// 将像素值从 [0, 255] 转换为标准化值：`(pixel / 255.0 - mean) / std`
     #[inline]
     fn normalize_pixel(&self, pixel: u8, channel: usize) -> f32 {
@@ -2525,15 +2774,15 @@ impl VisionEncoderWeights {
     ) -> Array2<f32> {
         let target_patches = target_h * target_w;
         let mut pos_embed = Array2::zeros((target_patches + 1, hidden_size));
-        
+
         for h_idx in 0..hidden_size {
             pos_embed[[0, h_idx]] = self.pos_embed[[0, h_idx]];
         }
-        
+
         if target_patches == 0 {
             return pos_embed;
         }
-        
+
         if orig_grid == target_h && orig_grid == target_w {
             for i in 0..target_patches {
                 for h_idx in 0..hidden_size {
@@ -2542,10 +2791,18 @@ impl VisionEncoderWeights {
             }
             return pos_embed;
         }
-        
-        let scale_h = if target_h > 1 { (orig_grid - 1) as f32 / (target_h - 1) as f32 } else { 0.0 };
-        let scale_w = if target_w > 1 { (orig_grid - 1) as f32 / (target_w - 1) as f32 } else { 0.0 };
-        
+
+        let scale_h = if target_h > 1 {
+            (orig_grid - 1) as f32 / (target_h - 1) as f32
+        } else {
+            0.0
+        };
+        let scale_w = if target_w > 1 {
+            (orig_grid - 1) as f32 / (target_w - 1) as f32
+        } else {
+            0.0
+        };
+
         for i in 0..target_h {
             for j in 0..target_w {
                 let (src_i, di) = if target_h > 1 {
@@ -2554,39 +2811,39 @@ impl VisionEncoderWeights {
                 } else {
                     (0, 0.0)
                 };
-                
+
                 let (src_j, dj) = if target_w > 1 {
                     let src = j as f32 * scale_w;
                     (src.floor() as usize, src - src.floor())
                 } else {
                     (0, 0.0)
                 };
-                
+
                 let i1 = (src_i + 1).min(orig_grid - 1);
                 let j1 = (src_j + 1).min(orig_grid - 1);
-                
+
                 let idx00 = src_i * orig_grid + src_j + 1;
                 let idx01 = src_i * orig_grid + j1 + 1;
                 let idx10 = i1 * orig_grid + src_j + 1;
                 let idx11 = i1 * orig_grid + j1 + 1;
-                
+
                 let target_idx = i * target_w + j + 1;
-                
+
                 for h_idx in 0..hidden_size {
                     let v00 = self.pos_embed[[idx00, h_idx]];
                     let v01 = self.pos_embed[[idx01, h_idx]];
                     let v10 = self.pos_embed[[idx10, h_idx]];
                     let v11 = self.pos_embed[[idx11, h_idx]];
-                    
+
                     let v0 = v00 * (1.0 - dj) + v01 * dj;
                     let v1 = v10 * (1.0 - dj) + v11 * dj;
                     let v = v0 * (1.0 - di) + v1 * di;
-                    
+
                     pos_embed[[target_idx, h_idx]] = v;
                 }
             }
         }
-        
+
         pos_embed
     }
 
@@ -2606,15 +2863,15 @@ impl VisionEncoderWeights {
     ) -> Array2<f32> {
         let target_patches = target_h * target_w;
         let mut pos_embed = Array2::zeros((target_patches + 1, hidden_size));
-        
+
         for h_idx in 0..hidden_size {
             pos_embed[[0, h_idx]] = self.pos_embed[[0, h_idx]];
         }
-        
+
         if target_patches == 0 {
             return pos_embed;
         }
-        
+
         if orig_grid_h == target_h && orig_grid_w == target_w {
             for i in 0..target_patches {
                 for h_idx in 0..hidden_size {
@@ -2623,10 +2880,18 @@ impl VisionEncoderWeights {
             }
             return pos_embed;
         }
-        
-        let scale_h = if target_h > 1 { (orig_grid_h - 1) as f32 / (target_h - 1) as f32 } else { 0.0 };
-        let scale_w = if target_w > 1 { (orig_grid_w - 1) as f32 / (target_w - 1) as f32 } else { 0.0 };
-        
+
+        let scale_h = if target_h > 1 {
+            (orig_grid_h - 1) as f32 / (target_h - 1) as f32
+        } else {
+            0.0
+        };
+        let scale_w = if target_w > 1 {
+            (orig_grid_w - 1) as f32 / (target_w - 1) as f32
+        } else {
+            0.0
+        };
+
         for i in 0..target_h {
             for j in 0..target_w {
                 let (src_i, di) = if target_h > 1 {
@@ -2635,39 +2900,39 @@ impl VisionEncoderWeights {
                 } else {
                     (0, 0.0)
                 };
-                
+
                 let (src_j, dj) = if target_w > 1 {
                     let src = j as f32 * scale_w;
                     (src.floor() as usize, src - src.floor())
                 } else {
                     (0, 0.0)
                 };
-                
+
                 let i1 = (src_i + 1).min(orig_grid_h - 1);
                 let j1 = (src_j + 1).min(orig_grid_w - 1);
-                
+
                 let idx00 = src_i * orig_grid_w + src_j + 1;
                 let idx01 = src_i * orig_grid_w + j1 + 1;
                 let idx10 = i1 * orig_grid_w + src_j + 1;
                 let idx11 = i1 * orig_grid_w + j1 + 1;
-                
+
                 let target_idx = i * target_w + j + 1;
-                
+
                 for h_idx in 0..hidden_size {
                     let v00 = self.pos_embed[[idx00, h_idx]];
                     let v01 = self.pos_embed[[idx01, h_idx]];
                     let v10 = self.pos_embed[[idx10, h_idx]];
                     let v11 = self.pos_embed[[idx11, h_idx]];
-                    
+
                     let v0 = v00 * (1.0 - dj) + v01 * dj;
                     let v1 = v10 * (1.0 - dj) + v11 * dj;
                     let v = v0 * (1.0 - di) + v1 * di;
-                    
+
                     pos_embed[[target_idx, h_idx]] = v;
                 }
             }
         }
-        
+
         pos_embed
     }
 
@@ -2684,55 +2949,53 @@ impl VisionEncoderWeights {
     /// - 推荐使用 224×224 分辨率以获得最佳效果（与预训练一致）
     pub fn forward(&self, image: &Array3<u8>) -> InferenceResult<Array2<f32>> {
         let (h, w, channels) = image.dim();
-        
+
         if channels != 3 {
             return Err(InferenceError::image_preprocess(format!(
                 "Image must have 3 channels (RGB), got {} channels",
                 channels
             )));
         }
-        
+
         let patch_size = ((self.patch_embed.nrows() / 3) as f32).sqrt() as usize;
-        
+
         if h % patch_size != 0 || w % patch_size != 0 {
             return Err(InferenceError::image_preprocess(format!(
                 "Image dimensions ({}, {}) must be divisible by patch_size {}. Consider padding the image.",
                 h, w, patch_size
             )));
         }
-        
+
         let num_patches_h = h / patch_size;
         let num_patches_w = w / patch_size;
         let num_patches = num_patches_h * num_patches_w;
         let hidden_size = self.patch_embed.ncols();
         let patch_dim = patch_size * patch_size * 3;
-        
-        let orig_grid_h = self.orig_grid_h.unwrap_or_else(|| {
-            ((self.pos_embed.nrows() - 1) as f32).sqrt() as usize
-        });
+
+        let orig_grid_h = self
+            .orig_grid_h
+            .unwrap_or_else(|| ((self.pos_embed.nrows() - 1) as f32).sqrt() as usize);
         let orig_grid_w = self.orig_grid_w.unwrap_or(orig_grid_h);
-        
+
         let pos_embed = if orig_grid_h == orig_grid_w {
-            self.interpolate_pos_embed(
-                orig_grid_h,
-                num_patches_h,
-                num_patches_w,
-                hidden_size
-            )
+            self.interpolate_pos_embed(orig_grid_h, num_patches_h, num_patches_w, hidden_size)
         } else {
             self.interpolate_pos_embed_2d(
                 orig_grid_h,
                 orig_grid_w,
                 num_patches_h,
                 num_patches_w,
-                hidden_size
+                hidden_size,
             )
         };
 
-        let image_2d = image.clone().into_shape_with_order((h, w * 3)).map_err(|e| {
-            InferenceError::image_preprocess(format!("Failed to reshape image: {}", e))
-        })?;
-        
+        let image_2d = image
+            .clone()
+            .into_shape_with_order((h, w * 3))
+            .map_err(|e| {
+                InferenceError::image_preprocess(format!("Failed to reshape image: {}", e))
+            })?;
+
         let mut patch_flat = Array2::zeros((num_patches, patch_dim));
         let mut row_idx = 0;
         for patch_i in 0..num_patches_h {
@@ -2744,9 +3007,12 @@ impl VisionEncoderWeights {
                     let row_start = pi + di;
                     for dj in 0..patch_size {
                         let col_start = pj + dj * 3;
-                        patch_flat[[row_idx, col_idx]] = self.normalize_pixel(image_2d[[row_start, col_start]], 0);
-                        patch_flat[[row_idx, col_idx + 1]] = self.normalize_pixel(image_2d[[row_start, col_start + 1]], 1);
-                        patch_flat[[row_idx, col_idx + 2]] = self.normalize_pixel(image_2d[[row_start, col_start + 2]], 2);
+                        patch_flat[[row_idx, col_idx]] =
+                            self.normalize_pixel(image_2d[[row_start, col_start]], 0);
+                        patch_flat[[row_idx, col_idx + 1]] =
+                            self.normalize_pixel(image_2d[[row_start, col_start + 1]], 1);
+                        patch_flat[[row_idx, col_idx + 2]] =
+                            self.normalize_pixel(image_2d[[row_start, col_start + 2]], 2);
                         col_idx += 3;
                     }
                 }
@@ -2757,10 +3023,12 @@ impl VisionEncoderWeights {
         let patch_embeds = linear(&patch_flat, &self.patch_embed);
 
         let mut patches = Array2::zeros((num_patches + 1, hidden_size));
-        patches.slice_mut(s![0, ..]).assign(
-            &(&self.cls_token + &self.pos_embed.slice(s![0, ..]))
-        );
-        patches.slice_mut(s![1.., ..]).assign(&(&patch_embeds + &pos_embed.slice(s![1.., ..])));
+        patches
+            .slice_mut(s![0, ..])
+            .assign(&(&self.cls_token + &self.pos_embed.slice(s![0, ..])));
+        patches
+            .slice_mut(s![1.., ..])
+            .assign(&(&patch_embeds + &pos_embed.slice(s![1.., ..])));
 
         let mut hidden = patches;
         for layer in &self.layers {
@@ -2771,7 +3039,11 @@ impl VisionEncoderWeights {
         Ok(cls_output.insert_axis(Axis(0)).dot(&self.proj))
     }
 
-    fn vision_layer_forward(&self, x: &Array2<f32>, layer: &VisionLayerWeights) -> InferenceResult<Array2<f32>> {
+    fn vision_layer_forward(
+        &self,
+        x: &Array2<f32>,
+        layer: &VisionLayerWeights,
+    ) -> InferenceResult<Array2<f32>> {
         let normed = rms_norm(x, &layer.norm1, 1e-6);
 
         let qkv = linear(&normed, &layer.attn_qkv);
@@ -2836,19 +3108,17 @@ enum StepResult {
 
 impl MultimodalTransformer {
     /// 创建一个新的模型实例（权重未初始化）
-    /// 
-    /// **警告**: 此构造函数创建的模型权重全为零，必须通过 `from_quant_loader` 
+    ///
+    /// **警告**: 此构造函数创建的模型权重全为零，必须通过 `from_quant_loader`
     /// 或其他加载方法加载真实权重后才能使用。直接使用未初始化模型会导致输出全为零或 NaN。
-    /// 
+    ///
     /// # Panics
     /// 当配置参数无效时会 panic（如 head_dim 为奇数）
-    /// 
+    ///
     /// # 建议
     /// 推荐使用 `try_new` 方法以获得更好的错误处理
     pub fn new(config: ModelConfig) -> Self {
-        Self::try_new(config).unwrap_or_else(|e| {
-            panic!("Invalid model configuration: {}", e)
-        })
+        Self::try_new(config).unwrap_or_else(|e| panic!("Invalid model configuration: {}", e))
     }
 
     /// 尝试创建一个新的模型实例，返回 Result
@@ -2862,11 +3132,8 @@ impl MultimodalTransformer {
         let layers = (0..config.num_hidden_layers)
             .map(|_| TransformerLayerWeights::new(&config))
             .collect();
-        let vision_encoder = VisionEncoderWeights::new(
-            config.hidden_size,
-            8,
-            config.image_patch_size,
-        );
+        let vision_encoder =
+            VisionEncoderWeights::new(config.hidden_size, 8, config.image_patch_size);
         let audio_encoder = if config.audio_feature_dim > 0 {
             Some(AudioEncoderWeights::new(
                 config.hidden_size,
@@ -2889,20 +3156,18 @@ impl MultimodalTransformer {
         }
     }
 
-    pub fn from_quant_loader(loader: &super::quant_loader::QuantizedModelLoader) -> InferenceResult<Self> {
-        let config = loader.config()
-            .unwrap_or_else(|_| {
-                loader.infer_config()
-            });
-        
+    pub fn from_quant_loader(
+        loader: &super::quant_loader::QuantizedModelLoader,
+    ) -> InferenceResult<Self> {
+        let config = loader.config().unwrap_or_else(|_| loader.infer_config());
+
         let num_layers = config.num_hidden_layers;
         let mut transformer = Self::try_new(config)?;
-        
+
         transformer.embedding = loader.load_embedding()?;
-        transformer.lm_head = loader.load_lm_head()
-            .unwrap_or_else(|| {
-                transformer.embedding.clone()
-            });
+        transformer.lm_head = loader
+            .load_lm_head()
+            .unwrap_or_else(|| transformer.embedding.clone());
         transformer.final_layernorm = loader.load_final_norm()?;
 
         for layer_idx in 0..num_layers {
@@ -2921,11 +3186,8 @@ impl MultimodalTransformer {
                 k_norm: None,
             });
 
-            let mut layer = TransformerLayerWeights::from_quantized(
-                &transformer.config,
-                q_weights,
-                mla,
-            );
+            let mut layer =
+                TransformerLayerWeights::from_quantized(&transformer.config, q_weights, mla);
 
             if layer_idx % 3 == 2 {
                 let mod_embeds = loader.load_layer_modality_embeds(layer_idx);
@@ -2941,7 +3203,10 @@ impl MultimodalTransformer {
         Ok(transformer)
     }
 
-    pub fn from_gguf(_gguf: &crate::hardware::kv_cache::streaming::StreamingAttention, _prefix: &str) -> InferenceResult<Self> {
+    pub fn from_gguf(
+        _gguf: &crate::hardware::kv_cache::streaming::StreamingAttention,
+        _prefix: &str,
+    ) -> InferenceResult<Self> {
         Err(InferenceError::config("from_gguf is not yet implemented. Use MultimodalTransformer::from_quant_loader() to load a quantized model."))
     }
 
@@ -2955,19 +3220,23 @@ impl MultimodalTransformer {
         let hidden_size = self.config.hidden_size;
         let vocab_size = self.embedding.nrows();
         let unk_id = self.config.unk_token_id;
-        
+
         if unk_id >= vocab_size {
             return Err(InferenceError::config(format!(
                 "unk_token_id ({}) is out of vocabulary range (0..{})",
                 unk_id, vocab_size
             )));
         }
-        
+
         let mut embedding = Array2::zeros((seq_len, hidden_size));
 
         for (i, &token_id) in token_ids.iter().enumerate() {
             let token_id = token_id as usize;
-            let valid_id = if token_id < vocab_size { token_id } else { unk_id };
+            let valid_id = if token_id < vocab_size {
+                token_id
+            } else {
+                unk_id
+            };
             embedding.row_mut(i).assign(&self.embedding.row(valid_id));
         }
 
@@ -2980,7 +3249,7 @@ impl MultimodalTransformer {
                 "Model weights not loaded. Use from_quant_loader() to load weights before inference."
             ));
         }
-        
+
         let mut hidden = x.clone();
 
         for (layer_idx, layer) in self.layers.iter().enumerate() {
@@ -2997,13 +3266,16 @@ impl MultimodalTransformer {
     }
 
     fn init_kv_caches(&self) -> Vec<KVCache> {
-        self.layers.iter().map(|_| {
-            KVCache::new(
-                self.config.max_position_embeddings,
-                self.config.num_key_value_heads,
-                self.config.head_dim,
-            )
-        }).collect()
+        self.layers
+            .iter()
+            .map(|_| {
+                KVCache::new(
+                    self.config.max_position_embeddings,
+                    self.config.num_key_value_heads,
+                    self.config.head_dim,
+                )
+            })
+            .collect()
     }
 
     fn forward_with_kv_cache(
@@ -3012,7 +3284,7 @@ impl MultimodalTransformer {
         kv_caches: &mut [KVCache],
         positions: &Array1<usize>,
     ) -> InferenceResult<Array2<f32>> {
-        use super::attn_res::{BlockSummary, AttnResConfig};
+        use super::attn_res::{AttnResConfig, BlockSummary};
 
         let mut h = hidden.clone();
 
@@ -3020,9 +3292,20 @@ impl MultimodalTransformer {
         let attnres_config = if self.config.use_attnres {
             let nb = match self.config.attnres_num_blocks {
                 Some(n) => n,
-                None => { // 自适应计算
+                None => {
+                    // 自适应计算
                     let l = self.config.num_hidden_layers;
-                    if l <= 8 { 2 } else if l <= 16 { 4 } else if l <= 32 { 8 } else if l <= 64 { 8 } else { 16 }
+                    if l <= 8 {
+                        2
+                    } else if l <= 16 {
+                        4
+                    } else if l <= 32 {
+                        8
+                    } else if l <= 64 {
+                        8
+                    } else {
+                        16
+                    }
                 }
             };
             Some(AttnResConfig {
@@ -3047,13 +3330,19 @@ impl MultimodalTransformer {
                 layer_idx,
                 Some(&mut kv_caches[layer_idx]),
                 Some(positions),
-                block_summary.as_mut(),  // ★ 传入
+                block_summary.as_mut(), // ★ 传入
             )?;
         }
         Ok(h)
     }
 
-    fn sample_next_token(&self, hidden: &Array2<f32>, temperature: f32, top_p: f32, last_row: bool) -> u32 {
+    fn sample_next_token(
+        &self,
+        hidden: &Array2<f32>,
+        temperature: f32,
+        top_p: f32,
+        last_row: bool,
+    ) -> u32 {
         let logits = self.compute_logits(hidden);
         let row_idx = if last_row { logits.nrows() - 1 } else { 0 };
         let last_logits = logits.row(row_idx).to_owned();
@@ -3070,13 +3359,23 @@ impl MultimodalTransformer {
         let num_patches = image_features.nrows();
         let hidden_size = embedding.ncols();
 
-        assert!(insert_pos < text_len, "insert_pos {} must be less than text_len {}", insert_pos, text_len);
+        assert!(
+            insert_pos < text_len,
+            "insert_pos {} must be less than text_len {}",
+            insert_pos,
+            text_len
+        );
 
         let mut fused = Array2::zeros((text_len - 1 + num_patches, hidden_size));
 
-        fused.slice_mut(s![0..insert_pos, ..]).assign(&embedding.slice(s![0..insert_pos, ..]));
-        fused.slice_mut(s![insert_pos..insert_pos + num_patches, ..]).assign(image_features);
-        fused.slice_mut(s![insert_pos + num_patches.., ..])
+        fused
+            .slice_mut(s![0..insert_pos, ..])
+            .assign(&embedding.slice(s![0..insert_pos, ..]));
+        fused
+            .slice_mut(s![insert_pos..insert_pos + num_patches, ..])
+            .assign(image_features);
+        fused
+            .slice_mut(s![insert_pos + num_patches.., ..])
             .assign(&embedding.slice(s![insert_pos + 1.., ..]));
 
         fused
@@ -3101,24 +3400,32 @@ impl MultimodalTransformer {
                 let result_len = text_len - num_placeholder_tokens - 2 + num_patches;
                 let mut fused = Array2::zeros((result_len, hidden_size));
 
-                fused.slice_mut(s![0..start, ..]).assign(&embedding.slice(s![0..start, ..]));
-                fused.slice_mut(s![start..start + num_patches, ..]).assign(image_features);
-                fused.slice_mut(s![start + num_patches.., ..])
+                fused
+                    .slice_mut(s![0..start, ..])
+                    .assign(&embedding.slice(s![0..start, ..]));
+                fused
+                    .slice_mut(s![start..start + num_patches, ..])
+                    .assign(image_features);
+                fused
+                    .slice_mut(s![start + num_patches.., ..])
                     .assign(&embedding.slice(s![end + 1.., ..]));
 
                 Ok(fused)
             }
             (Some(start), None) => {
                 let mut fused = Array2::zeros((text_len - 1 + num_patches, hidden_size));
-                fused.slice_mut(s![0..start, ..]).assign(&embedding.slice(s![0..start, ..]));
-                fused.slice_mut(s![start..start + num_patches, ..]).assign(image_features);
-                fused.slice_mut(s![start + num_patches.., ..])
+                fused
+                    .slice_mut(s![0..start, ..])
+                    .assign(&embedding.slice(s![0..start, ..]));
+                fused
+                    .slice_mut(s![start..start + num_patches, ..])
+                    .assign(image_features);
+                fused
+                    .slice_mut(s![start + num_patches.., ..])
                     .assign(&embedding.slice(s![start + 1.., ..]));
                 Ok(fused)
             }
-            _ => {
-                Ok(self.fuse_image_features(embedding, image_features, 0))
-            }
+            _ => Ok(self.fuse_image_features(embedding, image_features, 0)),
         }
     }
 
@@ -3132,17 +3439,17 @@ impl MultimodalTransformer {
         if is_first {
             return Ok(StepResult::Continue);
         }
-        
+
         let pos: Array1<usize> = Array1::from_elem(1, state.total_len - 1);
         let embedding = self.get_token_embedding(&[state.next_token])?;
         let hidden = self.forward_with_kv_cache(&embedding, &mut state.kv_caches, &pos)?;
         let hidden = rms_norm(&hidden, &self.final_layernorm, self.config.rms_norm_eps);
         state.next_token = self.sample_next_token(&hidden, params.temperature, params.top_p, false);
-        
+
         if state.next_token == 0 {
             return Ok(StepResult::Stop);
         }
-        
+
         state.output.push(state.next_token);
         state.total_len += 1;
         Ok(StepResult::Continue)
@@ -3157,7 +3464,7 @@ impl MultimodalTransformer {
                 self.config.max_position_embeddings
             )));
         }
-        
+
         Ok(GenerationState {
             kv_caches: self.init_kv_caches(),
             total_len: embedding.nrows(),
@@ -3174,10 +3481,11 @@ impl MultimodalTransformer {
         params: &GenerateParams,
     ) -> InferenceResult<()> {
         let init_positions: Array1<usize> = (0..state.total_len).collect();
-        let hidden = self.forward_with_kv_cache(embedding, &mut state.kv_caches, &init_positions)?;
+        let hidden =
+            self.forward_with_kv_cache(embedding, &mut state.kv_caches, &init_positions)?;
         let hidden = rms_norm(&hidden, &self.final_layernorm, self.config.rms_norm_eps);
         state.next_token = self.sample_next_token(&hidden, params.temperature, params.top_p, true);
-        
+
         if state.next_token != 0 {
             state.output.push(state.next_token);
             state.total_len += 1;
@@ -3223,7 +3531,8 @@ impl MultimodalTransformer {
             let logits = self.compute_logits(&hidden);
 
             let last_logits = logits.row(logits.nrows() - 1).to_owned();
-            let next_token = Self::sample_token_default(&last_logits, params.temperature, params.top_p);
+            let next_token =
+                Self::sample_token_default(&last_logits, params.temperature, params.top_p);
 
             output.push(next_token);
             current_tokens.push(next_token);
@@ -3236,7 +3545,11 @@ impl MultimodalTransformer {
         Ok(output)
     }
 
-    pub fn generate_with_cache(&self, tokens: &[u32], max_length: usize) -> InferenceResult<Vec<u32>> {
+    pub fn generate_with_cache(
+        &self,
+        tokens: &[u32],
+        max_length: usize,
+    ) -> InferenceResult<Vec<u32>> {
         let params = GenerateParams {
             max_new_tokens: max_length,
             ..Default::default()
@@ -3266,7 +3579,7 @@ impl MultimodalTransformer {
         let embedding = self.get_token_embedding(tokens)?;
         let mut state = self.init_generation_state(&embedding)?;
         self.process_initial_embedding(&mut state, &embedding, params)?;
-        
+
         if state.next_token == 0 {
             return Ok(state.output);
         }
@@ -3304,12 +3617,12 @@ impl MultimodalTransformer {
 
         let embedding = self.get_token_embedding(tokens)?;
         let seq_len = embedding.nrows();
-        
+
         let mut output = Vec::with_capacity(params.max_new_tokens);
         let mut current_pos = seq_len;
-        
+
         let positions: Array1<usize> = (0..seq_len).collect();
-        
+
         let mut hidden = {
             let mut layer_input = embedding;
             for (layer_idx, layer) in self.layers.iter().enumerate() {
@@ -3320,21 +3633,30 @@ impl MultimodalTransformer {
                     layer_idx,
                     kv_cache.and_then(|c| c.as_mut()),
                     Some(&positions),
-                    None,  // AttnRes: 此处不使用 BlockSummary（预填充阶段）
+                    None, // AttnRes: 此处不使用 BlockSummary（预填充阶段）
                 )?;
             }
-            rms_norm(&layer_input, &self.final_layernorm, self.config.rms_norm_eps)
+            rms_norm(
+                &layer_input,
+                &self.final_layernorm,
+                self.config.rms_norm_eps,
+            )
         };
 
         let logits = linear(&hidden, &self.lm_head);
         let last_logits = logits.row(seq_len - 1).to_owned();
-        let first_token = Self::sample_token(&last_logits, params.temperature, params.top_p, &mut rand::thread_rng());
+        let first_token = Self::sample_token(
+            &last_logits,
+            params.temperature,
+            params.top_p,
+            &mut rand::thread_rng(),
+        );
         output.push(first_token);
 
         for _step in 1..params.max_new_tokens {
             let next_embed = self.get_token_embedding(&[output[output.len() - 1]])?;
             let pos_arr = Array1::from_elem(1, current_pos);
-            
+
             hidden = {
                 let mut layer_input = next_embed;
                 for (layer_idx, layer) in self.layers.iter().enumerate() {
@@ -3345,16 +3667,25 @@ impl MultimodalTransformer {
                         layer_idx,
                         kv_cache.and_then(|c| c.as_mut()),
                         Some(&pos_arr),
-                        None,  // AttnRes: 此处不使用 BlockSummary（解码阶段）
+                        None, // AttnRes: 此处不使用 BlockSummary（解码阶段）
                     )?;
                 }
-                rms_norm(&layer_input, &self.final_layernorm, self.config.rms_norm_eps)
+                rms_norm(
+                    &layer_input,
+                    &self.final_layernorm,
+                    self.config.rms_norm_eps,
+                )
             };
 
             let logits = linear(&hidden, &self.lm_head);
             let last_logits = logits.row(0).to_owned();
-            let next_token = Self::sample_token(&last_logits, params.temperature, params.top_p, &mut rand::thread_rng());
-            
+            let next_token = Self::sample_token(
+                &last_logits,
+                params.temperature,
+                params.top_p,
+                &mut rand::thread_rng(),
+            );
+
             output.push(next_token);
             current_pos += 1;
         }
@@ -3362,7 +3693,12 @@ impl MultimodalTransformer {
         Ok(output)
     }
 
-    fn sample_token<R: Rng>(logits: &Array1<f32>, temperature: f32, top_p: f32, rng: &mut R) -> u32 {
+    fn sample_token<R: Rng>(
+        logits: &Array1<f32>,
+        temperature: f32,
+        top_p: f32,
+        rng: &mut R,
+    ) -> u32 {
         if temperature <= 0.0 {
             return logits
                 .iter()
@@ -3374,33 +3710,45 @@ impl MultimodalTransformer {
 
         let vocab_size = logits.len();
         let max_logit = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_logits: Vec<f32> = logits.iter().map(|&l| ((l - max_logit) / temperature).exp()).collect();
+        let exp_logits: Vec<f32> = logits
+            .iter()
+            .map(|&l| ((l - max_logit) / temperature).exp())
+            .collect();
         let sum: f32 = exp_logits.iter().sum();
         let probs: Vec<f32> = exp_logits.iter().map(|&p| p / sum).collect();
 
-        let effective_top_p = if top_p > 0.0 && top_p < 1.0 { top_p } else { 1.0 };
+        let effective_top_p = if top_p > 0.0 && top_p < 1.0 {
+            top_p
+        } else {
+            1.0
+        };
 
         if effective_top_p >= 1.0 {
             if let Ok(dist) = WeightedIndex::new(&probs) {
                 return dist.sample(rng) as u32;
             }
-            return probs.iter()
+            return probs
+                .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(i, _)| i as u32)
                 .unwrap_or(0);
         }
 
-        let mut indexed_probs: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
-        
+        let mut indexed_probs: Vec<(usize, f32)> =
+            probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+
         let estimated_top_k = ((vocab_size as f32) * 0.1).min(1000.0) as usize;
         let nth_idx = estimated_top_k.min(vocab_size.saturating_sub(1));
-        
-        indexed_probs.select_nth_unstable_by(nth_idx, |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
-        let mut top_candidates: Vec<(usize, f32)> = indexed_probs.into_iter().take(nth_idx + 1).collect();
+
+        indexed_probs.select_nth_unstable_by(nth_idx, |a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut top_candidates: Vec<(usize, f32)> =
+            indexed_probs.into_iter().take(nth_idx + 1).collect();
         top_candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         let mut cumsum = 0.0f32;
         let mut cutoff_idx = 0;
         for (i, &(_, prob)) in top_candidates.iter().enumerate() {
@@ -3412,8 +3760,14 @@ impl MultimodalTransformer {
             cutoff_idx = i;
         }
 
-        let top_indices: Vec<usize> = top_candidates[..=cutoff_idx].iter().map(|&(i, _)| i).collect();
-        let top_probs: Vec<f32> = top_candidates[..=cutoff_idx].iter().map(|&(_, p)| p).collect();
+        let top_indices: Vec<usize> = top_candidates[..=cutoff_idx]
+            .iter()
+            .map(|&(i, _)| i)
+            .collect();
+        let top_probs: Vec<f32> = top_candidates[..=cutoff_idx]
+            .iter()
+            .map(|&(_, p)| p)
+            .collect();
 
         let total: f32 = top_probs.iter().sum();
         let normalized_probs: Vec<f32> = top_probs.iter().map(|&p| p / total).collect();
@@ -3470,12 +3824,13 @@ impl MultimodalTransformer {
         if let (Some(img), Some(vision_encoder)) = (image, &self.vision_encoder) {
             let image_features = vision_encoder.forward(img)?;
 
-            embedding = self.fuse_image_features_with_validation(&embedding, &image_features, tokens)?;
+            embedding =
+                self.fuse_image_features_with_validation(&embedding, &image_features, tokens)?;
         }
 
         let mut state = self.init_generation_state(&embedding)?;
         self.process_initial_embedding(&mut state, &embedding, params)?;
-        
+
         if state.next_token == 0 {
             return Ok(state.output);
         }
@@ -3521,16 +3876,19 @@ impl MultimodalTransformer {
     {
         let mut kv_caches = self.init_kv_caches();
 
-        let embedding = self.get_token_embedding(tokens)
+        let embedding = self
+            .get_token_embedding(tokens)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
 
         let mut total_len = tokens.len();
         let init_positions: Array1<usize> = (0..total_len).collect();
 
-        let hidden = self.forward_with_kv_cache(&embedding, &mut kv_caches, &init_positions)
+        let hidden = self
+            .forward_with_kv_cache(&embedding, &mut kv_caches, &init_positions)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
         let hidden = rms_norm(&hidden, &self.final_layernorm, self.config.rms_norm_eps);
-        let mut next_token = self.sample_next_token(&hidden, params.temperature, params.top_p, true);
+        let mut next_token =
+            self.sample_next_token(&hidden, params.temperature, params.top_p, true);
 
         if next_token == 0 {
             return Ok(());
@@ -3543,9 +3901,11 @@ impl MultimodalTransformer {
 
         for _ in 1..params.max_new_tokens {
             let pos: Array1<usize> = Array1::from_elem(1, total_len - 1);
-            let embedding = self.get_token_embedding(&[next_token])
+            let embedding = self
+                .get_token_embedding(&[next_token])
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
-            let hidden = self.forward_with_kv_cache(&embedding, &mut kv_caches, &pos)
+            let hidden = self
+                .forward_with_kv_cache(&embedding, &mut kv_caches, &pos)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
             let hidden = rms_norm(&hidden, &self.final_layernorm, self.config.rms_norm_eps);
             next_token = self.sample_next_token(&hidden, params.temperature, params.top_p, false);
@@ -3592,24 +3952,29 @@ impl MultimodalTransformer {
     {
         let mut kv_caches = self.init_kv_caches();
 
-        let mut embedding = self.get_token_embedding(tokens)
+        let mut embedding = self
+            .get_token_embedding(tokens)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
 
         if let (Some(img), Some(vision_encoder)) = (image, &self.vision_encoder) {
-            let image_features = vision_encoder.forward(img)
+            let image_features = vision_encoder
+                .forward(img)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
 
-            embedding = self.fuse_image_features_with_validation(&embedding, &image_features, tokens)
+            embedding = self
+                .fuse_image_features_with_validation(&embedding, &image_features, tokens)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
         }
 
         let mut total_len = embedding.nrows();
         let init_positions: Array1<usize> = (0..total_len).collect();
 
-        let hidden = self.forward_with_kv_cache(&embedding, &mut kv_caches, &init_positions)
+        let hidden = self
+            .forward_with_kv_cache(&embedding, &mut kv_caches, &init_positions)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
         let hidden = rms_norm(&hidden, &self.final_layernorm, self.config.rms_norm_eps);
-        let mut next_token = self.sample_next_token(&hidden, params.temperature, params.top_p, true);
+        let mut next_token =
+            self.sample_next_token(&hidden, params.temperature, params.top_p, true);
 
         if next_token == 0 {
             return Ok(());
@@ -3622,9 +3987,11 @@ impl MultimodalTransformer {
 
         for _ in 1..params.max_new_tokens {
             let pos: Array1<usize> = Array1::from_elem(1, total_len - 1);
-            let embedding = self.get_token_embedding(&[next_token])
+            let embedding = self
+                .get_token_embedding(&[next_token])
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
-            let hidden = self.forward_with_kv_cache(&embedding, &mut kv_caches, &pos)
+            let hidden = self
+                .forward_with_kv_cache(&embedding, &mut kv_caches, &pos)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
             let hidden = rms_norm(&hidden, &self.final_layernorm, self.config.rms_norm_eps);
             next_token = self.sample_next_token(&hidden, params.temperature, params.top_p, false);
@@ -3690,7 +4057,7 @@ mod tests {
     fn create_deterministic_attention_weights(config: &ModelConfig) -> AttentionWeights {
         let qkv_size = config.num_attention_heads * config.head_dim;
         let kv_size = config.num_key_value_heads * config.head_dim;
-        
+
         AttentionWeights {
             q_proj: create_constant_weight(qkv_size, config.hidden_size, 0.1),
             k_proj: create_constant_weight(kv_size, config.hidden_size, 0.1),
@@ -3714,7 +4081,11 @@ mod tests {
 
         TransformerLayerWeights {
             attention: create_deterministic_attention_weights(config),
-            mla: if config.use_mla { Some(MLAWeights::new(config)) } else { None },
+            mla: if config.use_mla {
+                Some(MLAWeights::new(config))
+            } else {
+                None
+            },
             ffn: create_deterministic_ffn_weights(config),
             moe: MoEWeights {
                 experts,
@@ -3725,12 +4096,18 @@ mod tests {
             input_layernorm: Array1::ones(config.hidden_size),
             post_attention_layernorm: Array1::ones(config.hidden_size),
             mhc_dynamic_proj: if config.use_mhc {
-                Some(Array2::zeros((config.num_attention_heads, config.hidden_size)))
+                Some(Array2::zeros((
+                    config.num_attention_heads,
+                    config.hidden_size,
+                )))
             } else {
                 None
             },
             mhc_static_proj: if config.use_mhc {
-                Some(Array2::zeros((config.num_attention_heads, config.hidden_size)))
+                Some(Array2::zeros((
+                    config.num_attention_heads,
+                    config.hidden_size,
+                )))
             } else {
                 None
             },
@@ -3824,7 +4201,10 @@ mod tests {
                 break;
             }
         }
-        assert!(has_diff, "RoPE should produce different outputs for different positions");
+        assert!(
+            has_diff,
+            "RoPE should produce different outputs for different positions"
+        );
     }
 
     #[test]
@@ -3864,17 +4244,24 @@ mod tests {
         let large = Array2::from_shape_vec((1, 3), vec![1000.0, 1001.0, 1002.0]).unwrap();
         let result_large = softmax(&large);
         let sum_large: f32 = result_large.iter().sum();
-        assert!((sum_large - 1.0).abs() < 1e-5, "Softmax should handle large values");
+        assert!(
+            (sum_large - 1.0).abs() < 1e-5,
+            "Softmax should handle large values"
+        );
         for val in result_large.iter() {
             assert!(!val.is_nan() && !val.is_infinite());
         }
 
         let neg_inf = Array2::from_shape_vec((1, 3), vec![1.0, f32::NEG_INFINITY, 2.0]).unwrap();
         let result_inf = softmax(&neg_inf);
-        assert!((result_inf[[0, 1]] - 0.0).abs() < 1e-10, 
-            "NEG_INFINITY should become 0 after softmax");
-        assert!(result_inf[[0, 0]] > 0.0 && result_inf[[0, 2]] > 0.0,
-            "Non-infinity values should have positive probability");
+        assert!(
+            (result_inf[[0, 1]] - 0.0).abs() < 1e-10,
+            "NEG_INFINITY should become 0 after softmax"
+        );
+        assert!(
+            result_inf[[0, 0]] > 0.0 && result_inf[[0, 2]] > 0.0,
+            "Non-infinity values should have positive probability"
+        );
     }
 
     #[test]
@@ -3888,11 +4275,21 @@ mod tests {
         for i in 0..seq_len {
             for j in 0..kv_seq_len {
                 if j > i {
-                    assert_eq!(mask[[i, j]], f32::NEG_INFINITY, 
-                        "Position ({}, {}) should be masked (future token)", i, j);
+                    assert_eq!(
+                        mask[[i, j]],
+                        f32::NEG_INFINITY,
+                        "Position ({}, {}) should be masked (future token)",
+                        i,
+                        j
+                    );
                 } else {
-                    assert_eq!(mask[[i, j]], 0.0, 
-                        "Position ({}, {}) should not be masked (past/current token)", i, j);
+                    assert_eq!(
+                        mask[[i, j]],
+                        0.0,
+                        "Position ({}, {}) should not be masked (past/current token)",
+                        i,
+                        j
+                    );
                 }
             }
         }
@@ -3908,8 +4305,11 @@ mod tests {
 
         for i in 0..10 {
             for j in 0..10 {
-                assert_eq!(small_mask[[i, j]], large_mask[[i, j]],
-                    "Precomputed and dynamic masks should be identical");
+                assert_eq!(
+                    small_mask[[i, j]],
+                    large_mask[[i, j]],
+                    "Precomputed and dynamic masks should be identical"
+                );
             }
         }
     }
@@ -3919,25 +4319,56 @@ mod tests {
         let seq_len = 2;
         let kv_seq_len = 5;
         let offset = kv_seq_len - seq_len;
-        
+
         let mask = create_causal_mask(seq_len, kv_seq_len);
-        
+
         assert_eq!(mask.dim(), (seq_len, kv_seq_len));
-        
+
         assert_eq!(mask[[0, 0]], 0.0, "Row 0, Col 0 should be visible");
-        assert_eq!(mask[[0, offset]], 0.0, "Row 0, Col {} (offset) should be visible", offset);
-        assert_eq!(mask[[0, offset + 1]], f32::NEG_INFINITY, "Row 0, Col {} should be masked", offset + 1);
-        
-        assert_eq!(mask[[1, kv_seq_len - 1]], 0.0, "Row 1, last col should be visible");
-        assert_eq!(mask[[1, offset]], 0.0, "Row 1, Col {} should be visible", offset);
-        
+        assert_eq!(
+            mask[[0, offset]],
+            0.0,
+            "Row 0, Col {} (offset) should be visible",
+            offset
+        );
+        assert_eq!(
+            mask[[0, offset + 1]],
+            f32::NEG_INFINITY,
+            "Row 0, Col {} should be masked",
+            offset + 1
+        );
+
+        assert_eq!(
+            mask[[1, kv_seq_len - 1]],
+            0.0,
+            "Row 1, last col should be visible"
+        );
+        assert_eq!(
+            mask[[1, offset]],
+            0.0,
+            "Row 1, Col {} should be visible",
+            offset
+        );
+
         for i in 0..seq_len {
             let visible_end = offset + i + 1;
             for j in 0..visible_end {
-                assert_eq!(mask[[i, j]], 0.0, "Position ({}, {}) should be visible", i, j);
+                assert_eq!(
+                    mask[[i, j]],
+                    0.0,
+                    "Position ({}, {}) should be visible",
+                    i,
+                    j
+                );
             }
             for j in visible_end..kv_seq_len {
-                assert_eq!(mask[[i, j]], f32::NEG_INFINITY, "Position ({}, {}) should be masked", i, j);
+                assert_eq!(
+                    mask[[i, j]],
+                    f32::NEG_INFINITY,
+                    "Position ({}, {}) should be masked",
+                    i,
+                    j
+                );
             }
         }
     }
@@ -3945,22 +4376,34 @@ mod tests {
     #[test]
     fn test_causal_mask_with_kv_cache_consistency() {
         let test_cases = [(2, 5), (3, 7), (1, 10), (5, 15)];
-        
+
         for (seq_len, kv_seq_len) in test_cases {
             let mask = create_causal_mask(seq_len, kv_seq_len);
             let offset = kv_seq_len - seq_len;
-            
+
             for i in 0..seq_len {
                 let visible_end = offset + i + 1;
                 for j in 0..visible_end.min(kv_seq_len) {
-                    assert_eq!(mask[[i, j]], 0.0, 
-                        "Position ({}, {}) should be visible for seq_len={}, kv_seq_len={}", 
-                        i, j, seq_len, kv_seq_len);
+                    assert_eq!(
+                        mask[[i, j]],
+                        0.0,
+                        "Position ({}, {}) should be visible for seq_len={}, kv_seq_len={}",
+                        i,
+                        j,
+                        seq_len,
+                        kv_seq_len
+                    );
                 }
                 for j in visible_end..kv_seq_len {
-                    assert_eq!(mask[[i, j]], f32::NEG_INFINITY, 
-                        "Position ({}, {}) should be masked for seq_len={}, kv_seq_len={}", 
-                        i, j, seq_len, kv_seq_len);
+                    assert_eq!(
+                        mask[[i, j]],
+                        f32::NEG_INFINITY,
+                        "Position ({}, {}) should be masked for seq_len={}, kv_seq_len={}",
+                        i,
+                        j,
+                        seq_len,
+                        kv_seq_len
+                    );
                 }
             }
         }
@@ -3978,15 +4421,23 @@ mod tests {
             counts[token as usize] += 1;
         }
 
-        assert!(counts[0] < 10, "Lowest probability token should rarely be sampled with top_p=0.9, got {}", counts[0]);
-        assert!(counts[4] > counts[3], "Highest probability token should be sampled most often");
+        assert!(
+            counts[0] < 10,
+            "Lowest probability token should rarely be sampled with top_p=0.9, got {}",
+            counts[0]
+        );
+        assert!(
+            counts[4] > counts[3],
+            "Highest probability token should be sampled most often"
+        );
     }
 
     #[test]
     fn test_moe_weight_normalization() {
-        let probs = Array2::from_shape_vec((1, 8), 
-            vec![0.1, 0.2, 0.3, 0.4, 0.05, 0.05, 0.05, 0.05]).unwrap();
-        
+        let probs =
+            Array2::from_shape_vec((1, 8), vec![0.1, 0.2, 0.3, 0.4, 0.05, 0.05, 0.05, 0.05])
+                .unwrap();
+
         let (indices, weights, offsets) = top_k_selection(&probs, 2);
 
         assert_eq!(indices.len(), 2);
@@ -3994,8 +4445,11 @@ mod tests {
         assert_eq!(offsets.len(), 2);
 
         let weight_sum: f32 = weights.iter().sum();
-        assert!((weight_sum - 1.0).abs() < 1e-5, 
-            "MoE weights should be normalized to sum to 1, got {}", weight_sum);
+        assert!(
+            (weight_sum - 1.0).abs() < 1e-5,
+            "MoE weights should be normalized to sum to 1, got {}",
+            weight_sum
+        );
 
         for &w in &weights {
             assert!(w >= 0.0 && w <= 1.0, "Weights should be in [0, 1]");
@@ -4013,7 +4467,9 @@ mod tests {
         let k = Array3::ones((4, num_heads, head_dim));
         let v = Array3::ones((4, num_heads, head_dim)) * 2.0;
 
-        cache.update(&k, &v).expect("KV cache update should succeed");
+        cache
+            .update(&k, &v)
+            .expect("KV cache update should succeed");
 
         let (cached_k, cached_v) = cache.get();
         assert_eq!(cached_k.dim(), (4, num_heads, head_dim));
@@ -4021,7 +4477,9 @@ mod tests {
 
         let k2 = Array3::ones((2, num_heads, head_dim)) * 3.0;
         let v2 = Array3::ones((2, num_heads, head_dim)) * 4.0;
-        cache.update(&k2, &v2).expect("KV cache update should succeed");
+        cache
+            .update(&k2, &v2)
+            .expect("KV cache update should succeed");
 
         let (cached_k, cached_v) = cache.get();
         assert_eq!(cached_k.dim(), (6, num_heads, head_dim));
@@ -4061,7 +4519,7 @@ mod tests {
         config.max_position_embeddings = 512;
 
         let mut model = MultimodalTransformer::new(config.clone());
-        
+
         for layer in &mut model.layers {
             layer.attention = create_deterministic_attention_weights(&config);
             layer.ffn = create_deterministic_ffn_weights(&config);
@@ -4082,11 +4540,18 @@ mod tests {
         assert!(result.is_ok(), "Generation should succeed");
 
         let output = result.unwrap();
-        assert!(output.len() <= 10, "Output should not exceed max_new_tokens");
+        assert!(
+            output.len() <= 10,
+            "Output should not exceed max_new_tokens"
+        );
 
         let first_token = output.first().copied().unwrap_or(0);
-        assert!(first_token < 1000, "Generated token should be within vocab size, got {}", first_token);
-        
+        assert!(
+            first_token < 1000,
+            "Generated token should be within vocab size, got {}",
+            first_token
+        );
+
         assert!(output.len() > 0, "Should generate at least one token");
     }
 
@@ -4103,7 +4568,7 @@ mod tests {
         config.max_position_embeddings = 512;
 
         let mut model = MultimodalTransformer::new(config.clone());
-        
+
         for layer in &mut model.layers {
             layer.attention = create_deterministic_attention_weights(&config);
             layer.ffn = create_deterministic_ffn_weights(&config);
@@ -4124,10 +4589,17 @@ mod tests {
         assert!(result.is_ok(), "Generation with cache should succeed");
 
         let output = result.unwrap();
-        assert!(output.len() <= 10, "Output should not exceed max_new_tokens");
+        assert!(
+            output.len() <= 10,
+            "Output should not exceed max_new_tokens"
+        );
 
         let first_token = output.first().copied().unwrap_or(0);
-        assert!(first_token < 1000, "Generated token should be within vocab size, got {}", first_token);
+        assert!(
+            first_token < 1000,
+            "Generated token should be within vocab size, got {}",
+            first_token
+        );
         assert!(output.len() > 0, "Should generate at least one token");
     }
 
@@ -4161,7 +4633,10 @@ mod tests {
         });
 
         assert!(result.is_ok(), "Streaming generation should succeed");
-        assert!(generated_tokens.len() <= 10, "Should generate at most max_new_tokens");
+        assert!(
+            generated_tokens.len() <= 10,
+            "Should generate at most max_new_tokens"
+        );
 
         for &token in &generated_tokens {
             assert!(token < 1000, "Generated token should be within vocab size");
@@ -4197,8 +4672,14 @@ mod tests {
             Ok(true)
         });
 
-        assert!(result.is_ok(), "Multimodal generation without image should succeed");
-        assert!(generated_tokens.len() <= 5, "Should generate at most max_new_tokens");
+        assert!(
+            result.is_ok(),
+            "Multimodal generation without image should succeed"
+        );
+        assert!(
+            generated_tokens.len() <= 5,
+            "Should generate at most max_new_tokens"
+        );
     }
 
     #[test]
@@ -4231,7 +4712,10 @@ mod tests {
         });
 
         assert!(result.is_ok(), "Streaming generation should succeed");
-        assert_eq!(count, 3, "Should have generated exactly 3 tokens before termination");
+        assert_eq!(
+            count, 3,
+            "Should have generated exactly 3 tokens before termination"
+        );
     }
 
     #[test]
@@ -4259,8 +4743,10 @@ mod tests {
 
         for batch in &batch_sizes {
             for seq_len in &seq_lengths {
-                let tokens: Vec<u32> = (0..(*batch * *seq_len)).map(|i| (i % vocab_size) as u32).collect();
-                
+                let tokens: Vec<u32> = (0..(*batch * *seq_len))
+                    .map(|i| (i % vocab_size) as u32)
+                    .collect();
+
                 let embedding = model.get_token_embedding(&tokens).unwrap();
                 assert_eq!(embedding.dim(), (*batch * *seq_len, hidden_size));
 
@@ -4277,107 +4763,157 @@ mod tests {
     fn test_rope_rotation_correctness() {
         let head_dim = 4;
         let theta = 10000.0;
-        
+
         let x = Array2::from_shape_vec((1, head_dim), vec![1.0, 0.0, 1.0, 0.0]).unwrap();
-        
+
         let pos_0 = Array1::from_elem(1, 0usize);
         let result_0 = apply_rotary_emb(&x, 1, head_dim, theta, Some(&pos_0)).unwrap();
-        
+
         for j in 0..head_dim {
-            assert!((result_0[[0, j]] - x[[0, j]]).abs() < 1e-6,
-                "At position 0, RoPE should not change the input");
+            assert!(
+                (result_0[[0, j]] - x[[0, j]]).abs() < 1e-6,
+                "At position 0, RoPE should not change the input"
+            );
         }
-        
+
         let pos_1 = Array1::from_elem(1, 1usize);
         let result_1 = apply_rotary_emb(&x, 1, head_dim, theta, Some(&pos_1)).unwrap();
-        
+
         let cos_0 = (1.0_f32 * theta.powf(0.0 / head_dim as f32)).cos();
         let sin_0 = (1.0_f32 * theta.powf(0.0 / head_dim as f32)).sin();
-        
+
         let expected_0 = 1.0 * cos_0 - 0.0 * sin_0;
         let expected_1 = 1.0 * sin_0 + 0.0 * cos_0;
-        
-        assert!((result_1[[0, 0]] - expected_0).abs() < 1e-5,
-            "RoPE rotation at position 1 should match expected value");
-        assert!((result_1[[0, 1]] - expected_1).abs() < 1e-5,
-            "RoPE rotation at position 1 should match expected value");
+
+        assert!(
+            (result_1[[0, 0]] - expected_0).abs() < 1e-5,
+            "RoPE rotation at position 1 should match expected value"
+        );
+        assert!(
+            (result_1[[0, 1]] - expected_1).abs() < 1e-5,
+            "RoPE rotation at position 1 should match expected value"
+        );
     }
 
     #[test]
     fn test_rms_norm_correctness() {
         let hidden_size = 4;
         let weight = Array1::from_shape_vec(hidden_size, vec![1.0, 2.0, 3.0, 4.0]).unwrap();
-        
+
         let x = Array2::from_shape_vec((1, hidden_size), vec![1.0, 1.0, 1.0, 1.0]).unwrap();
         let result = rms_norm(&x, &weight, 1e-6);
-        
+
         let rms = (4.0_f32 / 4.0 + 1e-6).sqrt();
         let expected = 1.0 / rms;
-        
-        assert!((result[[0, 0]] - expected).abs() < 1e-5,
-            "RMS norm should normalize correctly");
-        assert!((result[[0, 1]] - expected * 2.0).abs() < 1e-5,
-            "RMS norm should apply weight correctly");
+
+        assert!(
+            (result[[0, 0]] - expected).abs() < 1e-5,
+            "RMS norm should normalize correctly"
+        );
+        assert!(
+            (result[[0, 1]] - expected * 2.0).abs() < 1e-5,
+            "RMS norm should apply weight correctly"
+        );
     }
 
     #[test]
     fn test_softmax_correctness() {
         let x = Array2::from_shape_vec((1, 3), vec![1.0, 2.0, 3.0]).unwrap();
         let result = softmax(&x);
-        
+
         let e1 = 1.0_f32.exp();
         let e2 = 2.0_f32.exp();
         let e3 = 3.0_f32.exp();
         let sum = e1 + e2 + e3;
-        
-        assert!((result[[0, 0]] - e1 / sum).abs() < 1e-5, "Softmax value 0 incorrect");
-        assert!((result[[0, 1]] - e2 / sum).abs() < 1e-5, "Softmax value 1 incorrect");
-        assert!((result[[0, 2]] - e3 / sum).abs() < 1e-5, "Softmax value 2 incorrect");
-        
+
+        assert!(
+            (result[[0, 0]] - e1 / sum).abs() < 1e-5,
+            "Softmax value 0 incorrect"
+        );
+        assert!(
+            (result[[0, 1]] - e2 / sum).abs() < 1e-5,
+            "Softmax value 1 incorrect"
+        );
+        assert!(
+            (result[[0, 2]] - e3 / sum).abs() < 1e-5,
+            "Softmax value 2 incorrect"
+        );
+
         let prob_sum: f32 = result.iter().sum();
-        assert!((prob_sum - 1.0).abs() < 1e-5, "Softmax probabilities should sum to 1");
+        assert!(
+            (prob_sum - 1.0).abs() < 1e-5,
+            "Softmax probabilities should sum to 1"
+        );
     }
 
     #[test]
     fn test_moe_routing_correctness() {
         let config = ModelConfig::default();
         let layer = create_deterministic_layer(&config);
-        
+
         let x = Array2::from_elem((2, config.hidden_size), 0.5);
         let result = layer.forward(&x, &config, 2);
         assert!(result.is_ok(), "MoE layer forward should succeed");
-        
+
         let output = result.unwrap();
-        assert_eq!(output.dim(), (2, config.hidden_size), "MoE output shape mismatch");
-        
+        assert_eq!(
+            output.dim(),
+            (2, config.hidden_size),
+            "MoE output shape mismatch"
+        );
+
         for val in output.iter() {
-            assert!(!val.is_nan() && !val.is_infinite(), "MoE output should be finite");
+            assert!(
+                !val.is_nan() && !val.is_infinite(),
+                "MoE output should be finite"
+            );
         }
-        
+
         let sum: f32 = output.iter().sum();
-        assert!(sum.abs() > 1e-6, "MoE output should not be all zeros, sum={}", sum);
+        assert!(
+            sum.abs() > 1e-6,
+            "MoE output should not be all zeros, sum={}",
+            sum
+        );
     }
 
     #[test]
     fn test_attention_output_range() {
         let config = ModelConfig::default();
         let layer = create_deterministic_layer(&config);
-        
+
         let x = Array2::from_elem((4, config.hidden_size), 0.5);
         let result = layer.attention.forward(&x, &config);
-        assert!(result.is_ok(), "Attention forward should succeed: {:?}", result.err());
-        
+        assert!(
+            result.is_ok(),
+            "Attention forward should succeed: {:?}",
+            result.err()
+        );
+
         let output = result.unwrap();
-        assert_eq!(output.dim(), (4, config.hidden_size), "Attention output shape mismatch");
-        
+        assert_eq!(
+            output.dim(),
+            (4, config.hidden_size),
+            "Attention output shape mismatch"
+        );
+
         for val in output.iter() {
-            assert!(!val.is_nan() && !val.is_infinite(), "Attention output should be finite");
+            assert!(
+                !val.is_nan() && !val.is_infinite(),
+                "Attention output should be finite"
+            );
         }
-        
+
         let sum: f32 = output.iter().sum();
-        assert!(sum.abs() > 1e-6, "Attention output should not be all zeros, sum={}", sum);
-        
-        let has_variance = output.iter().any(|&v| (v - sum / output.len() as f32).abs() > 1e-6);
+        assert!(
+            sum.abs() > 1e-6,
+            "Attention output should not be all zeros, sum={}",
+            sum
+        );
+
+        let has_variance = output
+            .iter()
+            .any(|&v| (v - sum / output.len() as f32).abs() > 1e-6);
         assert!(has_variance, "Attention output should have variance");
     }
 
@@ -4385,11 +4921,11 @@ mod tests {
     fn test_linear_projection_correctness() {
         let weight = Array2::from_shape_vec((3, 2), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
         let x = Array2::from_shape_vec((1, 2), vec![1.0, 2.0]).unwrap();
-        
+
         let result = linear(&x, &weight);
-        
+
         assert_eq!(result.dim(), (1, 3), "Linear output shape mismatch");
-        
+
         assert!((result[[0, 0]] - (1.0 * 1.0 + 2.0 * 2.0)).abs() < 1e-5);
         assert!((result[[0, 1]] - (1.0 * 3.0 + 2.0 * 4.0)).abs() < 1e-5);
         assert!((result[[0, 2]] - (1.0 * 5.0 + 2.0 * 6.0)).abs() < 1e-5);
@@ -4399,35 +4935,53 @@ mod tests {
     fn test_silu_activation() {
         let x = Array2::from_shape_vec((1, 3), vec![0.0, 1.0, -1.0]).unwrap();
         let result = silu(x);
-        
+
         assert!((result[[0, 0]] - 0.0).abs() < 1e-5, "SiLU(0) should be 0");
-        
+
         let expected_1 = 1.0 / (1.0 + (-1.0_f32).exp());
-        assert!((result[[0, 1]] - expected_1).abs() < 1e-5, "SiLU(1) incorrect");
-        
+        assert!(
+            (result[[0, 1]] - expected_1).abs() < 1e-5,
+            "SiLU(1) incorrect"
+        );
+
         let expected_neg1 = -1.0 / (1.0 + 1.0_f32.exp());
-        assert!((result[[0, 2]] - expected_neg1).abs() < 1e-5, "SiLU(-1) incorrect");
+        assert!(
+            (result[[0, 2]] - expected_neg1).abs() < 1e-5,
+            "SiLU(-1) incorrect"
+        );
     }
 
     #[test]
     fn test_dsa_integration() {
         let mut config = ModelConfig::default();
         config.use_dsa = false;
-        
+
         let layer = TransformerLayerWeights::new(&config);
-        
+
         let x = Array2::from_elem((10, config.hidden_size), 0.5);
         let result = layer.attention.forward(&x, &config);
-        assert!(result.is_ok(), "Attention forward should succeed: {:?}", result.err());
-        
+        assert!(
+            result.is_ok(),
+            "Attention forward should succeed: {:?}",
+            result.err()
+        );
+
         let output = result.unwrap();
         assert_eq!(output.dim(), (10, config.hidden_size));
-        
+
         let nan_count = output.iter().filter(|v| v.is_nan()).count();
         let inf_count = output.iter().filter(|v| v.is_infinite()).count();
-        
-        assert!(nan_count == 0, "Attention output has {} NaN values", nan_count);
-        assert!(inf_count == 0, "Attention output has {} infinite values", inf_count);
+
+        assert!(
+            nan_count == 0,
+            "Attention output has {} NaN values",
+            nan_count
+        );
+        assert!(
+            inf_count == 0,
+            "Attention output has {} infinite values",
+            inf_count
+        );
     }
 
     #[test]
@@ -4438,32 +4992,39 @@ mod tests {
         config.num_key_value_heads = 2;
         config.head_dim = 64;
         config.mla_latent_dim = 128;
-        
+
         let x = Array2::from_elem((4, config.hidden_size), 0.5);
-        
+
         let layer = TransformerLayerWeights::new(&config);
         let result = layer.attention.forward(&x, &config);
         assert!(result.is_ok(), "Standard attention should succeed");
         let std_output = result.unwrap();
-        
+
         assert!(layer.mla.is_some(), "MLA weights should be initialized");
-        
+
         if let Some(ref mla) = layer.mla {
             let positions: Array1<usize> = (0..4).collect();
             let mut kv_cache = KVCache::new(10, config.num_key_value_heads, config.head_dim);
-            
+
             let mla_result = layer.mla_forward_with_cache(
-                &x, 
-                mla, 
-                &config, 
-                Some(&mut kv_cache), 
-                Some(&positions)
+                &x,
+                mla,
+                &config,
+                Some(&mut kv_cache),
+                Some(&positions),
             );
-            assert!(mla_result.is_ok(), "MLA forward should succeed: {:?}", mla_result.err());
+            assert!(
+                mla_result.is_ok(),
+                "MLA forward should succeed: {:?}",
+                mla_result.err()
+            );
             let mla_output = mla_result.unwrap();
-            
-            assert_eq!(std_output.dim(), mla_output.dim(), 
-                "Standard and MLA output shapes should match");
+
+            assert_eq!(
+                std_output.dim(),
+                mla_output.dim(),
+                "Standard and MLA output shapes should match"
+            );
         }
     }
 
@@ -4473,18 +5034,26 @@ mod tests {
         config.hidden_size = 128;
         config.num_hidden_layers = 1;
         config.vocab_size = 1000;
-        
+
         let model = MultimodalTransformer::new(config);
-        
+
         let text_embedding = Array2::zeros((5, 128));
         let image_features = Array2::zeros((4, 128));
         let tokens: Vec<u32> = vec![1, 2, 3, 4, 5];
-        
-        let result = model.fuse_image_features_with_validation(&text_embedding, &image_features, &tokens);
-        assert!(result.is_ok(), "Fusion without special tokens should succeed");
-        
+
+        let result =
+            model.fuse_image_features_with_validation(&text_embedding, &image_features, &tokens);
+        assert!(
+            result.is_ok(),
+            "Fusion without special tokens should succeed"
+        );
+
         let fused = result.unwrap();
-        assert_eq!(fused.dim(), (8, 128), "Should insert at position 0: text_len - 1 + num_patches = 5 - 1 + 4 = 8");
+        assert_eq!(
+            fused.dim(),
+            (8, 128),
+            "Should insert at position 0: text_len - 1 + num_patches = 5 - 1 + 4 = 8"
+        );
     }
 
     #[test]
@@ -4493,18 +5062,23 @@ mod tests {
         config.hidden_size = 128;
         config.num_hidden_layers = 1;
         config.vocab_size = 1000;
-        
+
         let model = MultimodalTransformer::new(config);
-        
+
         let text_embedding = Array2::zeros((5, 128));
         let image_features = Array2::zeros((4, 128));
         let tokens: Vec<u32> = vec![1, 2, IM_START_TOKEN_ID as u32, 4, 5];
-        
-        let result = model.fuse_image_features_with_validation(&text_embedding, &image_features, &tokens);
+
+        let result =
+            model.fuse_image_features_with_validation(&text_embedding, &image_features, &tokens);
         assert!(result.is_ok(), "Fusion with IM_START only should succeed");
-        
+
         let fused = result.unwrap();
-        assert_eq!(fused.dim(), (8, 128), "Should insert image at IM_START position: 5 - 1 + 4 = 8");
+        assert_eq!(
+            fused.dim(),
+            (8, 128),
+            "Should insert image at IM_START position: 5 - 1 + 4 = 8"
+        );
     }
 
     #[test]
@@ -4513,16 +5087,17 @@ mod tests {
         config.hidden_size = 128;
         config.num_hidden_layers = 1;
         config.vocab_size = 1000;
-        
+
         let model = MultimodalTransformer::new(config);
-        
+
         let text_embedding = Array2::zeros((6, 128));
         let image_features = Array2::zeros((4, 128));
         let tokens: Vec<u32> = vec![1, 2, IM_START_TOKEN_ID as u32, 0, IM_END_TOKEN_ID as u32, 5];
-        
-        let result = model.fuse_image_features_with_validation(&text_embedding, &image_features, &tokens);
+
+        let result =
+            model.fuse_image_features_with_validation(&text_embedding, &image_features, &tokens);
         assert!(result.is_ok(), "Fusion with both tokens should succeed");
-        
+
         let fused = result.unwrap();
         assert_eq!(fused.dim(), (7, 128), "Should replace placeholder: text_len - placeholder - 2 + num_patches = 6 - 1 - 2 + 4 = 7");
     }
@@ -4530,78 +5105,121 @@ mod tests {
     #[test]
     fn test_sample_token_temperature_zero() {
         let logits = Array1::from_shape_vec(5, vec![1.0, 5.0, 3.0, 2.0, 4.0]).unwrap();
-        
+
         let token = MultimodalTransformer::sample_token(&logits, 0.0, 0.9, &mut rand::thread_rng());
         assert_eq!(token, 1, "Temperature=0 should select argmax (index 1)");
-        
-        let token = MultimodalTransformer::sample_token(&logits, -1.0, 0.9, &mut rand::thread_rng());
+
+        let token =
+            MultimodalTransformer::sample_token(&logits, -1.0, 0.9, &mut rand::thread_rng());
         assert_eq!(token, 1, "Negative temperature should select argmax");
     }
 
     #[test]
     fn test_sample_token_top_p_boundary() {
         let logits = Array1::from_shape_vec(5, vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
-        
+
         for _ in 0..100 {
-            let token = MultimodalTransformer::sample_token(&logits, 1.0, 0.0, &mut rand::thread_rng());
-            assert!(token < 5, "top_p=0 should still sample from full distribution");
+            let token =
+                MultimodalTransformer::sample_token(&logits, 1.0, 0.0, &mut rand::thread_rng());
+            assert!(
+                token < 5,
+                "top_p=0 should still sample from full distribution"
+            );
         }
-        
+
         for _ in 0..100 {
-            let token = MultimodalTransformer::sample_token(&logits, 1.0, 1.0, &mut rand::thread_rng());
+            let token =
+                MultimodalTransformer::sample_token(&logits, 1.0, 1.0, &mut rand::thread_rng());
             assert!(token < 5, "top_p=1 should sample from full distribution");
         }
     }
 
     #[test]
     fn test_moe_router_top_k_correctness() {
-        let logits = Array2::from_shape_vec((2, 4), vec![
-            1.0, 4.0, 2.0, 3.0,
-            3.0, 1.0, 4.0, 2.0,
-        ]).unwrap();
-        
+        let logits =
+            Array2::from_shape_vec((2, 4), vec![1.0, 4.0, 2.0, 3.0, 3.0, 1.0, 4.0, 2.0]).unwrap();
+
         let (indices, weights, offsets) = top_k_selection(&logits, 2);
-        
+
         assert_eq!(offsets, vec![0, 2, 4], "Offsets should be [0, 2, 4]");
-        
-        assert!(indices.contains(&1), "First row should select index 1 (value 4.0)");
-        assert!(indices.contains(&3), "First row should select index 3 (value 3.0)");
-        
-        let _first_row_weights: Vec<f32> = indices.iter().zip(weights.iter())
+
+        assert!(
+            indices.contains(&1),
+            "First row should select index 1 (value 4.0)"
+        );
+        assert!(
+            indices.contains(&3),
+            "First row should select index 3 (value 3.0)"
+        );
+
+        let _first_row_weights: Vec<f32> = indices
+            .iter()
+            .zip(weights.iter())
             .filter(|(idx, _)| *idx == &1 || *idx == &3)
             .map(|(_, w)| *w)
             .collect();
         let weight_sum: f32 = weights[0..2].iter().sum();
-        assert!((weight_sum - 1.0).abs() < 1e-5, "Weights should sum to 1.0, got {}", weight_sum);
-        
-        assert!(weights.iter().all(|&w| w > 0.0 && w <= 1.0), "All weights should be in (0, 1]");
+        assert!(
+            (weight_sum - 1.0).abs() < 1e-5,
+            "Weights should sum to 1.0, got {}",
+            weight_sum
+        );
+
+        assert!(
+            weights.iter().all(|&w| w > 0.0 && w <= 1.0),
+            "All weights should be in (0, 1]"
+        );
     }
 
     #[test]
     fn test_top_k_selection_edge_cases() {
         let empty_logits = Array2::zeros((0, 4));
         let (indices, weights, offsets) = top_k_selection(&empty_logits, 2);
-        assert!(indices.is_empty(), "Empty input should produce empty output");
-        assert!(weights.is_empty(), "Empty input should produce empty weights");
+        assert!(
+            indices.is_empty(),
+            "Empty input should produce empty output"
+        );
+        assert!(
+            weights.is_empty(),
+            "Empty input should produce empty weights"
+        );
         assert_eq!(offsets, vec![0], "Empty input should have offsets [0]");
 
-        let k_zero_logits = Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
+        let k_zero_logits =
+            Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
         let (indices, weights, offsets) = top_k_selection(&k_zero_logits, 0);
         assert!(indices.is_empty(), "k=0 should produce empty indices");
         assert!(weights.is_empty(), "k=0 should produce empty weights");
         assert_eq!(offsets, vec![0, 0, 0], "k=0 should have all-zero offsets");
 
-        let k_exceeds_logits = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let k_exceeds_logits =
+            Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
         let (indices, weights, offsets) = top_k_selection(&k_exceeds_logits, 10);
-        assert_eq!(indices.len(), 6, "k > num_experts should select all experts");
-        assert_eq!(weights.len(), 6, "k > num_experts should have weights for all");
+        assert_eq!(
+            indices.len(),
+            6,
+            "k > num_experts should select all experts"
+        );
+        assert_eq!(
+            weights.len(),
+            6,
+            "k > num_experts should have weights for all"
+        );
         assert_eq!(offsets, vec![0, 3, 6], "Offsets should be [0, 3, 6]");
 
-        let equal_logits = Array2::from_shape_vec((2, 4), vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
+        let equal_logits =
+            Array2::from_shape_vec((2, 4), vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).unwrap();
         let (_indices, weights, offsets) = top_k_selection(&equal_logits, 2);
-        assert_eq!(offsets, vec![0, 2, 4], "Equal logits should still produce correct offsets");
+        assert_eq!(
+            offsets,
+            vec![0, 2, 4],
+            "Equal logits should still produce correct offsets"
+        );
         let first_row_sum: f32 = weights[0..2].iter().sum();
-        assert!((first_row_sum - 1.0).abs() < 1e-5, "Equal logits should produce uniform weights");
+        assert!(
+            (first_row_sum - 1.0).abs() < 1e-5,
+            "Equal logits should produce uniform weights"
+        );
     }
 
     #[test]
@@ -4613,36 +5231,43 @@ mod tests {
         config.head_dim = 64;
         config.mla_latent_dim = 128;
         config.use_mla = true;
-        
+
         let x = Array2::from_shape_fn((4, config.hidden_size), |(i, j)| {
             ((i * config.hidden_size + j) as f32 * 0.01).sin()
         });
-        
+
         let layer = TransformerLayerWeights::new(&config);
-        
+
         let std_result = layer.attention.forward(&x, &config);
         assert!(std_result.is_ok(), "Standard attention should succeed");
         let std_output = std_result.unwrap();
-        
+
         assert!(layer.mla.is_some(), "MLA weights should be initialized");
-        
+
         if let Some(ref _mla) = layer.mla {
             let positions: Array1<usize> = (0..4).collect();
             let mut kv_cache = KVCache::new(10, config.num_key_value_heads, config.head_dim);
-            
+
             let mla_result = layer.mla_forward_with_cache(
-                &x, 
-                layer.mla.as_ref().unwrap(), 
-                &config, 
-                Some(&mut kv_cache), 
-                Some(&positions)
+                &x,
+                layer.mla.as_ref().unwrap(),
+                &config,
+                Some(&mut kv_cache),
+                Some(&positions),
             );
-            assert!(mla_result.is_ok(), "MLA forward should succeed: {:?}", mla_result.err());
+            assert!(
+                mla_result.is_ok(),
+                "MLA forward should succeed: {:?}",
+                mla_result.err()
+            );
             let mla_output = mla_result.unwrap();
-            
-            assert_eq!(std_output.dim(), mla_output.dim(), 
-                "Standard and MLA output shapes should match");
-            
+
+            assert_eq!(
+                std_output.dim(),
+                mla_output.dim(),
+                "Standard and MLA output shapes should match"
+            );
+
             let mut max_diff = 0.0f32;
             for i in 0..std_output.nrows() {
                 for j in 0..std_output.ncols() {
@@ -4650,7 +5275,7 @@ mod tests {
                     max_diff = max_diff.max(diff);
                 }
             }
-            
+
             println!("Max difference between MHA and MLA: {}", max_diff);
         }
     }
@@ -4659,40 +5284,64 @@ mod tests {
     fn test_kv_cache_consistency() {
         let config = ModelConfig::default();
         let mut kv_cache = KVCache::new(10, config.num_key_value_heads, config.head_dim);
-        
-        let k1 = Array3::from_shape_fn((2, config.num_key_value_heads, config.head_dim), |(i, h, d)| {
-            i as f32 * 0.1 + h as f32 * 0.01 + d as f32 * 0.001
-        });
-        let v1 = Array3::from_shape_fn((2, config.num_key_value_heads, config.head_dim), |(i, h, d)| {
-            i as f32 * 0.2 + h as f32 * 0.02 + d as f32 * 0.002
-        });
-        
-        kv_cache.update(&k1, &v1).expect("First update should succeed");
+
+        let k1 = Array3::from_shape_fn(
+            (2, config.num_key_value_heads, config.head_dim),
+            |(i, h, d)| i as f32 * 0.1 + h as f32 * 0.01 + d as f32 * 0.001,
+        );
+        let v1 = Array3::from_shape_fn(
+            (2, config.num_key_value_heads, config.head_dim),
+            |(i, h, d)| i as f32 * 0.2 + h as f32 * 0.02 + d as f32 * 0.002,
+        );
+
+        kv_cache
+            .update(&k1, &v1)
+            .expect("First update should succeed");
         assert_eq!(kv_cache.seq_len, 2, "Cache should have 2 tokens");
-        
+
         let (k_cached, _v_cached) = kv_cache.get();
-        assert_eq!(k_cached.dim(), (2, config.num_key_value_heads, config.head_dim));
-        
-        let k2 = Array3::from_shape_fn((3, config.num_key_value_heads, config.head_dim), |(i, h, d)| {
-            (i + 2) as f32 * 0.1 + h as f32 * 0.01 + d as f32 * 0.001
-        });
-        let v2 = Array3::from_shape_fn((3, config.num_key_value_heads, config.head_dim), |(i, h, d)| {
-            (i + 2) as f32 * 0.2 + h as f32 * 0.02 + d as f32 * 0.002
-        });
-        
-        kv_cache.update(&k2, &v2).expect("Second update should succeed");
+        assert_eq!(
+            k_cached.dim(),
+            (2, config.num_key_value_heads, config.head_dim)
+        );
+
+        let k2 = Array3::from_shape_fn(
+            (3, config.num_key_value_heads, config.head_dim),
+            |(i, h, d)| (i + 2) as f32 * 0.1 + h as f32 * 0.01 + d as f32 * 0.001,
+        );
+        let v2 = Array3::from_shape_fn(
+            (3, config.num_key_value_heads, config.head_dim),
+            |(i, h, d)| (i + 2) as f32 * 0.2 + h as f32 * 0.02 + d as f32 * 0.002,
+        );
+
+        kv_cache
+            .update(&k2, &v2)
+            .expect("Second update should succeed");
         assert_eq!(kv_cache.seq_len, 5, "Cache should have 5 tokens");
-        
+
         let (k_final, v_final) = kv_cache.get();
-        assert_eq!(k_final.dim(), (5, config.num_key_value_heads, config.head_dim));
-        
+        assert_eq!(
+            k_final.dim(),
+            (5, config.num_key_value_heads, config.head_dim)
+        );
+
         for i in 0..2 {
             for h in 0..config.num_key_value_heads {
                 for d in 0..config.head_dim {
-                    assert!((k_final[[i, h, d]] - k1[[i, h, d]]).abs() < 1e-6,
-                        "Cached K values should match original at position ({}, {}, {})", i, h, d);
-                    assert!((v_final[[i, h, d]] - v1[[i, h, d]]).abs() < 1e-6,
-                        "Cached V values should match original at position ({}, {}, {})", i, h, d);
+                    assert!(
+                        (k_final[[i, h, d]] - k1[[i, h, d]]).abs() < 1e-6,
+                        "Cached K values should match original at position ({}, {}, {})",
+                        i,
+                        h,
+                        d
+                    );
+                    assert!(
+                        (v_final[[i, h, d]] - v1[[i, h, d]]).abs() < 1e-6,
+                        "Cached V values should match original at position ({}, {}, {})",
+                        i,
+                        h,
+                        d
+                    );
                 }
             }
         }
@@ -4700,20 +5349,39 @@ mod tests {
 
     #[test]
     fn test_softmax_stability() {
-        let large_logits = Array2::from_shape_vec((1, 5), vec![1000.0, 1001.0, 1002.0, 1003.0, 1004.0]).unwrap();
+        let large_logits =
+            Array2::from_shape_vec((1, 5), vec![1000.0, 1001.0, 1002.0, 1003.0, 1004.0]).unwrap();
         let probs = softmax(&large_logits);
-        
-        assert!(!probs.iter().any(|&p| p.is_nan()), "Softmax should not produce NaN");
-        assert!(!probs.iter().any(|&p| p.is_infinite()), "Softmax should not produce Inf");
-        
+
+        assert!(
+            !probs.iter().any(|&p| p.is_nan()),
+            "Softmax should not produce NaN"
+        );
+        assert!(
+            !probs.iter().any(|&p| p.is_infinite()),
+            "Softmax should not produce Inf"
+        );
+
         let sum: f32 = probs.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-5, "Softmax probabilities should sum to 1.0, got {}", sum);
-        
-        let small_logits = Array2::from_shape_vec((1, 5), vec![-1000.0, -1001.0, -1002.0, -1003.0, -1004.0]).unwrap();
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "Softmax probabilities should sum to 1.0, got {}",
+            sum
+        );
+
+        let small_logits =
+            Array2::from_shape_vec((1, 5), vec![-1000.0, -1001.0, -1002.0, -1003.0, -1004.0])
+                .unwrap();
         let probs = softmax(&small_logits);
-        
-        assert!(!probs.iter().any(|&p| p.is_nan()), "Softmax should not produce NaN for small values");
-        assert!(probs.iter().all(|&p| p > 0.0), "All probabilities should be positive");
+
+        assert!(
+            !probs.iter().any(|&p| p.is_nan()),
+            "Softmax should not produce NaN for small values"
+        );
+        assert!(
+            probs.iter().all(|&p| p > 0.0),
+            "All probabilities should be positive"
+        );
     }
 
     #[test]
@@ -4721,11 +5389,11 @@ mod tests {
         let hidden_size = 64;
         let orig_grid = 16;
         let orig_patches = orig_grid * orig_grid;
-        
+
         let pos_embed = Array2::from_shape_fn((orig_patches + 1, hidden_size), |(i, j)| {
             i as f32 * 0.01 + j as f32 * 0.001
         });
-        
+
         let vision_encoder = VisionEncoderWeights {
             patch_embed: Array2::zeros((768, 14 * 14 * 3)),
             pos_embed: pos_embed.clone(),
@@ -4737,20 +5405,38 @@ mod tests {
             image_mean: CLIP_IMAGE_MEAN,
             image_std: CLIP_IMAGE_STD,
         };
-        
+
         let result_h1 = vision_encoder.interpolate_pos_embed(orig_grid, 1, 1, hidden_size);
-        assert_eq!(result_h1.dim(), (2, hidden_size), "Should handle target_h=1, target_w=1");
-        
+        assert_eq!(
+            result_h1.dim(),
+            (2, hidden_size),
+            "Should handle target_h=1, target_w=1"
+        );
+
         let result_h1_w2 = vision_encoder.interpolate_pos_embed(orig_grid, 1, 2, hidden_size);
-        assert_eq!(result_h1_w2.dim(), (3, hidden_size), "Should handle target_h=1, target_w=2");
-        
+        assert_eq!(
+            result_h1_w2.dim(),
+            (3, hidden_size),
+            "Should handle target_h=1, target_w=2"
+        );
+
         let result_h2_w1 = vision_encoder.interpolate_pos_embed(orig_grid, 2, 1, hidden_size);
-        assert_eq!(result_h2_w1.dim(), (3, hidden_size), "Should handle target_h=2, target_w=1");
-        
+        assert_eq!(
+            result_h2_w1.dim(),
+            (3, hidden_size),
+            "Should handle target_h=2, target_w=1"
+        );
+
         for h_idx in 0..hidden_size {
             assert!(!result_h1[[1, h_idx]].is_nan(), "Result should not be NaN");
-            assert!(!result_h1_w2[[1, h_idx]].is_nan(), "Result should not be NaN");
-            assert!(!result_h2_w1[[1, h_idx]].is_nan(), "Result should not be NaN");
+            assert!(
+                !result_h1_w2[[1, h_idx]].is_nan(),
+                "Result should not be NaN"
+            );
+            assert!(
+                !result_h2_w1[[1, h_idx]].is_nan(),
+                "Result should not be NaN"
+            );
         }
     }
 
@@ -4767,7 +5453,7 @@ mod tests {
         config.max_position_embeddings = 512;
 
         let mut model = MultimodalTransformer::new(config.clone());
-        
+
         for layer in &mut model.layers {
             layer.attention = create_deterministic_attention_weights(&config);
             layer.ffn = create_deterministic_ffn_weights(&config);
@@ -4777,72 +5463,103 @@ mod tests {
         model.weights_loaded = true;
 
         let tokens: Vec<u32> = vec![1, 2, 3, 4, 5];
-        
+
         let params_no_cache = GenerateParams {
             max_new_tokens: 5,
             temperature: 0.0,
             ..Default::default()
         };
-        
+
         let params_with_cache = GenerateParams {
             max_new_tokens: 5,
             temperature: 0.0,
             ..Default::default()
         };
 
-        let result_no_cache = model.generate_with_params(&tokens, &params_no_cache).expect("No-cache generation should succeed");
-        let result_with_cache = model.generate_with_cache_params(&tokens, &params_with_cache).expect("Cache generation should succeed");
-        
-        assert_eq!(result_no_cache.len(), result_with_cache.len(), 
-            "Both methods should produce same number of tokens");
-        
-        for (i, (a, b)) in result_no_cache.iter().zip(result_with_cache.iter()).enumerate() {
-            assert_eq!(a, b, "Token {} should match between cache and no-cache methods", i);
+        let result_no_cache = model
+            .generate_with_params(&tokens, &params_no_cache)
+            .expect("No-cache generation should succeed");
+        let result_with_cache = model
+            .generate_with_cache_params(&tokens, &params_with_cache)
+            .expect("Cache generation should succeed");
+
+        assert_eq!(
+            result_no_cache.len(),
+            result_with_cache.len(),
+            "Both methods should produce same number of tokens"
+        );
+
+        for (i, (a, b)) in result_no_cache
+            .iter()
+            .zip(result_with_cache.iter())
+            .enumerate()
+        {
+            assert_eq!(
+                a, b,
+                "Token {} should match between cache and no-cache methods",
+                i
+            );
         }
     }
 
     #[test]
     fn test_audio_padding_modes() {
-        let audio = Array2::from_shape_vec((5, 3), vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-            7.0, 8.0, 9.0,
-            10.0, 11.0, 12.0,
-            13.0, 14.0, 15.0,
-        ]).unwrap();
-        
+        let audio = Array2::from_shape_vec(
+            (5, 3),
+            vec![
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+            ],
+        )
+        .unwrap();
+
         let replicate = PaddingMode::Replicate;
         let padded_rep = replicate.apply_padding(&audio, 1);
         assert_eq!(padded_rep.dim(), (7, 3), "Replicate padding shape mismatch");
-        assert_eq!(padded_rep[[0, 0]], 1.0, "First row should replicate first audio row");
-        assert_eq!(padded_rep[[6, 2]], 15.0, "Last row should replicate last audio row");
-        
+        assert_eq!(
+            padded_rep[[0, 0]],
+            1.0,
+            "First row should replicate first audio row"
+        );
+        assert_eq!(
+            padded_rep[[6, 2]],
+            15.0,
+            "Last row should replicate last audio row"
+        );
+
         let zero = PaddingMode::Zero;
         let padded_zero = zero.apply_padding(&audio, 1);
         assert_eq!(padded_zero.dim(), (7, 3), "Zero padding shape mismatch");
         assert_eq!(padded_zero[[0, 0]], 0.0, "First row should be zero");
         assert_eq!(padded_zero[[6, 2]], 0.0, "Last row should be zero");
-        
+
         let reflect = PaddingMode::Reflect;
         let padded_refl = reflect.apply_padding(&audio, 1);
         assert_eq!(padded_refl.dim(), (7, 3), "Reflect padding shape mismatch");
-        assert_eq!(padded_refl[[0, 0]], 4.0, "First row should reflect second audio row");
-        assert_eq!(padded_refl[[6, 2]], 12.0, "Last row should reflect second-to-last audio row");
+        assert_eq!(
+            padded_refl[[0, 0]],
+            4.0,
+            "First row should reflect second audio row"
+        );
+        assert_eq!(
+            padded_refl[[6, 2]],
+            12.0,
+            "Last row should reflect second-to-last audio row"
+        );
     }
 
     #[test]
     fn test_interpolate_pos_embed_random_weights() {
         let mut rng = rand::thread_rng();
         use rand::Rng;
-        
+
         let hidden_size = 64;
         let orig_grid = 8;
         let orig_patches = orig_grid * orig_grid;
-        
+
         let pos_embed = Array2::from_shape_fn((orig_patches + 1, hidden_size), |_| {
             rng.gen::<f32>() * 2.0 - 1.0
         });
-        
+
         let vision_encoder = VisionEncoderWeights {
             patch_embed: Array2::zeros((768, 14 * 14 * 3)),
             pos_embed: pos_embed.clone(),
@@ -4854,20 +5571,36 @@ mod tests {
             image_mean: CLIP_IMAGE_MEAN,
             image_std: CLIP_IMAGE_STD,
         };
-        
+
         let result = vision_encoder.interpolate_pos_embed(orig_grid, 4, 4, hidden_size);
-        assert_eq!(result.dim(), (17, hidden_size), "Interpolation shape mismatch for 4x4 target");
-        
+        assert_eq!(
+            result.dim(),
+            (17, hidden_size),
+            "Interpolation shape mismatch for 4x4 target"
+        );
+
         for h_idx in 0..hidden_size {
             assert!(!result[[0, h_idx]].is_nan(), "CLS token should not be NaN");
             for i in 1..17 {
-                assert!(!result[[i, h_idx]].is_nan(), "Position {} should not be NaN", i);
-                assert!(result[[i, h_idx]].is_finite(), "Position {} should be finite", i);
+                assert!(
+                    !result[[i, h_idx]].is_nan(),
+                    "Position {} should not be NaN",
+                    i
+                );
+                assert!(
+                    result[[i, h_idx]].is_finite(),
+                    "Position {} should be finite",
+                    i
+                );
             }
         }
-        
+
         let result_1x1 = vision_encoder.interpolate_pos_embed(orig_grid, 1, 1, hidden_size);
-        assert_eq!(result_1x1.dim(), (2, hidden_size), "1x1 target shape mismatch");
+        assert_eq!(
+            result_1x1.dim(),
+            (2, hidden_size),
+            "1x1 target shape mismatch"
+        );
         assert!(!result_1x1[[1, 0]].is_nan(), "1x1 result should not be NaN");
     }
 
@@ -4876,28 +5609,40 @@ mod tests {
         let theta = 10000.0;
         let head_dim = 64;
         let max_positions = 1024;
-        
+
         let tables = get_rope_tables(theta, head_dim, max_positions);
-        
-        assert!(tables.cos_table.is_some(), "cos_table should be precomputed for max_positions <= 8192");
-        assert!(tables.sin_table.is_some(), "sin_table should be precomputed for max_positions <= 8192");
-        
+
+        assert!(
+            tables.cos_table.is_some(),
+            "cos_table should be precomputed for max_positions <= 8192"
+        );
+        assert!(
+            tables.sin_table.is_some(),
+            "sin_table should be precomputed for max_positions <= 8192"
+        );
+
         let cos_table = tables.cos_table.as_ref().unwrap();
         let sin_table = tables.sin_table.as_ref().unwrap();
-        
+
         assert_eq!(cos_table.dim(), (max_positions, head_dim / 2));
         assert_eq!(sin_table.dim(), (max_positions, head_dim / 2));
-        
+
         let angle_0 = 0.0f32;
         let expected_cos = angle_0.cos();
         let expected_sin = angle_0.sin();
-        
+
         assert!((cos_table[[0, 0]] - expected_cos).abs() < 1e-6);
         assert!((sin_table[[0, 0]] - expected_sin).abs() < 1e-6);
-        
+
         let tables_large = get_rope_tables(theta, head_dim, 10000);
-        assert!(tables_large.cos_table.is_none(), "cos_table should be None for max_positions > 8192");
-        assert!(tables_large.sin_table.is_none(), "sin_table should be None for max_positions > 8192");
+        assert!(
+            tables_large.cos_table.is_none(),
+            "cos_table should be None for max_positions > 8192"
+        );
+        assert!(
+            tables_large.sin_table.is_none(),
+            "sin_table should be None for max_positions > 8192"
+        );
     }
 
     // ========================================================================
@@ -4962,7 +5707,10 @@ mod tests {
         let c_kv_overflow = Array2::zeros((1, 256));
         let result = cache.update(&c_kv_overflow);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("capacity exceeded"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("capacity exceeded"));
     }
 
     #[test]
@@ -5013,13 +5761,25 @@ mod tests {
 
         let normed = rms_norm(&x, &layer.input_layernorm, config.rms_norm_eps);
 
-        let result_std = layer.mla_forward_with_cache(
-            &normed, mla, &config, Some(&mut std_cache), Some(&positions)
-        ).unwrap();
+        let result_std = layer
+            .mla_forward_with_cache(
+                &normed,
+                mla,
+                &config,
+                Some(&mut std_cache),
+                Some(&positions),
+            )
+            .unwrap();
 
-        let result_compressed = layer.mla_forward_with_compressed_cache(
-            &normed, mla, &config, Some(&mut mla_cache), Some(&positions)
-        ).unwrap();
+        let result_compressed = layer
+            .mla_forward_with_compressed_cache(
+                &normed,
+                mla,
+                &config,
+                Some(&mut mla_cache),
+                Some(&positions),
+            )
+            .unwrap();
 
         assert_eq!(result_std.dim(), result_compressed.dim());
 
@@ -5029,7 +5789,10 @@ mod tests {
                     assert!(
                         (result_std[[i, j]] - result_compressed[[i, j]]).abs() < 1e-3,
                         "MLA compressed forward mismatch at [{},{}]: std={}, comp={}",
-                        i, j, result_std[[i, j]], result_compressed[[i, j]]
+                        i,
+                        j,
+                        result_std[[i, j]],
+                        result_compressed[[i, j]]
                     );
                 }
             }
@@ -5061,14 +5824,24 @@ mod tests {
             let pos = Array1::from_vec(vec![step]);
             let normed = rms_norm(&x, &layer.input_layernorm, config.rms_norm_eps);
 
-            let output = layer.mla_forward_with_compressed_cache(
-                &normed, mla, &config, Some(&mut mla_cache), Some(&pos)
-            ).unwrap();
+            let output = layer
+                .mla_forward_with_compressed_cache(
+                    &normed,
+                    mla,
+                    &config,
+                    Some(&mut mla_cache),
+                    Some(&pos),
+                )
+                .unwrap();
 
             assert_eq!(output.dim().0, if step == 0 { 4 } else { 1 });
             assert_eq!(mla_cache.len(), if step == 0 { 4 } else { 4 + step });
 
-            prev_output = Some(output.slice(s![if step == 0 { 3 } else { 0 }.., ..]).to_owned());
+            prev_output = Some(
+                output
+                    .slice(s![if step == 0 { 3 } else { 0 }.., ..])
+                    .to_owned(),
+            );
         }
 
         assert_eq!(mla_cache.len(), 11);

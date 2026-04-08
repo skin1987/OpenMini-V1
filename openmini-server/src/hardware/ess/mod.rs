@@ -10,13 +10,13 @@ mod eviction;
 mod prefetch;
 mod transfer;
 
-pub use cache::{LatentCacheManager, CacheEntry, MemoryTier};
+pub use cache::{CacheEntry, LatentCacheManager, MemoryTier};
 pub use eviction::EvictionPolicy;
 pub use prefetch::Prefetcher;
 pub use transfer::{FlashTransfer, TransferManager};
 
 #[cfg(test)]
-pub use eviction::{LruEviction, LfuEviction, AdaptiveEviction};
+pub use eviction::{AdaptiveEviction, LfuEviction, LruEviction};
 #[cfg(test)]
 pub use prefetch::{AccessPattern, LocalityAnalyzer};
 #[cfg(test)]
@@ -92,7 +92,7 @@ impl ElasticStorageSystem {
     /// 同时更新统计信息和触发预取
     pub fn get(&self, key: &str) -> Option<CacheEntry> {
         let cache = self.cache_manager.read().unwrap();
-        
+
         if let Some(entry) = cache.get(key) {
             let mut stats = self.stats.write().unwrap();
             match entry.tier {
@@ -100,11 +100,11 @@ impl ElasticStorageSystem {
                 MemoryTier::CPU => stats.cpu_hits += 1,
                 MemoryTier::Storage => stats.cpu_hits += 1,
             }
-            
+
             if let Some(ref mut prefetcher_guard) = *self.prefetcher.write().unwrap() {
                 let _ = prefetcher_guard.access(entry.data.as_ptr() as usize);
             }
-            
+
             Some(entry.clone())
         } else {
             self.stats.write().unwrap().misses += 1;
@@ -118,7 +118,7 @@ impl ElasticStorageSystem {
     pub fn put(&self, key: String, data: Vec<u8>, tier: MemoryTier) -> Result<(), String> {
         let data_len = data.len();
         let mut cache = self.cache_manager.write().unwrap();
-        
+
         match cache.put(key, data, tier) {
             Ok(()) => {
                 self.stats.write().unwrap().transfer_bytes += data_len as u64;
@@ -135,10 +135,10 @@ impl ElasticStorageSystem {
     pub fn evict(&self, policy: EvictionPolicy) -> Vec<String> {
         let mut cache = self.cache_manager.write().unwrap();
         let evicted = cache.evict(policy);
-        
+
         let mut stats = self.stats.write().unwrap();
         stats.eviction_count += evicted.len() as u64;
-        
+
         evicted
     }
 
@@ -154,11 +154,11 @@ impl ElasticStorageSystem {
 
         let transfer = FlashTransfer::new();
         let result = transfer.transfer_to_device(&data);
-        
+
         if result.is_some() {
             self.stats.write().unwrap().transfer_bytes += data.len() as u64;
         }
-        
+
         result
     }
 
@@ -382,8 +382,10 @@ mod tests {
     fn test_ess_stats_tracking() {
         let ess = ElasticStorageSystem::new(EssConfig::default());
 
-        ess.put("key1".to_string(), vec![1, 2, 3], MemoryTier::GPU).unwrap();
-        ess.put("key2".to_string(), vec![4, 5, 6], MemoryTier::CPU).unwrap();
+        ess.put("key1".to_string(), vec![1, 2, 3], MemoryTier::GPU)
+            .unwrap();
+        ess.put("key2".to_string(), vec![4, 5, 6], MemoryTier::CPU)
+            .unwrap();
 
         ess.get("key1");
         ess.get("key2");
@@ -404,9 +406,13 @@ mod tests {
         };
         let ess = ElasticStorageSystem::new(config);
 
-        let result = ess.put("key1".to_string(), vec![0u8; 2 * 1024 * 1024], MemoryTier::GPU);
+        let result = ess.put(
+            "key1".to_string(),
+            vec![0u8; 2 * 1024 * 1024],
+            MemoryTier::GPU,
+        );
         assert!(result.is_err());
-        
+
         let stats = ess.stats();
         assert_eq!(stats.put_errors, 1);
     }
@@ -418,11 +424,13 @@ mod tests {
             ..Default::default()
         });
 
-        ess.put("key1".to_string(), vec![0u8; 512 * 1024], MemoryTier::GPU).unwrap();
-        ess.put("key2".to_string(), vec![0u8; 512 * 1024], MemoryTier::GPU).unwrap();
+        ess.put("key1".to_string(), vec![0u8; 512 * 1024], MemoryTier::GPU)
+            .unwrap();
+        ess.put("key2".to_string(), vec![0u8; 512 * 1024], MemoryTier::GPU)
+            .unwrap();
 
         let evicted = ess.evict(EvictionPolicy::LRU);
-        
+
         let stats = ess.stats();
         assert_eq!(stats.eviction_count, evicted.len() as u64);
         assert!(!evicted.is_empty());

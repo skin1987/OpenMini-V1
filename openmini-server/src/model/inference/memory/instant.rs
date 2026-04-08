@@ -1,7 +1,7 @@
 //! 瞬时记忆层
 //!
 //! 基于现有 KV Cache 封装，存储当前推理批次的 token
-//! 
+//!
 //! # 功能特性
 //! - 与 PagedKVCache 深度集成
 //! - 零拷贝数据共享
@@ -29,8 +29,8 @@
 //! - 反映唯一条目覆盖情况
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
@@ -100,13 +100,13 @@ impl ZeroCopyBuffer {
         let shape = (array.nrows(), array.ncols());
         let byte_size = shape.0 * shape.1 * std::mem::size_of::<f32>();
         let mut bytes = Vec::with_capacity(byte_size);
-        
+
         for row in array.rows() {
             for &val in row.iter() {
                 bytes.extend_from_slice(&val.to_le_bytes());
             }
         }
-        
+
         Self {
             data: Bytes::from(bytes),
             shape,
@@ -151,7 +151,7 @@ impl ZeroCopyBuffer {
         let (rows, cols) = self.shape;
         let mut array = Array2::zeros((rows, cols));
         let little_endian = IS_LITTLE_ENDIAN;
-        
+
         for i in 0..rows {
             for j in 0..cols {
                 let offset = (i * cols + j) * std::mem::size_of::<f32>();
@@ -166,7 +166,7 @@ impl ZeroCopyBuffer {
                 }
             }
         }
-        
+
         array
     }
 
@@ -221,7 +221,9 @@ impl InstantMemoryEntry {
     pub fn to_array(&self) -> Option<Array2<f32>> {
         if let Some(ref arr) = self.traditional {
             Some(arr.clone())
-        } else { self.zero_copy.as_ref().map(|zc| zc.to_array()) }
+        } else {
+            self.zero_copy.as_ref().map(|zc| zc.to_array())
+        }
     }
 
     /// 获取零拷贝缓冲区引用
@@ -297,7 +299,7 @@ impl InstantMemory {
     }
 
     /// 附加 KV Cache
-    /// 
+    ///
     /// 将瞬时记忆层与 PagedKVCache 关联，实现深度集成
     pub fn attach_kv_cache(&self, kv_cache: Arc<RwLock<PagedKVCache>>) {
         let mut cache = self.kv_cache.write();
@@ -305,7 +307,7 @@ impl InstantMemory {
     }
 
     /// 分离 KV Cache
-    /// 
+    ///
     /// 断开与 PagedKVCache 的关联
     pub fn detach_kv_cache(&self) {
         let mut cache = self.kv_cache.write();
@@ -338,17 +340,17 @@ impl InstantMemory {
     /// 写入条目（内部方法）
     fn write_entry(&self, entry: InstantMemoryEntry) {
         let memory_size = entry.memory_size();
-        
+
         let mut cache = self.cache.write();
         let mut accessed = self.accessed_indices.write();
-        
+
         // 容量管理：重要性感知淘汰策略
         if cache.len() >= self.capacity {
             // 找到重要性最低且最旧的条目
             let mut min_importance = f32::MAX;
             let mut oldest_timestamp = u64::MAX;
             let mut evict_idx = 0;
-            
+
             for (idx, e) in cache.iter().enumerate() {
                 let imp = e.importance();
                 let ts = e.timestamp();
@@ -359,20 +361,21 @@ impl InstantMemory {
                     evict_idx = idx;
                 }
             }
-            
+
             let old_entry = cache.remove(evict_idx);
-            self.stats_memory.fetch_sub(old_entry.memory_size(), Ordering::SeqCst);
-            
+            self.stats_memory
+                .fetch_sub(old_entry.memory_size(), Ordering::SeqCst);
+
             // 只移除被淘汰条目的访问记录
             accessed.remove(&evict_idx);
         }
-        
+
         cache.push(entry);
         self.stats_memory.fetch_add(memory_size, Ordering::SeqCst);
     }
 
     /// 批量写入数据
-    /// 
+    ///
     /// 使用预分配缓冲区优化批量写入性能
     /// 使用重要性感知淘汰策略（部分选择算法 O(n)）
     pub fn write_batch(&self, items: Vec<(Array2<f32>, u64)>) {
@@ -382,19 +385,19 @@ impl InstantMemory {
 
         let mut cache = self.cache.write();
         let mut accessed = self.accessed_indices.write();
-        
+
         // 预分配空间
         let total_new = items.len();
         let current_len = cache.len();
         let overflow = current_len + total_new;
-        
+
         if overflow > self.capacity {
             let to_remove = overflow - self.capacity;
             let to_remove = to_remove.min(current_len);
-            
+
             // 重要性感知淘汰：使用部分选择算法 O(n) 代替完整排序 O(n log n)
             let mut indices: Vec<usize> = (0..cache.len()).collect();
-            
+
             // 使用 select_nth_unstable 找到重要性最低的 to_remove 个条目
             if to_remove < indices.len() {
                 indices.select_nth_unstable_by(to_remove, |&a, &b| {
@@ -402,14 +405,16 @@ impl InstantMemory {
                     let imp_b = cache[b].importance();
                     let ts_a = cache[a].timestamp();
                     let ts_b = cache[b].timestamp();
-                    imp_a.partial_cmp(&imp_b).unwrap_or(std::cmp::Ordering::Equal)
+                    imp_a
+                        .partial_cmp(&imp_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                         .then_with(|| ts_a.cmp(&ts_b))
                 });
             }
-            
+
             // 收集要移除的索引
             let indices_to_remove: HashSet<usize> = indices.into_iter().take(to_remove).collect();
-            
+
             // 从后向前移除，避免索引变化
             let mut freed = 0usize;
             let mut removed_count = 0;
@@ -426,7 +431,7 @@ impl InstantMemory {
             }
             self.stats_memory.fetch_sub(freed, Ordering::SeqCst);
         }
-        
+
         // 批量写入
         let mut allocated = 0usize;
         for (data, timestamp) in items {
@@ -439,22 +444,22 @@ impl InstantMemory {
     }
 
     /// 写入零拷贝数据
-    /// 
+    ///
     /// 直接使用 Bytes 数据，避免拷贝
     /// 使用重要性感知淘汰策略
     pub fn write_zero_copy(&self, buffer: ZeroCopyBuffer) {
         let memory_size = buffer.memory_size();
         let entry = InstantMemoryEntry::from_zero_copy(buffer);
-        
+
         let mut cache = self.cache.write();
         let mut accessed = self.accessed_indices.write();
-        
+
         if cache.len() >= self.capacity {
             // 重要性感知淘汰
             let mut min_importance = f32::MAX;
             let mut oldest_timestamp = u64::MAX;
             let mut evict_idx = 0;
-            
+
             for (idx, e) in cache.iter().enumerate() {
                 let imp = e.importance();
                 let ts = e.timestamp();
@@ -464,13 +469,14 @@ impl InstantMemory {
                     evict_idx = idx;
                 }
             }
-            
+
             let old_entry = cache.remove(evict_idx);
-            self.stats_memory.fetch_sub(old_entry.memory_size(), Ordering::SeqCst);
+            self.stats_memory
+                .fetch_sub(old_entry.memory_size(), Ordering::SeqCst);
             // 只移除被淘汰条目的访问记录
             accessed.remove(&evict_idx);
         }
-        
+
         cache.push(entry);
         self.stats_memory.fetch_add(memory_size, Ordering::SeqCst);
         self.stats_zero_copies.fetch_add(1, Ordering::SeqCst);
@@ -482,7 +488,7 @@ impl InstantMemory {
         let cache = self.cache.read();
         let mut accessed = self.accessed_indices.write();
         let mut result = Vec::with_capacity(cache.len());
-        
+
         for (idx, entry) in cache.iter().enumerate() {
             if let Some(arr) = entry.to_array() {
                 // 仅首次访问时计数
@@ -494,7 +500,7 @@ impl InstantMemory {
                 self.stats_misses.fetch_add(1, Ordering::SeqCst);
             }
         }
-        
+
         result
     }
 
@@ -513,7 +519,7 @@ impl InstantMemory {
         let mut accessed = self.accessed_indices.write();
         let len = cache.len();
         let start = len.saturating_sub(n);
-        
+
         cache[start..]
             .iter()
             .enumerate()
@@ -534,7 +540,7 @@ impl InstantMemory {
     }
 
     /// 读取为零拷贝缓冲区
-    /// 
+    ///
     /// 返回零拷贝缓冲区引用，避免数据拷贝
     pub fn read_as_bytes(&self) -> Vec<ZeroCopyBuffer> {
         let cache = self.cache.read();
@@ -591,7 +597,7 @@ impl InstantMemory {
     pub fn stats(&self) -> MemoryStats {
         let cache = self.cache.read();
         let kv_cache = self.kv_cache.read();
-        
+
         MemoryStats {
             entry_count: cache.len(),
             capacity: self.capacity,
@@ -634,7 +640,7 @@ impl InstantMemory {
 
         let data_rows = data.nrows();
         let dim = data.ncols();
-        
+
         // 第一次遍历：计算总行数
         let mut total_rows = data_rows;
         for entry in cache.iter() {
@@ -678,7 +684,8 @@ impl InstantMemory {
                         for j in 0..dim {
                             let byte_offset = (i * dim + j) * 4;
                             if byte_offset + 4 <= zc_data.len() {
-                                if let Ok(bytes) = zc_data[byte_offset..byte_offset + 4].try_into() {
+                                if let Ok(bytes) = zc_data[byte_offset..byte_offset + 4].try_into()
+                                {
                                     result[[offset + i, j]] = if little_endian {
                                         f32::from_le_bytes(bytes)
                                     } else {
@@ -704,9 +711,9 @@ impl InstantMemory {
     }
 
     /// 从 KV Cache 同步数据
-    /// 
+    ///
     /// 将 KV Cache 中的数据同步到瞬时记忆层
-    /// 
+    ///
     /// # 线程安全
     /// 在持有 KV Cache 读锁的情况下完成写入，保证数据一致性
     pub fn sync_from_kv_cache(&self, request_id: u64, layer: usize) -> bool {
@@ -720,14 +727,14 @@ impl InstantMemory {
                 None
             }
         };
-        
+
         // 在锁外写入，避免锁嵌套
         if let Some(k) = kv_data {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            
+
             self.write(k, timestamp);
             return true;
         }
@@ -833,9 +840,8 @@ mod tests {
     #[test]
     fn test_write_batch() {
         let memory = InstantMemory::default();
-        let items: Vec<(Array2<f32>, u64)> = (0..5)
-            .map(|i| (Array2::zeros((2, 4)), i as u64))
-            .collect();
+        let items: Vec<(Array2<f32>, u64)> =
+            (0..5).map(|i| (Array2::zeros((2, 4)), i as u64)).collect();
 
         memory.write_batch(items);
 
@@ -862,14 +868,14 @@ mod tests {
     #[test]
     fn test_kv_cache_attach_detach() {
         let memory = InstantMemory::default();
-        
+
         assert!(!memory.is_kv_cache_attached());
-        
+
         let kv_cache = Arc::new(RwLock::new(PagedKVCache::with_capacity(100, 16)));
         memory.attach_kv_cache(kv_cache);
-        
+
         assert!(memory.is_kv_cache_attached());
-        
+
         memory.detach_kv_cache();
         assert!(!memory.is_kv_cache_attached());
     }
@@ -893,10 +899,10 @@ mod tests {
         let data = Array2::zeros((1, 4));
 
         memory.write(data.clone(), 1);
-        
+
         // 读取会记录命中
         let _ = memory.read();
-        
+
         let rate = memory.hit_rate();
         assert!(rate > 0.0);
     }
@@ -917,7 +923,7 @@ mod tests {
     #[test]
     fn test_concurrent_read_write() {
         use std::thread;
-        
+
         let memory = Arc::new(InstantMemory::default());
         let mut handles = vec![];
 
@@ -958,7 +964,7 @@ mod tests {
     #[test]
     fn test_concurrent_batch_write() {
         use std::thread;
-        
+
         let memory = Arc::new(InstantMemory::default());
         let mut handles = vec![];
 
@@ -967,7 +973,12 @@ mod tests {
             let mem = Arc::clone(&memory);
             let handle = thread::spawn(move || {
                 let items: Vec<(Array2<f32>, u64)> = (0..5)
-                    .map(|j| (Array2::from_elem((2, 4), (i * 10 + j) as f32), (i * 10 + j) as u64))
+                    .map(|j| {
+                        (
+                            Array2::from_elem((2, 4), (i * 10 + j) as f32),
+                            (i * 10 + j) as u64,
+                        )
+                    })
                     .collect();
                 mem.write_batch(items);
             });
@@ -986,7 +997,7 @@ mod tests {
     #[test]
     fn test_concurrent_zero_copy() {
         use std::thread;
-        
+
         let memory = Arc::new(InstantMemory::default());
         let mut handles = vec![];
 
@@ -1025,7 +1036,7 @@ mod tests {
     #[test]
     fn test_merge_performance() {
         let memory = InstantMemory::default();
-        
+
         // 写入多个条目
         for i in 0..10 {
             let data = Array2::from_elem((2, 4), i as f32);
@@ -1164,7 +1175,12 @@ mod tests {
 
         // 直接批量写入大量数据（超过容量）
         let items: Vec<(Array2<f32>, u64)> = (0..10)
-            .map(|i| (Array2::from_elem((2, 4), (i + 100) as f32), (i + 100) as u64))
+            .map(|i| {
+                (
+                    Array2::from_elem((2, 4), (i + 100) as f32),
+                    (i + 100) as u64,
+                )
+            })
             .collect();
 
         memory.write_batch(items);
@@ -1225,8 +1241,7 @@ mod tests {
     fn test_instant_memory_entry_with_importance() {
         // 测试带重要性权重的条目创建和访问
         let data = Array2::from_elem((2, 8), 42.0);
-        let entry = InstantMemoryEntry::from_array(data.clone(), 123)
-            .with_importance(0.85);
+        let entry = InstantMemoryEntry::from_array(data.clone(), 123).with_importance(0.85);
 
         assert!((entry.importance() - 0.85).abs() < 1e-6);
         assert_eq!(entry.timestamp(), 123);

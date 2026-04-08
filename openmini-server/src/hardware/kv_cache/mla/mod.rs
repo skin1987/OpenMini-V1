@@ -17,12 +17,12 @@
 //!   V = c_KV @ W_UV  // 解压
 //! ```
 
-pub mod config;
-pub mod projection;
-pub mod latent_cache;
 pub mod attention;
+pub mod config;
+pub mod latent_cache;
+pub mod projection;
 
+pub use attention::{mla_attention_forward, MLAAttention, RoPECache};
 pub use config::MLAConfig;
-pub use projection::MLAProjection;
 pub use latent_cache::MLALatentCache;
-pub use attention::{MLAAttention, RoPECache, mla_attention_forward};
+pub use projection::MLAProjection;

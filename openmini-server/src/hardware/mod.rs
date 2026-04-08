@@ -26,74 +26,54 @@
 //! - 海光 (x86-64)
 //! - 兆芯 (x86-64)
 
+pub mod cpu;
 pub mod detector;
-pub mod profile;
-pub mod simd;
-pub mod scheduler;
+pub mod ess;
 pub mod gpu;
 pub mod hyperthreading;
-pub mod resource_manager;
-pub mod cpu;
-pub mod memory;
 pub mod kv_cache;
-pub mod ess;
 pub mod load_monitor;
+pub mod memory;
+pub mod profile;
+pub mod resource_manager;
+pub mod scheduler;
+pub mod simd;
 
 // 重导出公共接口
 #[allow(unused_imports)]
 pub use detector::{
-    HardwareProfile,
-    CpuArch,
-    CpuInfo,
-    GpuInfo,
-    GpuType,
-    MemoryInfo,
-    SimdCapabilities,
-    HyperthreadTopology,
-    CacheTopology,
-    NumaTopology,
-    CoreType,
-    PhysicalCore,
-    CacheInfo,
-    NumaNode,
+    CacheInfo, CacheTopology, CoreType, CpuArch, CpuInfo, GpuInfo, GpuType, HardwareProfile,
+    HyperthreadTopology, MemoryInfo, NumaNode, NumaTopology, PhysicalCore, SimdCapabilities,
 };
 
 #[allow(unused_imports)]
-pub use profile::{HardwareLevel, DeviceType, InferenceStrategy, HardwareClassifier};
+pub use profile::{DeviceType, HardwareClassifier, HardwareLevel, InferenceStrategy};
 
 #[allow(unused_imports)]
-pub use simd::{SimdLevel, SimdOps, ScalarOps, create_simd_ops};
+pub use simd::{create_simd_ops, ScalarOps, SimdLevel, SimdOps};
 
 #[allow(unused_imports)]
 pub use scheduler::{
-    AdaptiveScheduler, ScheduleStrategy, AttentionStrategy, MemoryStrategy, ParallelStrategy, InferenceConfig,
-    UnifiedScheduler, ComputeDevice as SchedulerComputeDevice, TaskThresholds,
+    AdaptiveScheduler, AttentionStrategy, ComputeDevice as SchedulerComputeDevice, InferenceConfig,
+    MemoryStrategy, ParallelStrategy, ScheduleStrategy, TaskThresholds, UnifiedScheduler,
 };
 
 #[allow(unused_imports)]
 pub use hyperthreading::{
-    CpuAffinity,
-    CpuAffinityError,
-    TaskType,
-    CoreSelectionStrategy,
+    CoreSelectionStrategy, CpuAffinity, CpuAffinityError, HyperthreadEfficiency, TaskType,
     ThreadPoolConfig,
-    HyperthreadEfficiency,
 };
 
 #[allow(unused_imports)]
 pub use resource_manager::{
-    HardwareResourceManager,
-    ResourceRequest,
-    ResourceAllocation,
-    MemoryType,
-    get_resource_manager,
+    get_resource_manager, HardwareResourceManager, MemoryType, ResourceAllocation, ResourceRequest,
 };
 
 #[allow(unused_imports)]
-pub use load_monitor::{LoadMonitor, LoadThresholds, SystemLoad, LoadAction, get_system_load};
+pub use load_monitor::{get_system_load, LoadAction, LoadMonitor, LoadThresholds, SystemLoad};
 
 #[allow(unused_imports)]
-pub use cpu::{CpuBackend, CpuBackendType, CpuOps, CpuInfoDetail, SimdInfo};
+pub use cpu::{CpuBackend, CpuBackendType, CpuInfoDetail, CpuOps, SimdInfo};
 
 /// 快速检测硬件配置
 pub fn detect_hardware() -> HardwareProfile {
@@ -126,20 +106,20 @@ mod tests;
 #[cfg(test)]
 mod tests_internal {
     use super::*;
-    
+
     #[test]
     fn test_detect_hardware() {
         let profile = detect_hardware();
         assert!(profile.cpu.physical_cores > 0);
         assert!(profile.memory.total_gb > 0);
     }
-    
+
     #[test]
     fn test_get_hardware_level() {
         let level = get_hardware_level();
         assert!(level >= HardwareLevel::Entry);
     }
-    
+
     #[test]
     fn test_get_recommended_strategy() {
         let strategy = get_recommended_strategy();
@@ -199,7 +179,10 @@ mod tests_internal {
         let level = get_hardware_level();
         // 确保返回的是已知变体之一（通过 Debug 输出验证）
         let level_str = format!("{:?}", level);
-        assert!(!level_str.is_empty(), "HardwareLevel should have a valid debug representation");
+        assert!(
+            !level_str.is_empty(),
+            "HardwareLevel should have a valid debug representation"
+        );
     }
 
     /// 测试 get_recommended_strategy 返回完整字段
@@ -226,7 +209,7 @@ mod tests_internal {
         let _strategy_type = MemoryStrategy::StandardArena;
 
         // 验证 cpu 模块导出的类型可用
-        let _backend_type = CpuBackendType::Rust;  // 纯 Rust 后端
+        let _backend_type = CpuBackendType::Rust; // 纯 Rust 后端
     }
 
     /// 测试 CpuArch / GpuType 等枚举类型的可用性
@@ -262,14 +245,14 @@ mod tests_internal {
     #[test]
     fn test_hardware_profile_gpu_fields() {
         let profile = detect_hardware();
-        
+
         let gpu = &profile.gpu;
-        
+
         // 验证 GpuInfo 的关键字段可访问且合理
-        let _gpu_type = gpu.gpu_type;  // GpuType 枚举
-        let _supports_metal = gpu.supports_metal;  // bool
-        let _supports_cuda = gpu.supports_cuda;     // bool
-        
+        let _gpu_type = gpu.gpu_type; // GpuType 枚举
+        let _supports_metal = gpu.supports_metal; // bool
+        let _supports_cuda = gpu.supports_cuda; // bool
+
         // 验证 Debug 输出
         let gpu_debug = format!("{:?}", gpu);
         assert!(!gpu_debug.is_empty());
@@ -279,14 +262,17 @@ mod tests_internal {
     #[test]
     fn test_memory_info_consistency() {
         let profile = detect_hardware();
-        
+
         let memory = &profile.memory;
-        
+
         // 基本合理性检查
         assert!(memory.total_gb > 0, "Total memory should be > 0");
-        assert!(memory.available_gb <= memory.total_gb, 
-                "Available ({}) should be <= Total ({})", 
-                memory.available_gb, memory.total_gb);
+        assert!(
+            memory.available_gb <= memory.total_gb,
+            "Available ({}) should be <= Total ({})",
+            memory.available_gb,
+            memory.total_gb
+        );
         assert!(memory.available_gb > 0, "Available memory should be > 0");
     }
 
@@ -294,14 +280,14 @@ mod tests_internal {
     #[test]
     fn test_simd_capabilities_fields() {
         let profile = detect_hardware();
-        
+
         let simd = &profile.cpu.simd;
-        
+
         // 验证所有SIMD字段可访问
-        let _neon = simd.neon;      // ARM NEON
-        let _avx2 = simd.avx2;      // x86 AVX2
-        let _avx512 = simd.avx512;  // x86 AVX-512
-        
+        let _neon = simd.neon; // ARM NEON
+        let _avx2 = simd.avx2; // x86 AVX2
+        let _avx512 = simd.avx512; // x86 AVX-512
+
         // 至少应该支持一种SIMD（或者都不支持在某些虚拟化环境）
         // 这里只验证字段存在性，不强制要求支持某种SIMD
     }
@@ -311,11 +297,14 @@ mod tests_internal {
     fn test_cpu_arch_enum_completeness() {
         let profile = detect_hardware();
         let arch = profile.cpu.arch;
-        
+
         // 验证当前架构的Debug输出
         let arch_str = format!("{:?}", arch);
-        assert!(!arch_str.is_empty(), "CpuArch should have valid debug representation");
-        
+        assert!(
+            !arch_str.is_empty(),
+            "CpuArch should have valid debug representation"
+        );
+
         // 验证架构是已知类型之一（通过匹配确认）
         match arch {
             CpuArch::X86_64 => { /* x86-64 架构 */ }
@@ -330,11 +319,11 @@ mod tests_internal {
     fn test_gpu_type_enum() {
         let profile = detect_hardware();
         let gpu_type = profile.gpu.gpu_type;
-        
+
         // 验证 GpuType 是有效枚举值
         let gpu_type_str = format!("{:?}", gpu_type);
         assert!(!gpu_type_str.is_empty());
-        
+
         // 验证不同 GpuType 变体可以比较（如果需要）
         // 注意：GpuType 可能没有实现 PartialEq，这里只验证 Debug
     }
@@ -343,17 +332,17 @@ mod tests_internal {
     #[test]
     fn test_device_type_complete_variants() {
         // 创建所有 DeviceType 变体并验证
-        let types = vec![
-            DeviceType::Mobile,
-            DeviceType::Desktop,
-            DeviceType::Server,
-        ];
-        
+        let types = vec![DeviceType::Mobile, DeviceType::Desktop, DeviceType::Server];
+
         for device_type in &types {
             let debug_str = format!("{:?}", device_type);
-            assert!(!debug_str.is_empty(), "{:?} should have debug output", device_type);
+            assert!(
+                !debug_str.is_empty(),
+                "{:?} should have debug output",
+                device_type
+            );
         }
-        
+
         // 验证不等性
         assert_ne!(DeviceType::Mobile, DeviceType::Desktop);
         assert_ne!(DeviceType::Desktop, DeviceType::Server);
@@ -364,18 +353,21 @@ mod tests_internal {
     #[test]
     fn test_classifier_creation_consistency() {
         let profile = detect_hardware();
-        
+
         // 从同一profile创建多个classifier
         let classifier1 = HardwareClassifier::new(profile.clone());
         let classifier2 = HardwareClassifier::new(profile.clone());
         let classifier3 = HardwareClassifier::new(profile.clone());
-        
+
         // 所有classifier应该返回相同的结果
         assert_eq!(classifier1.level(), classifier2.level());
         assert_eq!(classifier2.level(), classifier3.level());
         assert_eq!(classifier1.device_type(), classifier2.device_type());
-        assert_eq!(classifier1.meets_requirements(), classifier2.meets_requirements());
-        
+        assert_eq!(
+            classifier1.meets_requirements(),
+            classifier2.meets_requirements()
+        );
+
         // recommended_strategy 也应该一致
         let strat1 = classifier1.recommended_strategy();
         let strat2 = classifier2.recommended_strategy();
@@ -391,14 +383,20 @@ mod tests_internal {
         let profile_entry = create_minimal_profile();
         let classifier_entry = HardwareClassifier::new(profile_entry);
         let strategy_entry = classifier_entry.recommended_strategy();
-        
+
         // 验证最小配置的字段范围
         assert!(strategy_entry.batch_size >= 1, "Batch size should be >= 1");
-        assert!(strategy_entry.max_seq_len >= 2048, "Max seq len should be >= 2048");
-        assert!(strategy_entry.max_seq_len <= 32768, "Max seq len should be <= 32768");
-        
+        assert!(
+            strategy_entry.max_seq_len >= 2048,
+            "Max seq len should be >= 2048"
+        );
+        assert!(
+            strategy_entry.max_seq_len <= 32768,
+            "Max seq len should be <= 32768"
+        );
+
         // 验证布尔字段都是有效的bool值
-        let _ = strategy_entry.use_simd || !strategy_entry.use_simd;  // 总是true
+        let _ = strategy_entry.use_simd || !strategy_entry.use_simd; // 总是true
         let _ = strategy_entry.use_gpu || !strategy_entry.use_gpu;
         let _ = strategy_entry.use_dsa || !strategy_entry.use_dsa;
         let _ = strategy_entry.use_flash_attention || !strategy_entry.use_flash_attention;
@@ -407,10 +405,10 @@ mod tests_internal {
     /// 辅助函数：创建最小配置的HardwareProfile用于边界测试
     fn create_minimal_profile() -> HardwareProfile {
         use crate::hardware::detector::{
-            HardwareProfile, CpuInfo, GpuInfo, MemoryInfo, CpuArch,
-            SimdCapabilities, HyperthreadTopology, CacheTopology, NumaTopology
+            CacheTopology, CpuArch, CpuInfo, GpuInfo, HardwareProfile, HyperthreadTopology,
+            MemoryInfo, NumaTopology, SimdCapabilities,
         };
-        
+
         HardwareProfile {
             cpu: CpuInfo {
                 arch: CpuArch::X86_64,
@@ -437,27 +435,27 @@ mod tests_internal {
     fn test_full_api_chain() {
         // 完整的检测 -> 分级 -> 策略推荐链路
         let profile = detect_hardware();
-        
+
         // Step 1: 检测
         assert!(profile.cpu.physical_cores >= 1);
         assert!(profile.memory.total_gb >= 1);
-        
+
         // Step 2: 分级
         let classifier = HardwareClassifier::new(profile.clone());
         let level = classifier.level();
         assert!(level >= HardwareLevel::Entry);
         assert!(level <= HardwareLevel::Server);
-        
+
         // Step 3: 策略推荐
         let strategy = classifier.recommended_strategy();
-        assert!(strategy.use_simd);  // 所有级别都应该使用SIMD
+        assert!(strategy.use_simd); // 所有级别都应该使用SIMD
         assert!(strategy.batch_size >= 1);
         assert!(strategy.max_seq_len >= 2048);
-        
+
         // 验证策略与级别的对应关系（基本一致性检查）
         match level {
             HardwareLevel::Entry => {
-                assert!(!strategy.use_gpu || strategy.use_gpu);  // Entry可能不支持GPU
+                assert!(!strategy.use_gpu || strategy.use_gpu); // Entry可能不支持GPU
             }
             HardwareLevel::Standard | HardwareLevel::Professional | HardwareLevel::Server => {
                 // 更高级别应该有更强大的配置

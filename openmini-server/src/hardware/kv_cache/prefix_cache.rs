@@ -2,9 +2,9 @@
 //!
 //! 支持共享前缀的KV Cache复用，减少重复计算
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 
 use super::block::BlockId;
 
@@ -129,7 +129,7 @@ impl PrefixCache {
     /// 查找前缀
     pub fn lookup(&mut self, hash: PrefixHash) -> Option<&PrefixEntry> {
         self.current_time += 1;
-        
+
         if let Some(entry) = self.entries.get_mut(&hash) {
             entry.last_access = self.current_time;
             entry.ref_count += 1;
@@ -142,26 +142,34 @@ impl PrefixCache {
     }
 
     /// 插入前缀
-    pub fn insert(&mut self, hash: PrefixHash, block_ids: Vec<BlockId>, length: usize) -> Result<(), String> {
+    pub fn insert(
+        &mut self,
+        hash: PrefixHash,
+        block_ids: Vec<BlockId>,
+        length: usize,
+    ) -> Result<(), String> {
         if length < self.config.min_prefix_length {
-            return Err(format!("Prefix too short: {} < {}", length, self.config.min_prefix_length));
+            return Err(format!(
+                "Prefix too short: {} < {}",
+                length, self.config.min_prefix_length
+            ));
         }
-        
+
         if self.entries.len() >= self.config.max_entries {
             self.evict_lru();
         }
-        
+
         let new_tokens = self.total_tokens + length;
         if new_tokens > self.config.max_tokens {
             self.evict_for_tokens(length);
         }
-        
+
         self.current_time += 1;
         let mut entry = PrefixEntry::new(hash, block_ids, length);
         entry.last_access = self.current_time;
         self.total_tokens += length;
         self.entries.insert(hash, entry);
-        
+
         Ok(())
     }
 
@@ -207,17 +215,17 @@ impl PrefixCache {
         if !self.config.enable_lru {
             return;
         }
-        
+
         let mut oldest_hash: Option<PrefixHash> = None;
         let mut oldest_time = u64::MAX;
-        
+
         for (hash, entry) in &self.entries {
             if entry.ref_count == 0 && entry.last_access < oldest_time {
                 oldest_time = entry.last_access;
                 oldest_hash = Some(*hash);
             }
         }
-        
+
         if let Some(hash) = oldest_hash {
             self.remove(&hash);
         }
@@ -227,7 +235,7 @@ impl PrefixCache {
     fn evict_for_tokens(&mut self, needed: usize) {
         let mut freed = 0;
         let mut to_remove = Vec::new();
-        
+
         for (hash, entry) in &self.entries {
             if entry.ref_count == 0 {
                 to_remove.push(*hash);
@@ -237,7 +245,7 @@ impl PrefixCache {
                 }
             }
         }
-        
+
         for hash in to_remove {
             self.remove(&hash);
         }
@@ -312,11 +320,11 @@ mod tests {
         let tokens1 = vec![1, 2, 3, 4, 5];
         let tokens2 = vec![1, 2, 3, 4, 5];
         let tokens3 = vec![1, 2, 3, 4, 6];
-        
+
         let hash1 = PrefixHash::from_tokens(&tokens1);
         let hash2 = PrefixHash::from_tokens(&tokens2);
         let hash3 = PrefixHash::from_tokens(&tokens3);
-        
+
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
     }
@@ -324,10 +332,11 @@ mod tests {
     #[test]
     fn test_prefix_cache_insert() {
         let mut cache = PrefixCache::default_config();
-        
-        let hash = PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+        let hash =
+            PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
         let result = cache.insert(hash, vec![0, 1], 16);
-        
+
         assert!(result.is_ok());
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.total_tokens(), 16);
@@ -336,14 +345,15 @@ mod tests {
     #[test]
     fn test_prefix_cache_lookup() {
         let mut cache = PrefixCache::default_config();
-        
-        let hash = PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+        let hash =
+            PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
         cache.insert(hash, vec![0, 1], 16).unwrap();
-        
+
         let entry = cache.lookup(hash);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().block_ids, vec![0, 1]);
-        
+
         let stats = cache.stats();
         assert_eq!(stats.hits, 1);
         assert_eq!(stats.misses, 0);
@@ -352,12 +362,13 @@ mod tests {
     #[test]
     fn test_prefix_cache_miss() {
         let mut cache = PrefixCache::default_config();
-        
-        let hash = PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+        let hash =
+            PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
         let result = cache.lookup(hash);
-        
+
         assert!(result.is_none());
-        
+
         let stats = cache.stats();
         assert_eq!(stats.hits, 0);
         assert_eq!(stats.misses, 1);
@@ -366,10 +377,11 @@ mod tests {
     #[test]
     fn test_prefix_cache_remove() {
         let mut cache = PrefixCache::default_config();
-        
-        let hash = PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+        let hash =
+            PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
         cache.insert(hash, vec![0, 1], 16).unwrap();
-        
+
         let entry = cache.remove(&hash);
         assert!(entry.is_some());
         assert_eq!(cache.len(), 0);
@@ -379,13 +391,14 @@ mod tests {
     #[test]
     fn test_prefix_cache_ref_count() {
         let mut cache = PrefixCache::default_config();
-        
-        let hash = PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+        let hash =
+            PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
         cache.insert(hash, vec![0, 1], 16).unwrap();
-        
+
         cache.inc_ref(hash);
         cache.inc_ref(hash);
-        
+
         let entry = cache.lookup(hash).unwrap();
         assert!(entry.ref_count >= 3);
     }
@@ -393,32 +406,34 @@ mod tests {
     #[test]
     fn test_prefix_cache_too_short() {
         let mut cache = PrefixCache::default_config();
-        
+
         let hash = PrefixHash::from_tokens(&[1, 2, 3]);
         let result = cache.insert(hash, vec![0], 3);
-        
+
         assert!(result.is_err());
     }
 
     #[test]
     fn test_hit_rate() {
         let mut cache = PrefixCache::default_config();
-        
-        let hash1 = PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-        let hash2 = PrefixHash::from_tokens(&[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
-        
+
+        let hash1 =
+            PrefixHash::from_tokens(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        let hash2 =
+            PrefixHash::from_tokens(&[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+
         cache.insert(hash1, vec![0], 16).unwrap();
-        
+
         cache.lookup(hash1);
         cache.lookup(hash2);
         cache.lookup(hash1);
-        
+
         let stats = cache.stats();
         assert!((stats.hit_rate - 0.666).abs() < 0.01);
     }
 
     // ==================== 新增测试：覆盖完整分支 ====================
-    
+
     /// 测试 PrefixHash::from_bytes 方法
     /// 覆盖从字节数据计算哈希的路径
     #[test]
@@ -426,11 +441,11 @@ mod tests {
         let data1 = b"hello world";
         let data2 = b"hello world";
         let data3 = b"hello rust";
-        
+
         let hash1 = PrefixHash::from_bytes(data1);
         let hash2 = PrefixHash::from_bytes(data2);
         let hash3 = PrefixHash::from_bytes(data3);
-        
+
         // 相同数据应产生相同哈希
         assert_eq!(hash1, hash2);
         // 不同数据应产生不同哈希
@@ -468,12 +483,12 @@ mod tests {
     fn test_insert_tokens() {
         let mut cache = PrefixCache::default_config();
         let tokens: Vec<u32> = (1..=20).collect(); // 20个token，>= min_prefix_length(16)
-        
+
         let result = cache.insert_tokens(&tokens, vec![0, 1, 2]);
         assert!(result.is_ok());
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.total_tokens(), 20);
-        
+
         // 验证可以通过哈希查找到
         let expected_hash = PrefixHash::from_tokens(&tokens);
         assert!(cache.contains(&expected_hash));
@@ -484,7 +499,7 @@ mod tests {
     fn test_insert_tokens_too_short() {
         let mut cache = PrefixCache::default_config();
         let short_tokens: Vec<u32> = (1..=10).collect(); // 10个token < min_prefix_length(16)
-        
+
         let result = cache.insert_tokens(&short_tokens, vec![0]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Prefix too short"));
@@ -498,22 +513,24 @@ mod tests {
         let mut cache = PrefixCache::default_config();
         let hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         cache.insert(hash, vec![0], 20).unwrap();
-        
+
         // 增加引用计数
         cache.inc_ref(hash);
         cache.inc_ref(hash);
         let entry = cache.lookup(hash).unwrap();
         assert!(entry.ref_count >= 3); // 初始1 + 2次inc_ref
-        
+
         // 减少引用计数多次（测试 saturating_sub 不会下溢）
         cache.dec_ref(hash);
         cache.dec_ref(hash);
         cache.dec_ref(hash);
         cache.dec_ref(hash);
         cache.dec_ref(hash); // 远超初始值
-        
+
         // 对不存在的哈希操作不应崩溃
-        let non_existent = PrefixHash::from_tokens(&[99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114]);
+        let non_existent = PrefixHash::from_tokens(&[
+            99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114,
+        ]);
         cache.inc_ref(non_existent);
         cache.dec_ref(non_existent);
     }
@@ -525,9 +542,9 @@ mod tests {
         let mut cache = PrefixCache::default_config();
         let existing_hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let non_existing_hash = PrefixHash::from_tokens(&(100..=120).collect::<Vec<u32>>());
-        
+
         cache.insert(existing_hash.clone(), vec![0], 20).unwrap();
-        
+
         assert!(cache.contains(&existing_hash));
         assert!(!cache.contains(&non_existing_hash));
     }
@@ -537,7 +554,7 @@ mod tests {
     fn test_remove_nonexistent() {
         let mut cache = PrefixCache::default_config();
         let non_existing = PrefixHash::from_tokens(&(100..=120).collect::<Vec<u32>>());
-        
+
         let result = cache.remove(&non_existing);
         assert!(result.is_none());
         assert_eq!(cache.len(), 0);
@@ -548,7 +565,7 @@ mod tests {
     #[test]
     fn test_clear_resets_all_state() {
         let mut cache = PrefixCache::default_config();
-        
+
         // 插入一些数据并产生命中/未命中
         let hash1 = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let hash2 = PrefixHash::from_tokens(&(21..=40).collect::<Vec<u32>>());
@@ -556,13 +573,13 @@ mod tests {
         cache.insert(hash2, vec![1], 20).unwrap();
         cache.lookup(hash1); // hit
         cache.lookup(PrefixHash::from_tokens(&(200..=220).collect::<Vec<u32>>())); // miss
-        
+
         assert_eq!(cache.len(), 2);
         assert!(cache.total_tokens() > 0);
-        
+
         // 清空
         cache.clear();
-        
+
         assert_eq!(cache.len(), 0);
         assert_eq!(cache.total_tokens(), 0);
         let stats = cache.stats();
@@ -576,7 +593,7 @@ mod tests {
     fn test_is_empty() {
         let mut cache = PrefixCache::default_config();
         assert!(cache.is_empty());
-        
+
         let hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         cache.insert(hash, vec![0], 20).unwrap();
         assert!(!cache.is_empty());
@@ -586,15 +603,15 @@ mod tests {
     #[test]
     fn test_entries_iterator() {
         let mut cache = PrefixCache::default_config();
-        
+
         let hash1 = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let hash2 = PrefixHash::from_tokens(&(21..=40).collect::<Vec<u32>>());
         cache.insert(hash1.clone(), vec![0], 20).unwrap();
         cache.insert(hash2.clone(), vec![1], 20).unwrap();
-        
+
         let count = cache.entries().count();
         assert_eq!(count, 2);
-        
+
         // 验证迭代器内容
         for (_hash, entry) in cache.entries() {
             assert_eq!(entry.length, 20);
@@ -613,7 +630,7 @@ mod tests {
             min_prefix_length: 16,
         };
         let mut cache = PrefixCache::new(config);
-        
+
         // 插入3个条目（达到上限）
         let hashes: Vec<PrefixHash> = (0..3usize)
             .map(|i| {
@@ -625,15 +642,15 @@ mod tests {
             })
             .collect();
         assert_eq!(cache.len(), 3);
-        
+
         // 减少第一个条目的引用计数使其可被淘汰
         cache.dec_ref(hashes[0]);
-        
+
         // 插入第4个条目，触发LRU淘汰
         let tokens4: Vec<u32> = (61..=80).map(|x| x as u32).collect::<Vec<u32>>();
         let hash4 = PrefixHash::from_tokens(&tokens4);
         cache.insert(hash4, vec![3], 20).unwrap();
-        
+
         // 应该仍然只有3个条目（最老的且ref_count=0的被淘汰）
         assert_eq!(cache.len(), 3);
     }
@@ -649,19 +666,19 @@ mod tests {
             min_prefix_length: 16,
         };
         let mut cache = PrefixCache::new(config);
-        
+
         // 插入第一个条目（20 tokens）
         let tokens1: Vec<u32> = (1..=20).collect();
         let hash1 = PrefixHash::from_tokens(&tokens1);
         cache.insert(hash1.clone(), vec![0], 20).unwrap();
         assert_eq!(cache.total_tokens(), 20);
-        
+
         // 插入第二个条目（20 tokens），总共40 < 50，应该成功
         let tokens2: Vec<u32> = (21..=40).collect();
         let hash2 = PrefixHash::from_tokens(&tokens2);
         cache.insert(hash2, vec![1], 20).unwrap();
         assert_eq!(cache.total_tokens(), 40);
-        
+
         // 插入第三个条目（20 tokens），总共60 > 50，应该触发淘汰
         let tokens3: Vec<u32> = (41..=60).collect();
         let hash3 = PrefixHash::from_tokens(&tokens3);
@@ -681,17 +698,17 @@ mod tests {
             min_prefix_length: 16,
         };
         let mut cache = PrefixCache::new(config);
-        
+
         // 插入2个条目（达到上限）
         let tokens1: Vec<u32> = (1..=20).collect();
         let hash1 = PrefixHash::from_tokens(&tokens1);
         cache.insert(hash1, vec![0], 20).unwrap();
-        
+
         let tokens2: Vec<u32> = (21..=40).collect();
         let hash2 = PrefixHash::from_tokens(&tokens2);
         cache.insert(hash2, vec![1], 20).unwrap();
         assert_eq!(cache.len(), 2);
-        
+
         // 尝试插入第3个条目（因为LRU禁用且没有ref_count=0的条目可淘汰，可能会失败或替换）
         let tokens3: Vec<u32> = (41..=60).collect();
         let hash3 = PrefixHash::from_tokens(&tokens3);
@@ -711,10 +728,10 @@ mod tests {
             min_prefix_length: 8, // 更小的最小前缀长度
         };
         let cache = PrefixCache::new(custom_config);
-        
+
         assert_eq!(cache.len(), 0);
         assert_eq!(cache.total_tokens(), 0);
-        
+
         // 可以插入更短的prefix
         let mut cache_mut = cache;
         let short_tokens: Vec<u32> = (1..=10).collect(); // 10 >= 8
@@ -727,7 +744,7 @@ mod tests {
     #[test]
     fn test_stats_fields_completeness() {
         let mut cache = PrefixCache::default_config();
-        
+
         // 初始状态
         let initial_stats = cache.stats();
         assert_eq!(initial_stats.entries, 0);
@@ -735,13 +752,13 @@ mod tests {
         assert_eq!(initial_stats.hits, 0);
         assert_eq!(initial_stats.misses, 0);
         assert_eq!(initial_stats.hit_rate, 0.0);
-        
+
         // 插入并查询后
         let hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         cache.insert(hash.clone(), vec![0], 20).unwrap();
         cache.lookup(hash); // 1次hit
         cache.lookup(PrefixHash::from_tokens(&(100..=120).collect::<Vec<u32>>())); // 1次miss
-        
+
         let final_stats = cache.stats();
         assert_eq!(final_stats.entries, 1);
         assert_eq!(final_stats.total_tokens, 20);
@@ -756,9 +773,9 @@ mod tests {
         let hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let block_ids: Vec<BlockId> = vec![0, 1, 2];
         let length = 20;
-        
+
         let entry = PrefixEntry::new(hash.clone(), block_ids.clone(), length);
-        
+
         assert_eq!(entry.hash, hash);
         assert_eq!(entry.block_ids, block_ids);
         assert_eq!(entry.ref_count, 1); // 初始引用计数为1
@@ -771,23 +788,23 @@ mod tests {
     #[test]
     fn test_multiple_requests_shared_prefix() {
         let mut cache = PrefixCache::default_config();
-        
+
         // 公共前缀（模拟system prompt）
         let common_prefix: Vec<u32> = (1..=32).collect(); // 32 token公共前缀
         let common_hash = PrefixHash::from_tokens(&common_prefix);
         cache.insert(common_hash.clone(), vec![0, 1], 32).unwrap();
-        
+
         // 模拟3个请求都命中公共前缀
         for _ in 0..3 {
             let entry = cache.lookup(common_hash);
             assert!(entry.is_some());
         }
-        
+
         let stats = cache.stats();
         assert_eq!(stats.hits, 3);
         assert_eq!(stats.misses, 0);
         assert!((stats.hit_rate - 1.0).abs() < 0.01); // 100%命中率
-        
+
         // 验证引用计数增加
         let entry = cache.lookup(common_hash).unwrap();
         assert!(entry.ref_count >= 4); // 初始1 + 4次lookup
@@ -798,18 +815,18 @@ mod tests {
     #[test]
     fn test_lookup_updates_last_access() {
         let mut cache = PrefixCache::default_config();
-        
+
         let hash1 = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let hash2 = PrefixHash::from_tokens(&(21..=40).collect::<Vec<u32>>());
         cache.insert(hash1.clone(), vec![0], 20).unwrap();
         cache.insert(hash2.clone(), vec![1], 20).unwrap();
-        
+
         // 记录第一次lookup的时间戳
         let time_after_first_lookup = cache.lookup(hash1).unwrap().last_access;
-        
+
         // 再次lookup同一个条目
         let time_after_second_lookup = cache.lookup(hash1).unwrap().last_access;
-        
+
         // 时间戳应该递增
         assert!(time_after_second_lookup > time_after_first_lookup);
     }
@@ -830,12 +847,12 @@ mod tests {
         let mut cache = PrefixCache::default_config();
         let tokens: Vec<u32> = (1..=20).collect();
         let hash = PrefixHash::from_tokens(&tokens);
-        
+
         // 第一次插入
         cache.insert(hash, vec![0, 1], 20).unwrap();
         assert_eq!(cache.len(), 1);
         assert_eq!(cache.total_tokens(), 20);
-        
+
         // 第二次插入相同哈希（不同block_ids）
         cache.insert(hash, vec![2, 3], 20).unwrap();
         // HashMap的insert会覆盖旧值，所以len仍为1，但total_tokens可能变化

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use axum::Json;
 use tokio::signal;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
 use super::handlers::AppState;
 use super::middleware;
@@ -38,7 +38,7 @@ impl Default for HttpConfig {
             port: 8080,
             request_timeout_ms: 60000,
             max_body_size: 10 * 1024 * 1024, // 10MB
-            cors_allowed_origins: None,       // 开发模式：允许所有
+            cors_allowed_origins: None,      // 开发模式：允许所有
             enable_metrics: true,
         }
     }
@@ -237,17 +237,20 @@ fn build_routes(state: AppState, enable_metrics: bool) -> axum::Router {
         .with_state(state);
 
     // 根路径返回欢迎信息
-    let root_route = axum::Router::new().route("/", axum::routing::get(|| async {
-        (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!({
-                "name": "OpenMini Server",
-                "version": env!("CARGO_PKG_VERSION"),
-                "docs": "/api/v1",
-                "status": "running"
-            }))
-        )
-    }));
+    let root_route = axum::Router::new().route(
+        "/",
+        axum::routing::get(|| async {
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!({
+                    "name": "OpenMini Server",
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "docs": "/api/v1",
+                    "status": "running"
+                })),
+            )
+        }),
+    );
 
     app.merge(root_route)
 }
@@ -312,7 +315,10 @@ mod tests {
         let http_config = HttpConfig::from(&server_config);
         assert_eq!(http_config.host, server_config.server.host);
         assert_eq!(http_config.port, server_config.port + 1000);
-        assert_eq!(http_config.request_timeout_ms, server_config.server.request_timeout_ms);
+        assert_eq!(
+            http_config.request_timeout_ms,
+            server_config.server.request_timeout_ms
+        );
     }
 
     #[tokio::test]

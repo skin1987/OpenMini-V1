@@ -27,7 +27,7 @@ use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
 /// 记忆级别枚举
-/// 
+///
 /// 区分三级记忆层次：
 /// - `Instant`: 瞬时记忆，当前推理批次的 KV Cache
 /// - `ShortTerm`: 短期记忆，滑动窗口机制
@@ -102,7 +102,7 @@ pub enum EvictionStrategy {
 }
 
 /// 嵌入向量填充策略
-/// 
+///
 /// 用于将任意维度向量填充到模型所需维度
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaddingStrategy {
@@ -115,9 +115,9 @@ pub enum PaddingStrategy {
 }
 
 /// 记忆项结构体
-/// 
+///
 /// 存储单个记忆项的数据和元信息
-/// 
+///
 /// # 字段说明
 /// - `data`: 嵌入向量数据
 /// - `timestamp`: 记忆产生时间（原始时间戳）
@@ -160,28 +160,30 @@ impl MemoryItem {
     }
 }
 
+pub mod hnsw;
 pub mod instant;
-pub mod short_term;
 pub mod long_term;
 pub mod manager;
-pub mod hnsw;
 pub mod persistence;
+pub mod short_term;
 pub mod simd_ops;
 
 /// 引擎桥接模块（内部实现）
-/// 
+///
 /// 提供推理引擎与记忆系统之间的数据转换接口
 pub(crate) mod engine_bridge;
 
 /// 缓存桥接模块（内部实现）
-/// 
+///
 /// 提供 KV Cache 与记忆系统之间的映射和同步接口
 pub(crate) mod cache_bridge;
 
+pub use hnsw::{HNSWConfig, HNSWIndex, Layer, Node, SearchResult as HNSWSearchResult};
 pub use instant::InstantMemory;
-pub use short_term::ShortTermMemory;
 pub use long_term::LongTermMemory;
-pub use manager::{MemoryManager, DMNStats, DMNMetrics, SearchResult, SearchQuery};
-pub use hnsw::{HNSWConfig, HNSWIndex, Node, Layer, SearchResult as HNSWSearchResult};
-pub use persistence::{AsyncWriter, IndexEntry, Persistence, PersistenceConfig, PersistenceStats, VerifyResult};
+pub use manager::{DMNMetrics, DMNStats, MemoryManager, SearchQuery, SearchResult};
+pub use persistence::{
+    AsyncWriter, IndexEntry, Persistence, PersistenceConfig, PersistenceStats, VerifyResult,
+};
+pub use short_term::ShortTermMemory;
 pub use simd_ops::{SimdCapabilities, SimdLevel, SimdVectorOps, SimilarityResult};

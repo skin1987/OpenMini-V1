@@ -82,7 +82,7 @@ impl SimdCapabilities {
     /// 检测当前 CPU 的 SIMD 能力
     pub fn detect() -> Self {
         let mut caps = Self::default();
-        
+
         #[cfg(target_arch = "x86_64")]
         {
             caps.sse42 = is_x86_feature_detected!("sse4.2");
@@ -90,7 +90,7 @@ impl SimdCapabilities {
             caps.avx2 = is_x86_feature_detected!("avx2");
             caps.avx512 = is_x86_feature_detected!("avx512f");
         }
-        
+
         #[cfg(target_arch = "aarch64")]
         {
             caps.neon = true; // NEON 在 AArch64 上总是可用
@@ -103,28 +103,44 @@ impl SimdCapabilities {
                 caps.sve2 = true;
             }
         }
-        
+
         caps
     }
-    
+
     /// 获取最佳 SIMD 宽度（位）
     #[allow(dead_code)]
     pub fn best_width(&self) -> usize {
-        if self.avx512 { 512 }
-        else if self.avx2 { 256 }
-        else if self.avx { 256 }
-        else if self.sve || self.sve2 { 256 } // SVE 可变，默认 256
-        else if self.lasx { 256 }
-        else if self.neon || self.sse42 || self.lsx { 128 }
-        else { 0 }
+        if self.avx512 {
+            512
+        } else if self.avx2 {
+            256
+        } else if self.avx {
+            256
+        } else if self.sve || self.sve2 {
+            256
+        }
+        // SVE 可变，默认 256
+        else if self.lasx {
+            256
+        } else if self.neon || self.sse42 || self.lsx {
+            128
+        } else {
+            0
+        }
     }
-    
+
     /// 是否支持任何 SIMD
     #[allow(dead_code)]
     pub fn has_simd(&self) -> bool {
-        self.sse42 || self.avx || self.avx2 || self.avx512 
-            || self.neon || self.sve || self.sve2 
-            || self.lsx || self.lasx
+        self.sse42
+            || self.avx
+            || self.avx2
+            || self.avx512
+            || self.neon
+            || self.sve
+            || self.sve2
+            || self.lsx
+            || self.lasx
     }
 }
 
@@ -227,7 +243,7 @@ impl CpuInfo {
         let name = Self::detect_cpu_name();
         let is_apple_silicon = cfg!(target_arch = "aarch64") && cfg!(target_vendor = "apple");
         let backend_type = CpuBackend::detect();
-        
+
         Self {
             arch,
             physical_cores,
@@ -238,13 +254,13 @@ impl CpuInfo {
             backend_type,
         }
     }
-    
+
     /// 检测超线程信息
     #[allow(dead_code)]
     pub fn has_hyperthreading(&self) -> bool {
         self.logical_cores > self.physical_cores
     }
-    
+
     /// 获取每个物理核心的逻辑核心数
     #[allow(dead_code)]
     pub fn threads_per_core(&self) -> usize {
@@ -254,21 +270,33 @@ impl CpuInfo {
             1
         }
     }
-    
+
     fn detect_arch() -> CpuArch {
         #[cfg(target_arch = "x86_64")]
-        { CpuArch::X86_64 }
-        
+        {
+            CpuArch::X86_64
+        }
+
         #[cfg(target_arch = "aarch64")]
-        { CpuArch::AArch64 }
-        
+        {
+            CpuArch::AArch64
+        }
+
         #[cfg(target_arch = "arm")]
-        { CpuArch::Arm }
-        
-        #[cfg(all(not(target_arch = "x86_64"), not(target_arch = "aarch64"), not(target_arch = "arm")))]
-        { CpuArch::Unknown }
+        {
+            CpuArch::Arm
+        }
+
+        #[cfg(all(
+            not(target_arch = "x86_64"),
+            not(target_arch = "aarch64"),
+            not(target_arch = "arm")
+        ))]
+        {
+            CpuArch::Unknown
+        }
     }
-    
+
     fn detect_cpu_name() -> String {
         #[cfg(target_os = "macos")]
         {
@@ -281,7 +309,7 @@ impl CpuInfo {
                 return String::from_utf8_lossy(&output.stdout).trim().to_string();
             }
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             if let Ok(content) = std::fs::read_to_string("/proc/cpuinfo") {
@@ -294,7 +322,7 @@ impl CpuInfo {
                 }
             }
         }
-        
+
         "Unknown CPU".to_string()
     }
 }
@@ -319,28 +347,24 @@ impl MemoryInfo {
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
-            let total = if let Ok(output) = Command::new("sysctl")
-                .arg("-n")
-                .arg("hw.memsize")
-                .output()
-            {
-                String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse::<u64>()
-                    .unwrap_or(0) / (1024 * 1024 * 1024)
-            } else {
-                0
-            };
-            
+            let total =
+                if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output() {
+                    String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .parse::<u64>()
+                        .unwrap_or(0)
+                        / (1024 * 1024 * 1024)
+                } else {
+                    0
+                };
+
             let available = if let Ok(output) = Command::new("vm_stat").output() {
                 let output_str = String::from_utf8_lossy(&output.stdout);
                 let mut free_pages: u64 = 0;
                 for line in output_str.lines() {
                     if line.starts_with("Pages free:") {
                         let num_str = line.split(':').nth(1).unwrap_or("0");
-                        free_pages = num_str.trim().trim_end_matches('.')
-                            .parse()
-                            .unwrap_or(0);
+                        free_pages = num_str.trim().trim_end_matches('.').parse().unwrap_or(0);
                         break;
                     }
                 }
@@ -348,48 +372,60 @@ impl MemoryInfo {
             } else {
                 0
             };
-            
+
             Self {
                 total_gb: total as usize,
                 available_gb: available as usize,
             }
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
                 let mut total_kb: u64 = 0;
                 let mut available_kb: u64 = 0;
-                
+
                 for line in content.lines() {
                     if line.starts_with("MemTotal:") {
                         let num_str = line.split(':').nth(1).unwrap_or("0");
-                        total_kb = num_str.trim().split_whitespace().next()
+                        total_kb = num_str
+                            .trim()
+                            .split_whitespace()
+                            .next()
                             .unwrap_or("0")
                             .parse()
                             .unwrap_or(0);
                     }
                     if line.starts_with("MemAvailable:") {
                         let num_str = line.split(':').nth(1).unwrap_or("0");
-                        available_kb = num_str.trim().split_whitespace().next()
+                        available_kb = num_str
+                            .trim()
+                            .split_whitespace()
+                            .next()
                             .unwrap_or("0")
                             .parse()
                             .unwrap_or(0);
                     }
                 }
-                
+
                 return Self {
                     total_gb: (total_kb / 1024 / 1024) as usize,
                     available_gb: (available_kb / 1024 / 1024) as usize,
                 };
             }
-            
-            Self { total_gb: 0, available_gb: 0 }
+
+            Self {
+                total_gb: 0,
+                available_gb: 0,
+            }
         }
-        
+
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
-            Self { total_gb: 0, available_gb: 0 }
+            Self {
+                total_gb: 0,
+                available_gb: 0,
+            }
         }
     }
 }
@@ -469,22 +505,22 @@ impl HyperthreadTopology {
         {
             Self::detect_macos()
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             Self::detect_linux()
         }
-        
+
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Self::default()
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     fn detect_macos() -> Self {
         use std::process::Command;
-        
+
         let physical_cores = num_cpus::get_physical();
         let logical_cores = num_cpus::get();
         let threads_per_core = if physical_cores > 0 {
@@ -492,7 +528,7 @@ impl HyperthreadTopology {
         } else {
             1
         };
-        
+
         let mut topology = Self {
             physical_cores: Vec::new(),
             logical_to_physical: HashMap::new(),
@@ -501,9 +537,9 @@ impl HyperthreadTopology {
             performance_cores: 0,
             efficiency_cores: 0,
         };
-        
+
         let is_apple_silicon = cfg!(target_arch = "aarch64");
-        
+
         if is_apple_silicon {
             if let Ok(output) = Command::new("sysctl")
                 .arg("-n")
@@ -515,7 +551,7 @@ impl HyperthreadTopology {
                     .parse()
                     .unwrap_or(0);
             }
-            
+
             if let Ok(output) = Command::new("sysctl")
                 .arg("-n")
                 .arg("hw.perflevel1.physicalcpu")
@@ -526,7 +562,7 @@ impl HyperthreadTopology {
                     .parse()
                     .unwrap_or(0);
             }
-            
+
             let mut logical_id = 0;
             for i in 0..topology.performance_cores {
                 let mut core = PhysicalCore {
@@ -546,7 +582,7 @@ impl HyperthreadTopology {
                 }
                 topology.physical_cores.push(core);
             }
-            
+
             for i in 0..topology.efficiency_cores {
                 let core_id = topology.performance_cores + i;
                 let mut core = PhysicalCore {
@@ -586,10 +622,10 @@ impl HyperthreadTopology {
                 topology.physical_cores.push(core);
             }
         }
-        
+
         topology
     }
-    
+
     #[cfg(target_os = "linux")]
     fn detect_linux() -> Self {
         let physical_cores = num_cpus::get_physical();
@@ -599,7 +635,7 @@ impl HyperthreadTopology {
         } else {
             1
         };
-        
+
         let mut topology = Self {
             physical_cores: Vec::new(),
             logical_to_physical: HashMap::new(),
@@ -608,14 +644,14 @@ impl HyperthreadTopology {
             performance_cores: physical_cores,
             efficiency_cores: 0,
         };
-        
+
         let core_map = Self::build_core_map();
         let cache_info = Self::parse_cache_topology();
         let numa_info = Self::parse_numa_topology();
-        
+
         let mut sorted_core_ids: Vec<usize> = core_map.keys().cloned().collect();
         sorted_core_ids.sort();
-        
+
         for core_id in sorted_core_ids {
             if let Some(logical_ids) = core_map.get(&core_id) {
                 let mut core = PhysicalCore {
@@ -628,22 +664,22 @@ impl HyperthreadTopology {
                     l3_cache_id: cache_info.get(&core_id).and_then(|c| c.l3_cache_id),
                     numa_node_id: numa_info.get(&core_id).copied(),
                 };
-                
+
                 for &logical_id in logical_ids {
                     topology.logical_to_physical.insert(logical_id, core_id);
                 }
-                
+
                 topology.physical_cores.push(core);
             }
         }
-        
+
         topology
     }
-    
+
     #[cfg(target_os = "linux")]
     fn build_core_map() -> HashMap<usize, Vec<usize>> {
         let mut core_map: HashMap<usize, Vec<usize>> = HashMap::new();
-        
+
         for cpu_id in 0..num_cpus::get() {
             let core_path = format!("/sys/devices/system/cpu/cpu{}/topology/core_id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&core_path) {
@@ -652,43 +688,43 @@ impl HyperthreadTopology {
                 }
             }
         }
-        
+
         if core_map.is_empty() {
             for i in 0..num_cpus::get_physical() {
                 core_map.insert(i, vec![i]);
             }
         }
-        
+
         core_map
     }
-    
+
     #[cfg(target_os = "linux")]
     fn parse_cache_topology() -> HashMap<usize, CacheInfo> {
         let mut cache_map: HashMap<usize, CacheInfo> = HashMap::new();
-        
+
         for cpu_id in 0..num_cpus::get() {
             let mut info = CacheInfo::default();
-            
+
             let l1d_path = format!("/sys/devices/system/cpu/cpu{}/cache/index0/id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&l1d_path) {
                 info.l1_data_cache_id = content.trim().parse().ok();
             }
-            
+
             let l1i_path = format!("/sys/devices/system/cpu/cpu{}/cache/index1/id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&l1i_path) {
                 info.l1_inst_cache_id = content.trim().parse().ok();
             }
-            
+
             let l2_path = format!("/sys/devices/system/cpu/cpu{}/cache/index2/id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&l2_path) {
                 info.l2_cache_id = content.trim().parse().ok();
             }
-            
+
             let l3_path = format!("/sys/devices/system/cpu/cpu{}/cache/index3/id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&l3_path) {
                 info.l3_cache_id = content.trim().parse().ok();
             }
-            
+
             let core_path = format!("/sys/devices/system/cpu/cpu{}/topology/core_id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&core_path) {
                 if let Ok(core_id) = content.trim().parse::<usize>() {
@@ -696,14 +732,14 @@ impl HyperthreadTopology {
                 }
             }
         }
-        
+
         cache_map
     }
-    
+
     #[cfg(target_os = "linux")]
     fn parse_numa_topology() -> HashMap<usize, usize> {
         let mut numa_map: HashMap<usize, usize> = HashMap::new();
-        
+
         for cpu_id in 0..num_cpus::get() {
             let path = format!("/sys/devices/system/cpu/cpu{}/node*", cpu_id);
             if let Ok(entries) = glob::glob(&path) {
@@ -712,7 +748,10 @@ impl HyperthreadTopology {
                         if let Some(node_str) = name.to_str() {
                             if node_str.starts_with("node") {
                                 if let Ok(node_id) = node_str[4..].parse::<usize>() {
-                                    let core_path = format!("/sys/devices/system/cpu/cpu{}/topology/core_id", cpu_id);
+                                    let core_path = format!(
+                                        "/sys/devices/system/cpu/cpu{}/topology/core_id",
+                                        cpu_id
+                                    );
                                     if let Ok(content) = std::fs::read_to_string(&core_path) {
                                         if let Ok(core_id) = content.trim().parse::<usize>() {
                                             numa_map.insert(core_id, node_id);
@@ -726,45 +765,46 @@ impl HyperthreadTopology {
                 }
             }
         }
-        
+
         numa_map
     }
-    
+
     /// 获取物理核心数
     pub fn physical_core_count(&self) -> usize {
         self.physical_cores.len()
     }
-    
+
     /// 获取逻辑核心数
     pub fn logical_core_count(&self) -> usize {
         self.logical_to_physical.len()
     }
-    
+
     /// 获取指定逻辑核心对应的物理核心 ID
     #[allow(dead_code)]
     pub fn get_physical_core(&self, logical_id: usize) -> Option<usize> {
         self.logical_to_physical.get(&logical_id).copied()
     }
-    
+
     /// 获取最优计算核心列表（优先使用性能核）
     pub fn get_optimal_compute_cores(&self) -> Vec<usize> {
-        let mut cores: Vec<usize> = self.physical_cores.iter()
+        let mut cores: Vec<usize> = self
+            .physical_cores
+            .iter()
             .filter(|c| c.core_type == CoreType::Performance)
             .map(|c| c.id)
             .collect();
-        
+
         if cores.is_empty() {
-            cores = self.physical_cores.iter()
-                .map(|c| c.id)
-                .collect();
+            cores = self.physical_cores.iter().map(|c| c.id).collect();
         }
-        
+
         cores
     }
-    
+
     /// 获取每个物理核心的首选逻辑核心（避免超线程竞争）
     pub fn get_primary_logical_cores(&self) -> Vec<usize> {
-        self.physical_cores.iter()
+        self.physical_cores
+            .iter()
             .filter_map(|c| c.logical_cores.first().copied())
             .collect()
     }
@@ -800,8 +840,7 @@ pub struct CacheInfo {
 }
 
 /// 缓存拓扑信息
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CacheTopology {
     /// L1 数据缓存列表
     pub l1_data_caches: Vec<CacheInfo>,
@@ -813,7 +852,6 @@ pub struct CacheTopology {
     pub l3_caches: Vec<CacheInfo>,
 }
 
-
 impl CacheTopology {
     /// 检测缓存拓扑
     pub fn detect() -> Self {
@@ -821,25 +859,25 @@ impl CacheTopology {
         {
             Self::detect_macos()
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             Self::detect_linux()
         }
-        
+
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Self::default()
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     fn detect_macos() -> Self {
         use std::process::Command;
-        
+
         let mut topology = Self::default();
         let physical_cores = num_cpus::get_physical();
-        
+
         let l1d_size = if let Ok(output) = Command::new("sysctl")
             .arg("-n")
             .arg("hw.l1dcachesize")
@@ -848,11 +886,12 @@ impl CacheTopology {
             String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .parse()
-                .unwrap_or(32768) / 1024
+                .unwrap_or(32768)
+                / 1024
         } else {
             32
         };
-        
+
         let l1i_size = if let Ok(output) = Command::new("sysctl")
             .arg("-n")
             .arg("hw.l1icachesize")
@@ -861,11 +900,12 @@ impl CacheTopology {
             String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .parse()
-                .unwrap_or(32768) / 1024
+                .unwrap_or(32768)
+                / 1024
         } else {
             32
         };
-        
+
         let l2_size = if let Ok(output) = Command::new("sysctl")
             .arg("-n")
             .arg("hw.l2cachesize")
@@ -874,11 +914,12 @@ impl CacheTopology {
             String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .parse()
-                .unwrap_or(262144) / 1024
+                .unwrap_or(262144)
+                / 1024
         } else {
             256
         };
-        
+
         let l3_size = if let Ok(output) = Command::new("sysctl")
             .arg("-n")
             .arg("hw.l3cachesize")
@@ -887,11 +928,12 @@ impl CacheTopology {
             String::from_utf8_lossy(&output.stdout)
                 .trim()
                 .parse()
-                .unwrap_or(0) / 1024
+                .unwrap_or(0)
+                / 1024
         } else {
             0
         };
-        
+
         let cacheline_size = if let Ok(output) = Command::new("sysctl")
             .arg("-n")
             .arg("hw.cachelinesize")
@@ -904,7 +946,7 @@ impl CacheTopology {
         } else {
             64
         };
-        
+
         for i in 0..physical_cores {
             topology.l1_data_caches.push(CacheInfo {
                 level: 1,
@@ -913,7 +955,7 @@ impl CacheTopology {
                 associativity: 8,
                 shared_cores: vec![i],
             });
-            
+
             topology.l1_inst_caches.push(CacheInfo {
                 level: 1,
                 size_kb: l1i_size,
@@ -921,7 +963,7 @@ impl CacheTopology {
                 associativity: 8,
                 shared_cores: vec![i],
             });
-            
+
             topology.l2_caches.push(CacheInfo {
                 level: 2,
                 size_kb: l2_size,
@@ -930,7 +972,7 @@ impl CacheTopology {
                 shared_cores: vec![i],
             });
         }
-        
+
         if l3_size > 0 {
             topology.l3_caches.push(CacheInfo {
                 level: 3,
@@ -940,54 +982,54 @@ impl CacheTopology {
                 shared_cores: (0..physical_cores).collect(),
             });
         }
-        
+
         topology
     }
-    
+
     #[cfg(target_os = "linux")]
     fn detect_linux() -> Self {
         let mut topology = Self::default();
-        
+
         for index in 0..10 {
             let base_path = format!("/sys/devices/system/cpu/cpu0/cache/index{}", index);
             if !std::path::Path::new(&base_path).exists() {
                 break;
             }
-            
+
             let level_path = format!("{}/level", base_path);
             let level: usize = std::fs::read_to_string(&level_path)
                 .ok()
                 .and_then(|s| s.trim().parse().ok())
                 .unwrap_or(0);
-            
+
             let size_path = format!("{}/size", base_path);
             let size_kb: usize = std::fs::read_to_string(&size_path)
                 .ok()
                 .and_then(|s| {
                     let s = s.trim();
                     if s.ends_with('K') {
-                        s[..s.len()-1].parse().ok()
+                        s[..s.len() - 1].parse().ok()
                     } else {
                         s.parse().ok()
                     }
                 })
                 .unwrap_or(0);
-            
+
             let line_size_path = format!("{}/coherency_line_size", base_path);
             let line_size: usize = std::fs::read_to_string(&line_size_path)
                 .ok()
                 .and_then(|s| s.trim().parse().ok())
                 .unwrap_or(64);
-            
+
             let type_path = format!("{}/type", base_path);
             let cache_type: String = std::fs::read_to_string(&type_path)
                 .ok()
                 .map(|s| s.trim().to_string())
                 .unwrap_or_default();
-            
+
             let shared_path = format!("{}/shared_cpu_list", base_path);
             let shared_cores = Self::parse_cpu_list(&shared_path);
-            
+
             let cache_info = CacheInfo {
                 level,
                 size_kb,
@@ -995,7 +1037,7 @@ impl CacheTopology {
                 associativity: 8,
                 shared_cores,
             };
-            
+
             match (level, cache_type.as_str()) {
                 (1, "Data") => topology.l1_data_caches.push(cache_info),
                 (1, "Instruction") => topology.l1_inst_caches.push(cache_info),
@@ -1008,10 +1050,10 @@ impl CacheTopology {
                 _ => {}
             }
         }
-        
+
         topology
     }
-    
+
     #[cfg(target_os = "linux")]
     fn parse_cpu_list(path: &str) -> Vec<usize> {
         let mut cores = Vec::new();
@@ -1020,7 +1062,9 @@ impl CacheTopology {
                 if part.contains('-') {
                     let range: Vec<&str> = part.split('-').collect();
                     if range.len() == 2 {
-                        if let (Ok(start), Ok(end)) = (range[0].parse::<usize>(), range[1].parse::<usize>()) {
+                        if let (Ok(start), Ok(end)) =
+                            (range[0].parse::<usize>(), range[1].parse::<usize>())
+                        {
                             for id in start..=end {
                                 cores.push(id);
                             }
@@ -1033,17 +1077,18 @@ impl CacheTopology {
         }
         cores
     }
-    
+
     /// 获取总 L3 缓存大小 (KB)
     #[allow(dead_code)]
     pub fn total_l3_size_kb(&self) -> usize {
         self.l3_caches.iter().map(|c| c.size_kb).sum()
     }
-    
+
     /// 获取缓存行大小
     #[allow(dead_code)]
     pub fn cache_line_size(&self) -> usize {
-        self.l1_data_caches.first()
+        self.l1_data_caches
+            .first()
             .map(|c| c.line_size)
             .unwrap_or(64)
     }
@@ -1078,7 +1123,6 @@ pub struct NumaTopology {
     pub is_numa: bool,
 }
 
-
 impl NumaTopology {
     /// 检测 NUMA 拓扑
     pub fn detect() -> Self {
@@ -1086,18 +1130,18 @@ impl NumaTopology {
         {
             Self::detect_linux()
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             Self::detect_macos()
         }
-        
+
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Self::default()
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     fn detect_macos() -> Self {
         Self {
@@ -1110,18 +1154,18 @@ impl NumaTopology {
             is_numa: false,
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     fn detect_linux() -> Self {
         let mut topology = Self::default();
-        
+
         let node_dirs: Vec<_> = glob::glob("/sys/devices/system/node/node*")
             .ok()
             .into_iter()
             .flatten()
             .flatten()
             .collect();
-        
+
         if node_dirs.is_empty() {
             topology.nodes.push(NumaNode {
                 id: 0,
@@ -1131,23 +1175,21 @@ impl NumaTopology {
             });
             return topology;
         }
-        
+
         topology.is_numa = node_dirs.len() > 1;
-        
+
         for node_dir in node_dirs {
-            let node_name = node_dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            
+            let node_name = node_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
             if !node_name.starts_with("node") {
                 continue;
             }
-            
+
             let node_id: usize = node_name[4..].parse().unwrap_or(0);
-            
+
             let cpus_path = node_dir.join("cpulist");
             let cpus = Self::parse_cpu_list(&cpus_path);
-            
+
             let mem_path = node_dir.join("meminfo");
             let memory_mb = std::fs::read_to_string(&mem_path)
                 .ok()
@@ -1163,7 +1205,7 @@ impl NumaTopology {
                     None
                 })
                 .unwrap_or(0);
-            
+
             let distance_path = node_dir.join("distance");
             let distance = std::fs::read_to_string(&distance_path)
                 .ok()
@@ -1173,7 +1215,7 @@ impl NumaTopology {
                         .collect()
                 })
                 .unwrap_or_default();
-            
+
             topology.nodes.push(NumaNode {
                 id: node_id,
                 cpus,
@@ -1181,11 +1223,11 @@ impl NumaTopology {
                 distance,
             });
         }
-        
+
         topology.nodes.sort_by_key(|n| n.id);
         topology
     }
-    
+
     #[cfg(target_os = "linux")]
     fn parse_cpu_list(path: &std::path::PathBuf) -> Vec<usize> {
         let mut cpus = Vec::new();
@@ -1194,7 +1236,9 @@ impl NumaTopology {
                 if part.contains('-') {
                     let range: Vec<&str> = part.split('-').collect();
                     if range.len() == 2 {
-                        if let (Ok(start), Ok(end)) = (range[0].parse::<usize>(), range[1].parse::<usize>()) {
+                        if let (Ok(start), Ok(end)) =
+                            (range[0].parse::<usize>(), range[1].parse::<usize>())
+                        {
                             for id in start..=end {
                                 cpus.push(id);
                             }
@@ -1207,19 +1251,19 @@ impl NumaTopology {
         }
         cpus
     }
-    
+
     /// 获取 NUMA 节点数量
     #[allow(dead_code)]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
-    
+
     /// 获取指定 CPU 所在的 NUMA 节点
     #[allow(dead_code)]
     pub fn get_node_for_cpu(&self, cpu_id: usize) -> Option<&NumaNode> {
         self.nodes.iter().find(|n| n.cpus.contains(&cpu_id))
     }
-    
+
     /// 获取最优 NUMA 节点（内存最大）
     pub fn get_optimal_node(&self) -> Option<&NumaNode> {
         self.nodes.iter().max_by_key(|n| n.memory_mb)
@@ -1257,10 +1301,17 @@ impl HardwareProfile {
         let hyperthreading = HyperthreadTopology::detect();
         let cache = CacheTopology::detect();
         let numa = NumaTopology::detect();
-        
-        Self { cpu, gpu, memory, hyperthreading, cache, numa }
+
+        Self {
+            cpu,
+            gpu,
+            memory,
+            hyperthreading,
+            cache,
+            numa,
+        }
     }
-    
+
     /// 获取硬件摘要
     #[allow(dead_code)]
     pub fn summary(&self) -> String {
@@ -1274,13 +1325,13 @@ impl HardwareProfile {
         } else {
             String::new()
         };
-        
+
         let numa_info = if self.numa.is_numa {
             format!(" [NUMA: {} nodes]", self.numa.node_count())
         } else {
             String::new()
         };
-        
+
         format!(
             "CPU: {} ({} cores, {} threads, SIMD: {}-bit){}\n\
              GPU: {} ({} MB)\n\
@@ -1309,41 +1360,37 @@ impl GpuInfo {
         {
             Self::detect_macos_gpu()
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             Self::detect_linux_gpu()
         }
-        
+
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             Self::default()
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     fn detect_macos_gpu() -> Self {
         use std::process::Command;
-        
+
         let mut gpu = Self::default();
         gpu.supports_metal = true;
-        
+
         if cfg!(target_arch = "aarch64") {
             gpu.gpu_type = GpuType::Apple;
             gpu.name = "Apple GPU".to_string();
-            
-            if let Ok(output) = Command::new("sysctl")
-                .arg("-n")
-                .arg("hw.memsize")
-                .output()
-            {
+
+            if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output() {
                 let total_mem: u64 = String::from_utf8_lossy(&output.stdout)
                     .trim()
                     .parse()
                     .unwrap_or(0);
                 gpu.memory_mb = (total_mem / (1024 * 1024)) as usize;
             }
-            
+
             // Apple Silicon GPU 计算能力估算
             // M1/M2/M3 系列约 2.6 TFLOPS, 带宽约 100-800 GB/s
             gpu.compute_flops = Some(2600.0); // GFLOPS
@@ -1367,27 +1414,27 @@ impl GpuInfo {
                 gpu.memory_bandwidth = Some(200.0);
             }
         }
-        
+
         gpu
     }
-    
+
     #[cfg(target_os = "linux")]
     fn detect_linux_gpu() -> Self {
         let mut gpu = Self::default();
-        
+
         // 检测 NVIDIA GPU
         if std::path::Path::new("/proc/driver/nvidia/version").exists() {
             gpu.gpu_type = GpuType::Nvidia;
             gpu.supports_cuda = true;
             gpu.name = "NVIDIA GPU".to_string();
         }
-        
+
         // 检测华为昇腾 NPU
         if std::path::Path::new("/usr/local/Ascend").exists() {
             gpu.gpu_type = GpuType::Ascend;
             gpu.name = "Huawei Ascend NPU".to_string();
         }
-        
+
         gpu
     }
 }
@@ -1399,99 +1446,99 @@ impl GpuInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_detect_cpu() {
         let cpu = CpuInfo::detect();
         assert!(cpu.physical_cores > 0);
         assert!(cpu.logical_cores >= cpu.physical_cores);
     }
-    
+
     #[test]
     fn test_detect_memory() {
         let memory = MemoryInfo::detect();
         assert!(memory.total_gb > 0);
     }
-    
+
     #[test]
     fn test_simd_capabilities() {
         let simd = SimdCapabilities::detect();
         // 至少应该有某种 SIMD 支持
         #[cfg(target_arch = "x86_64")]
         assert!(simd.sse42);
-        
+
         #[cfg(target_arch = "aarch64")]
         assert!(simd.neon);
     }
-    
+
     #[test]
     fn test_hardware_profile() {
         let profile = HardwareProfile::detect();
         let summary = profile.summary();
         assert!(!summary.is_empty());
     }
-    
+
     #[test]
     fn test_hyperthread_topology() {
         let topology = HyperthreadTopology::detect();
         assert!(topology.physical_core_count() > 0);
         assert!(topology.logical_core_count() > 0);
         assert!(topology.logical_core_count() >= topology.physical_core_count());
-        
+
         // 测试逻辑核心到物理核心映射
         if topology.has_hyperthreading {
             assert!(topology.threads_per_core > 1);
         }
-        
+
         // 测试获取首选逻辑核心
         let primary_cores = topology.get_primary_logical_cores();
         assert_eq!(primary_cores.len(), topology.physical_core_count());
     }
-    
+
     #[test]
     fn test_cache_topology() {
         let cache = CacheTopology::detect();
         assert!(!cache.l1_data_caches.is_empty());
         assert!(!cache.l1_inst_caches.is_empty());
-        
+
         // 验证缓存行大小合理
         let line_size = cache.cache_line_size();
         assert!(line_size >= 16 && line_size <= 256);
     }
-    
+
     #[test]
     fn test_numa_topology() {
         let numa = NumaTopology::detect();
         assert!(numa.node_count() > 0);
-        
+
         // 单节点系统也应该有至少一个节点
         let node = numa.get_optimal_node();
         assert!(node.is_some());
     }
-    
+
     #[test]
     fn test_cpu_hyperthreading_info() {
         let cpu = CpuInfo::detect();
-        
+
         // 测试超线程检测
         let has_ht = cpu.has_hyperthreading();
         let threads_per_core = cpu.threads_per_core();
-        
+
         if has_ht {
             assert!(threads_per_core > 1);
         } else {
             assert_eq!(threads_per_core, 1);
         }
     }
-    
+
     #[test]
     fn test_optimal_compute_cores() {
         let topology = HyperthreadTopology::detect();
         let optimal_cores = topology.get_optimal_compute_cores();
-        
+
         // 应该返回至少一个核心
         assert!(!optimal_cores.is_empty());
-        
+
         // 对于 Apple Silicon，应该优先返回性能核
         #[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
         {
@@ -1505,12 +1552,12 @@ mod tests {
     fn test_hardware_detector_basic_info() {
         // 基本硬件信息检测
         let profile = HardwareProfile::detect();
-        
+
         // 不panic即可,字段可能有值也可能为None
         let _cpu_name = profile.cpu.name;
         let _cpu_cores = profile.cpu.physical_cores;
         let _total_memory = profile.memory.total_gb;
-        
+
         // 验证基本信息不为空(或为0)
         assert!(!_cpu_name.is_empty() || _cpu_name == "Unknown CPU");
     }
@@ -1519,57 +1566,69 @@ mod tests {
     fn test_hardware_level_determination() {
         // 硬件级别判定 - 基于内存和核心数
         let profile = HardwareProfile::detect();
-        
+
         // 简单的硬件级别判定逻辑
         let memory_gb = profile.memory.total_gb;
         let cores = profile.cpu.physical_cores;
-        
+
         let level = match (memory_gb, cores) {
-            (m, _) if m >= 64 => "Ultra",     // 64GB+ 内存
-            (m, c) if m >= 32 && c >= 8 => "High",   // 32GB+ 且 8+ 核
-            (m, c) if m >= 16 && c >= 4 => "Mid",    // 16GB+ 且 4+ 核
-            _ => "Low",                              // 其他
+            (m, _) if m >= 64 => "Ultra",          // 64GB+ 内存
+            (m, c) if m >= 32 && c >= 8 => "High", // 32GB+ 且 8+ 核
+            (m, c) if m >= 16 && c >= 4 => "Mid",  // 16GB+ 且 4+ 核
+            _ => "Low",                            // 其他
         };
-        
+
         // 级别应该在有效范围内
         assert!(["Low", "Mid", "High", "Ultra"].contains(&level));
-        
+
         // 打印硬件信息用于调试
-        println!("Hardware Level: {} ({} GB, {} cores)", level, memory_gb, cores);
+        println!(
+            "Hardware Level: {} ({} GB, {} cores)",
+            level, memory_gb, cores
+        );
     }
 
     #[test]
     fn test_simd_capabilities_detection() {
         // SIMD能力检测
         let simd = SimdCapabilities::detect();
-        
+
         // 至少应该有某种SIMD支持(在x86_64或aarch64上)
         #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         {
             // 应该至少有一种SIMD指令集
-            let _has_any_simd = simd.sse42 || simd.avx || simd.avx2 || simd.avx512 ||
-                             simd.neon || simd.sve || simd.sve2 || 
-                             simd.lsx || simd.lasx;
-            
+            let _has_any_simd = simd.sse42
+                || simd.avx
+                || simd.avx2
+                || simd.avx512
+                || simd.neon
+                || simd.sve
+                || simd.sve2
+                || simd.lsx
+                || simd.lasx;
+
             // x86_64 应该有 SSE4.2 或更高
             #[cfg(target_arch = "x86_64")]
             {
                 assert!(simd.sse42, "x86_64 should have SSE4.2 support");
             }
-            
+
             // aarch64 应该有 NEON
             #[cfg(target_arch = "aarch64")]
             {
                 assert!(simd.neon, "aarch64 should have NEON support");
             }
         }
-        
+
         // 测试 best_width 方法
         let width = simd.best_width();
         // 宽度应该是0, 128, 256, 或 512
-        assert!(width == 0 || width == 128 || width == 256 || width == 512,
-            "Invalid SIMD width: {}", width);
-        
+        assert!(
+            width == 0 || width == 128 || width == 256 || width == 512,
+            "Invalid SIMD width: {}",
+            width
+        );
+
         // 测试 has_simd 方法
         let has_simd = simd.has_simd();
         assert_eq!(has_simd, width > 0);
@@ -1579,17 +1638,17 @@ mod tests {
     fn test_cpu_arch_detection() {
         // CPU架构检测
         let cpu = CpuInfo::detect();
-        
+
         // 验证架构被正确识别
         #[cfg(target_arch = "x86_64")]
         assert_eq!(cpu.arch, CpuArch::X86_64);
-        
+
         #[cfg(target_arch = "aarch64")]
         assert_eq!(cpu.arch, CpuArch::AArch64);
-        
+
         #[cfg(target_arch = "arm")]
         assert_eq!(cpu.arch, CpuArch::Arm);
-        
+
         // 测试 Display trait
         let arch_str = format!("{}", cpu.arch);
         assert!(!arch_str.is_empty());
@@ -1600,30 +1659,45 @@ mod tests {
     fn test_cpu_core_relationships() {
         // CPU核心关系验证
         let cpu = CpuInfo::detect();
-        
+
         // 物理核心应该 <= 逻辑核心
-        assert!(cpu.physical_cores <= cpu.logical_cores,
+        assert!(
+            cpu.physical_cores <= cpu.logical_cores,
             "Physical cores ({}) should be <= logical cores ({})",
-            cpu.physical_cores, cpu.logical_cores);
-        
+            cpu.physical_cores,
+            cpu.logical_cores
+        );
+
         // 都应该大于0
-        assert!(cpu.physical_cores > 0, "Should have at least 1 physical core");
+        assert!(
+            cpu.physical_cores > 0,
+            "Should have at least 1 physical core"
+        );
         assert!(cpu.logical_cores > 0, "Should have at least 1 logical core");
-        
+
         // 测试超线程信息方法
         let has_ht = cpu.has_hyperthreading();
         let tpc = cpu.threads_per_core();
-        
+
         if has_ht {
-            assert!(tpc > 1, "With hyperthreading, threads per core should be > 1");
+            assert!(
+                tpc > 1,
+                "With hyperthreading, threads per core should be > 1"
+            );
         } else {
-            assert_eq!(tpc, 1, "Without hyperthreading, threads per core should be 1");
+            assert_eq!(
+                tpc, 1,
+                "Without hyperthreading, threads per core should be 1"
+            );
         }
-        
+
         // Apple Silicon 特定检查
         #[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
         {
-            assert!(cpu.is_apple_silicon, "Should detect as Apple Silicon on macOS ARM");
+            assert!(
+                cpu.is_apple_silicon,
+                "Should detect as Apple Silicon on macOS ARM"
+            );
         }
     }
 
@@ -1631,24 +1705,29 @@ mod tests {
     fn test_gpu_info_detection() {
         // GPU信息检测
         let gpu = GpuInfo::detect_gpu();
-        
+
         // 至少不应该panic
         let _gpu_type = gpu.gpu_type;
         let gpu_name = &gpu.name;
         let _memory_mb = gpu.memory_mb;
-        
+
         // 在macOS aarch64上应该支持Metal
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         {
             assert!(gpu.supports_metal, "Apple Silicon should support Metal");
             assert_eq!(gpu.gpu_type, GpuType::Apple);
         }
-        
+
         // 如果有GPU,名称不应该为空(除非是默认值)
         if _memory_mb > 0 {
-            assert!(!gpu_name.is_empty() || *gpu_name == "Apple GPU" || 
-                   *gpu_name == "NVIDIA GPU" || *gpu_name == "AMD GPU" || 
-                   *gpu_name == "Intel GPU" || *gpu_name == "Huawei Ascend NPU");
+            assert!(
+                !gpu_name.is_empty()
+                    || *gpu_name == "Apple GPU"
+                    || *gpu_name == "NVIDIA GPU"
+                    || *gpu_name == "AMD GPU"
+                    || *gpu_name == "Intel GPU"
+                    || *gpu_name == "Huawei Ascend NPU"
+            );
         }
     }
 
@@ -1656,12 +1735,15 @@ mod tests {
     fn test_memory_info_validation() {
         // 内存信息验证
         let memory = MemoryInfo::detect();
-        
+
         // 总内存应该大于可用内存
-        assert!(memory.total_gb >= memory.available_gb,
+        assert!(
+            memory.total_gb >= memory.available_gb,
             "Total memory ({}) should be >= available memory ({})",
-            memory.total_gb, memory.available_gb);
-        
+            memory.total_gb,
+            memory.available_gb
+        );
+
         // 总内存应该大于0(在实际系统上)
         // 注意:在某些容器环境中可能为0,所以只做基本检查
         if memory.total_gb > 0 {
@@ -1673,25 +1755,37 @@ mod tests {
     fn test_topology_consistency_checks() {
         // 拓扑一致性检查
         let ht = HyperthreadTopology::detect();
-        
+
         // 物理核心数应该匹配CPU检测
         let cpu = CpuInfo::detect();
-        assert_eq!(ht.physical_core_count(), cpu.physical_cores,
-            "Hyperthread topology physical cores should match CPU info");
-        
+        assert_eq!(
+            ht.physical_core_count(),
+            cpu.physical_cores,
+            "Hyperthread topology physical cores should match CPU info"
+        );
+
         // 逻辑核心数也应该匹配
-        assert_eq!(ht.logical_core_count(), cpu.logical_cores,
-            "Hyperthread topology logical cores should match CPU info");
-        
+        assert_eq!(
+            ht.logical_core_count(),
+            cpu.logical_cores,
+            "Hyperthread topology logical cores should match CPU info"
+        );
+
         // 测试首选逻辑核心数量
         let primary_cores = ht.get_primary_logical_cores();
-        assert_eq!(primary_cores.len(), ht.physical_core_count(),
-            "Primary logical cores count should equal physical core count");
-        
+        assert_eq!(
+            primary_cores.len(),
+            ht.physical_core_count(),
+            "Primary logical cores count should equal physical core count"
+        );
+
         // 所有首选核心应该在逻辑到物理映射中存在
         for &logical_id in &primary_cores {
-            assert!(ht.logical_to_physical.contains_key(&logical_id),
-                "Logical core {} should have a mapping to physical core", logical_id);
+            assert!(
+                ht.logical_to_physical.contains_key(&logical_id),
+                "Logical core {} should have a mapping to physical core",
+                logical_id
+            );
         }
     }
 
@@ -1699,24 +1793,32 @@ mod tests {
     fn test_cache_topology_basic() {
         // 缓存拓扑基本验证
         let cache = CacheTopology::detect();
-        
+
         // L1数据缓存和指令缓存数量应该相等(通常)
-        assert_eq!(cache.l1_data_caches.len(), cache.l1_inst_caches.len(),
-            "L1 data and instruction cache counts should match");
-        
+        assert_eq!(
+            cache.l1_data_caches.len(),
+            cache.l1_inst_caches.len(),
+            "L1 data and instruction cache counts should match"
+        );
+
         // 缓存数量应该与物理核心数相关
         let ht = HyperthreadTopology::detect();
         if !cache.l1_data_caches.is_empty() {
             // 通常每个物理核心有L1缓存
-            assert!(cache.l1_data_caches.len() >= ht.physical_core_count(),
-                "Should have at least one L1 cache per physical core");
+            assert!(
+                cache.l1_data_caches.len() >= ht.physical_core_count(),
+                "Should have at least one L1 cache per physical core"
+            );
         }
-        
+
         // 测试辅助方法
         let line_size = cache.cache_line_size();
-        assert!(line_size >= 32 && line_size <= 256,
-            "Cache line size {} should be between 32 and 256 bytes", line_size);
-        
+        assert!(
+            line_size >= 32 && line_size <= 256,
+            "Cache line size {} should be between 32 and 256 bytes",
+            line_size
+        );
+
         // L3缓存可能不存在(某些系统),但如果存在大小应该合理
         let l3_size = cache.total_l3_size_kb();
         if l3_size > 0 {
@@ -1728,29 +1830,35 @@ mod tests {
     fn test_numa_topology_basic() {
         // NUMA拓扑基本验证
         let numa = NumaTopology::detect();
-        
+
         // 应该至少有一个节点
         assert!(numa.node_count() >= 1, "Should have at least 1 NUMA node");
-        
+
         // 获取最优节点
         let optimal = numa.get_optimal_node();
         assert!(optimal.is_some(), "Should have an optimal node");
-        
+
         // 验证节点结构
         for node in &numa.nodes {
             // 节点应该有CPU列表
             assert!(!node.cpus.is_empty(), "NUMA node should have CPUs");
-            
+
             // 距离矩阵应该非空(如果存在)
             if !node.distance.is_empty() {
-                assert!(node.distance.contains(&0),
-                    "Distance matrix should contain distance to self (0)");
+                assert!(
+                    node.distance.contains(&0),
+                    "Distance matrix should contain distance to self (0)"
+                );
             }
         }
-        
+
         // 单节点系统(is_numa=false)也应该正常工作
         if !numa.is_numa {
-            assert_eq!(numa.node_count(), 1, "Non-NUMA system should have exactly 1 node");
+            assert_eq!(
+                numa.node_count(),
+                1,
+                "Non-NUMA system should have exactly 1 node"
+            );
         }
     }
 
@@ -1759,20 +1867,32 @@ mod tests {
         // 硬件配置摘要生成
         let profile = HardwareProfile::detect();
         let summary = profile.summary();
-        
+
         // 摘要不应为空
         assert!(!summary.is_empty());
-        
+
         // 应该包含关键信息
         assert!(summary.contains("CPU:"), "Summary should contain 'CPU:'");
         assert!(summary.contains("GPU:"), "Summary should contain 'GPU:'");
-        assert!(summary.contains("Memory:"), "Summary should contain 'Memory:'");
-        assert!(summary.contains("Cache:"), "Summary should contain 'Cache:'");
-        
+        assert!(
+            summary.contains("Memory:"),
+            "Summary should contain 'Memory:'"
+        );
+        assert!(
+            summary.contains("Cache:"),
+            "Summary should contain 'Cache:'"
+        );
+
         // 应该包含数值信息
         assert!(summary.contains("cores"), "Summary should mention cores");
-        assert!(summary.contains("threads"), "Summary should mention threads");
-        assert!(summary.contains("GB"), "Summary should mention GB for memory");
+        assert!(
+            summary.contains("threads"),
+            "Summary should mention threads"
+        );
+        assert!(
+            summary.contains("GB"),
+            "Summary should mention GB for memory"
+        );
     }
 
     #[test]
@@ -1786,13 +1906,13 @@ mod tests {
             GpuType::Ascend,
             GpuType::Unknown,
         ];
-        
+
         // 所有变体都应该能创建并比较
         for gpu_type in &types {
             let _clone = *gpu_type;
             assert_eq!(*gpu_type, _clone);
         }
-        
+
         // PartialEq应该工作
         assert_ne!(GpuType::Nvidia, GpuType::Amd);
         assert_eq!(GpuType::Apple, GpuType::Apple);
@@ -1806,12 +1926,12 @@ mod tests {
             CoreType::Efficiency,
             CoreType::Standard,
         ];
-        
+
         for core_type in &types {
             let _clone = *core_type;
             assert_eq!(*core_type, _clone);
         }
-        
+
         // 应该能正确比较
         assert_ne!(CoreType::Performance, CoreType::Efficiency);
         assert_eq!(CoreType::Standard, CoreType::Standard);

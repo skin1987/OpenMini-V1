@@ -1,0 +1,14 @@
+{
+    "protobuf.protoc.path": "/usr/local/bin/protoc",
+    "rust-analyzer.cargo.features": ["metal"],
+    "rust-analyzer.cargo.allFeatures": false,
+    "rust-analyzer.check.overrideCommand": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--features",
+        "metal",
+        "--message-format=json"
+    ],
+    "traeUsage.language": "zh-CN"
+}

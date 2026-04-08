@@ -238,7 +238,8 @@ impl Sampler {
         let (filtered_indices, filtered_probs) = self.apply_top_k(&probs);
 
         // 步骤 6: 应用 Top-P 过滤
-        let (filtered_indices, filtered_probs) = self.apply_top_p(&filtered_indices, &filtered_probs);
+        let (filtered_indices, filtered_probs) =
+            self.apply_top_p(&filtered_indices, &filtered_probs);
 
         // 步骤 7: 从过滤后的分布中采样
         self.sample_from_probs(&filtered_indices, &filtered_probs)
@@ -308,11 +309,8 @@ impl Sampler {
         }
 
         // 将概率与索引配对
-        let mut indexed_probs: Vec<(usize, f32)> = probs
-            .iter()
-            .enumerate()
-            .map(|(i, &p)| (i, p))
-            .collect();
+        let mut indexed_probs: Vec<(usize, f32)> =
+            probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
 
         // 按概率降序排序
         indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -431,7 +429,11 @@ impl Sampler {
     /// 批量采样
     ///
     /// 对多个 logits 分布同时进行采样
-    pub fn sample_batch(&mut self, logits_batch: &[Array1<f32>], generated_tokens: &[u32]) -> Result<Vec<usize>> {
+    pub fn sample_batch(
+        &mut self,
+        logits_batch: &[Array1<f32>],
+        generated_tokens: &[u32],
+    ) -> Result<Vec<usize>> {
         logits_batch
             .iter()
             .map(|logits| self.sample(logits, generated_tokens))
@@ -513,9 +515,11 @@ impl BeamSearch {
 
     /// 获取分数最高的候选
     pub fn best_candidate(&self) -> Option<&BeamSearchCandidate> {
-        self.candidates
-            .iter()
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+        self.candidates.iter().max_by(|a, b| {
+            a.score
+                .partial_cmp(&b.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     /// 扩展候选
@@ -544,7 +548,8 @@ impl BeamSearch {
                     .map(|(i, &lp)| (i, lp))
                     .collect();
 
-                indexed_log_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed_log_probs
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 // 为每个候选扩展 top num_beams 个 token
                 for (token_id, log_prob) in indexed_log_probs.into_iter().take(self.num_beams) {
@@ -557,7 +562,11 @@ impl BeamSearch {
         }
 
         // 按分数排序并保留 top num_beams 个候选
-        new_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        new_candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         new_candidates.truncate(self.num_beams);
 
         self.candidates = new_candidates;
@@ -752,33 +761,33 @@ mod tests {
         let logits_copy = logits.clone();
 
         sampler.apply_repetition_penalty(&mut logits, &generated);
-        assert_eq!(logits, logits_copy, "repetition_penalty=1.0 时 logits 不应改变");
+        assert_eq!(
+            logits, logits_copy,
+            "repetition_penalty=1.0 时 logits 不应改变"
+        );
     }
 
     /// 测试 with_sampling 方法
     #[test]
     fn test_with_sampling() {
-        let params = GenerateParams::new()
-            .with_sampling(false);
-        
+        let params = GenerateParams::new().with_sampling(false);
+
         assert!(!params.sampling);
     }
 
     /// 测试 with_num_beams 方法
     #[test]
     fn test_with_num_beams() {
-        let params = GenerateParams::new()
-            .with_num_beams(5);
-        
+        let params = GenerateParams::new().with_num_beams(5);
+
         assert_eq!(params.num_beams, 5);
     }
 
     /// 测试 with_max_new_tokens 方法
     #[test]
     fn test_with_max_new_tokens() {
-        let params = GenerateParams::new()
-            .with_max_new_tokens(4096);
-        
+        let params = GenerateParams::new().with_max_new_tokens(4096);
+
         assert_eq!(params.max_new_tokens, 4096);
     }
 
@@ -788,15 +797,15 @@ mod tests {
         let params = GenerateParams::default();
         let sampler1 = Sampler::with_seed(params.clone(), 42);
         let sampler2 = Sampler::with_seed(params, 42);
-        
+
         // 使用相同种子应产生相同结果
         let logits = arr1(&[0.1, 0.2, 0.7]);
         let mut s1 = sampler1;
         let mut s2 = sampler2;
-        
+
         let r1 = s1.sample(&logits, &[]).unwrap();
         let r2 = s2.sample(&logits, &[]).unwrap();
-        
+
         assert_eq!(r1, r2, "相同种子应产生相同的采样结果");
     }
 
@@ -804,10 +813,7 @@ mod tests {
     #[test]
     fn test_sample_batch() {
         let mut sampler = Sampler::new(GenerateParams::default().with_sampling(false));
-        let logits_batch = vec![
-            arr1(&[0.1, 0.5, 0.3, 0.9]),
-            arr1(&[0.9, 0.1, 0.5, 0.3]),
-        ];
+        let logits_batch = vec![arr1(&[0.1, 0.5, 0.3, 0.9]), arr1(&[0.9, 0.1, 0.5, 0.3])];
         let generated = vec![];
 
         let results = sampler.sample_batch(&logits_batch, &generated).unwrap();
@@ -821,7 +827,7 @@ mod tests {
     #[test]
     fn test_beam_search_candidate() {
         let candidate = BeamSearchCandidate::new(vec![1, 2, 3], 0.5);
-        
+
         assert_eq!(candidate.tokens, vec![1, 2, 3]);
         assert!((candidate.score - 0.5).abs() < 1e-6);
         assert_eq!(candidate.len(), 3);
@@ -832,7 +838,7 @@ mod tests {
     #[test]
     fn test_beam_search_candidate_empty() {
         let candidate = BeamSearchCandidate::new(vec![], 0.0);
-        
+
         assert!(candidate.is_empty());
         assert_eq!(candidate.len(), 0);
     }

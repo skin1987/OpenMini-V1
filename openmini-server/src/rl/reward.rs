@@ -2,8 +2,8 @@
 //!
 //! 实现各种奖励函数，用于评估模型输出的质量
 
-use std::collections::HashMap;
 use crate::rl::RewardResult;
+use std::collections::HashMap;
 
 /// 奖励函数接口
 pub trait RewardFunction: Send + Sync {
@@ -40,19 +40,25 @@ impl AccuracyReward {
 
     fn extract_answer(&self, response: &str) -> Option<String> {
         let response = response.trim();
-        
-        if let Some(boxed) = response.strip_prefix("```answer\n").or(response.strip_prefix("```answer\r\n")) {
+
+        if let Some(boxed) = response
+            .strip_prefix("```answer\n")
+            .or(response.strip_prefix("```answer\r\n"))
+        {
             if let Some(end) = boxed.strip_suffix("```") {
                 return Some(self.normalize_response(end));
             }
         }
-        
-        if let Some(boxed) = response.strip_prefix("```\n").or(response.strip_prefix("```\r\n")) {
+
+        if let Some(boxed) = response
+            .strip_prefix("```\n")
+            .or(response.strip_prefix("```\r\n"))
+        {
             if let Some(end) = boxed.strip_suffix("```") {
                 return Some(self.normalize_response(end));
             }
         }
-        
+
         if let Some(start) = response.find("答案是:").or(response.find("答案:")) {
             let after = &response[start..];
             let after = after
@@ -60,7 +66,9 @@ impl AccuracyReward {
                 .or_else(|| after.strip_prefix("答案:"))
                 .unwrap_or(after);
             let answer = after
-                .trim_start_matches(|c: char| c.is_whitespace() || c == ':' || c == '，' || c == ',' || c == '。')
+                .trim_start_matches(|c: char| {
+                    c.is_whitespace() || c == ':' || c == '，' || c == ',' || c == '。'
+                })
                 .split(|c: char| c.is_whitespace() || c == '。' || c == '.')
                 .next()
                 .unwrap_or("")
@@ -69,31 +77,37 @@ impl AccuracyReward {
                 return Some(self.normalize_response(answer));
             }
         }
-        
+
         let lines: Vec<&str> = response.lines().collect();
         if let Some(last) = lines.last() {
             let last = last.trim();
-            if !last.is_empty() && last.chars().all(|c| c.is_numeric() || c == '.' || c == '-' || c == '+') {
+            if !last.is_empty()
+                && last
+                    .chars()
+                    .all(|c| c.is_numeric() || c == '.' || c == '-' || c == '+')
+            {
                 return Some(self.normalize_response(last));
             }
         }
-        
+
         Some(self.normalize_response(response))
     }
 
     fn compare_answers(&self, response: &str, ground_truth: &str) -> bool {
-        let resp = self.extract_answer(response).unwrap_or_else(|| self.normalize_response(response));
+        let resp = self
+            .extract_answer(response)
+            .unwrap_or_else(|| self.normalize_response(response));
         let truth = self.normalize_response(ground_truth);
-        
+
         if resp == truth {
             return true;
         }
-        
+
         if let (Ok(resp_num), Ok(truth_num)) = (resp.parse::<f64>(), truth.parse::<f64>()) {
             let rel_diff = (resp_num - truth_num).abs() / truth_num.abs().max(1e-10);
             return rel_diff < 1e-5;
         }
-        
+
         false
     }
 }
@@ -105,7 +119,7 @@ impl RewardFunction for AccuracyReward {
         };
 
         let is_correct = self.compare_answers(response, gt);
-        
+
         let reward = if is_correct {
             self.reward_on_correct
         } else {
@@ -113,7 +127,7 @@ impl RewardFunction for AccuracyReward {
         };
 
         let total = if self.normalize { reward } else { reward };
-        
+
         RewardResult::new(total, is_correct)
     }
 
@@ -150,8 +164,9 @@ impl FormatReward {
 
     fn detect_format(&self, response: &str) -> FormatType {
         let trimmed = response.trim();
-        
-        if trimmed.starts_with("```json") || trimmed.starts_with("{\n") || trimmed.starts_with('{') {
+
+        if trimmed.starts_with("```json") || trimmed.starts_with("{\n") || trimmed.starts_with('{')
+        {
             return FormatType::Json;
         }
         if trimmed.starts_with("```xml") || trimmed.starts_with('<') {
@@ -160,13 +175,13 @@ impl FormatReward {
         if trimmed.starts_with("```") || trimmed.contains('\n') {
             return FormatType::Markdown;
         }
-        
+
         FormatType::Plain
     }
 
     fn matches_format(&self, response: &str) -> bool {
         let detected = self.detect_format(response);
-        
+
         match (&self.expected_format, &detected) {
             (FormatType::Markdown, FormatType::Markdown) => true,
             (FormatType::Json, FormatType::Json) => true,
@@ -180,13 +195,13 @@ impl FormatReward {
 impl RewardFunction for FormatReward {
     fn compute(&self, response: &str, _prompt: &str, _ground_truth: Option<&str>) -> RewardResult {
         let matches = self.matches_format(response);
-        
+
         let reward = if matches {
             self.reward_on_match
         } else {
             self.reward_on_mismatch
         };
-        
+
         RewardResult::new(reward, matches)
     }
 
@@ -226,14 +241,14 @@ impl RewardFunction for CompositeReward {
         for (func, weight) in self.rewards.iter().zip(self.weights.iter()) {
             let result = func.compute(response, prompt, ground_truth);
             total += result.total_reward * weight;
-            
+
             if func.name() == "accuracy" {
                 accuracy = result.total_reward;
                 is_correct = result.is_correct;
             } else if func.name() == "format" {
                 format = result.total_reward;
             }
-            
+
             details.insert(func.name().to_string(), result.total_reward);
         }
 
@@ -254,15 +269,16 @@ impl RewardFunction for CompositeReward {
 #[allow(dead_code)]
 impl CompositeReward {
     pub fn simple_accuracy() -> Self {
-        Self::from_functions(vec![
-            (Box::new(AccuracyReward::new(1.0, 0.0, false)), 1.0),
-        ])
+        Self::from_functions(vec![(Box::new(AccuracyReward::new(1.0, 0.0, false)), 1.0)])
     }
 
     pub fn with_format() -> Self {
         Self::from_functions(vec![
             (Box::new(AccuracyReward::new(1.0, 0.0, false)), 0.9),
-            (Box::new(FormatReward::new(FormatType::Markdown, 0.1, 0.0)), 0.1),
+            (
+                Box::new(FormatReward::new(FormatType::Markdown, 0.1, 0.0)),
+                0.1,
+            ),
         ])
     }
 }
@@ -351,12 +367,12 @@ mod tests {
     fn test_format_reward_creation() {
         let reward = FormatReward::new(FormatType::Markdown, 0.5, -0.1);
         assert_eq!(reward.name(), "format");
-        
+
         // 测试奖励值计算
         let result = reward.compute("# Title\nContent", "prompt", None);
         assert!((result.total_reward - 0.5).abs() < 1e-6);
         assert!(result.is_correct);
-        
+
         // 测试格式不匹配的情况
         let result_mismatch = reward.compute("plain text", "prompt", None);
         assert!((result_mismatch.total_reward - (-0.1)).abs() < 1e-6);
@@ -378,7 +394,7 @@ mod tests {
     #[test]
     fn test_format_reward_json_detection() {
         let reward = FormatReward::new(FormatType::Json, 1.0, 0.0);
-        
+
         // 以{开头的JSON
         let json_response = "{\"key\": \"value\"}";
         let result1 = reward.compute(json_response, "", None);
@@ -394,7 +410,7 @@ mod tests {
     #[test]
     fn test_format_reward_xml_detection() {
         let reward = FormatReward::new(FormatType::Xml, 1.0, 0.0);
-        
+
         let xml_response = "<root><item>value</item></root>";
         let result = reward.compute(xml_response, "", None);
         assert!(result.is_correct);
@@ -405,7 +421,10 @@ mod tests {
     fn test_composite_reward_combination() {
         let composite = CompositeReward::from_functions(vec![
             (Box::new(AccuracyReward::new(1.0, 0.0, false)), 0.8),
-            (Box::new(FormatReward::new(FormatType::Markdown, 0.5, 0.0)), 0.2),
+            (
+                Box::new(FormatReward::new(FormatType::Markdown, 0.5, 0.0)),
+                0.2,
+            ),
         ]);
 
         let result = composite.compute("# Answer\n42", "question", Some("42"));
@@ -432,10 +451,10 @@ mod tests {
     #[test]
     fn test_composite_with_format() {
         let composite = CompositeReward::with_format();
-        
+
         // 应该包含accuracy和format两个组件
         let result = composite.compute("```\nanswer\n```", "prompt", Some("answer"));
-        
+
         // 验证details包含两个奖励函数的结果
         assert!(result.details.contains_key("accuracy"));
         assert!(result.details.contains_key("format"));
@@ -466,7 +485,7 @@ mod tests {
         // 测试包含 . - + 的字符串（应该保留）
         let response = "3.14-2+5";
         let normalized = reward.normalize_response(response);
-        
+
         // 应该保留字母数字、点、减号、加号
         assert!(normalized.contains('.'));
         assert!(normalized.contains('-'));
@@ -558,7 +577,7 @@ mod tests {
     #[test]
     fn test_format_reward_plain_detection() {
         let reward = FormatReward::new(FormatType::Plain, 1.0, 0.0);
-        
+
         // 纯文本（无换行、无特殊标记）
         let plain_text = "This is a simple plain text without any special formatting";
         let result = reward.compute(plain_text, "", None);
@@ -571,10 +590,17 @@ mod tests {
     fn test_composite_reward_details_completeness() {
         let composite = CompositeReward::from_functions(vec![
             (Box::new(AccuracyReward::new(1.0, -1.0, false)), 0.7),
-            (Box::new(FormatReward::new(FormatType::Json, 0.5, -0.2)), 0.3),
+            (
+                Box::new(FormatReward::new(FormatType::Json, 0.5, -0.2)),
+                0.3,
+            ),
         ]);
 
-        let result = composite.compute("{\"key\": \"value\"}", "prompt", Some("{\"key\": \"value\"}"));
+        let result = composite.compute(
+            "{\"key\": \"value\"}",
+            "prompt",
+            Some("{\"key\": \"value\"}"),
+        );
 
         // 验证 details 包含所有奖励函数的结果
         assert!(result.details.contains_key("accuracy"));
@@ -582,6 +608,10 @@ mod tests {
         assert_eq!(result.details.len(), 2);
 
         // 验证 accuracy_reward 和 format_reward 字段被正确设置
-        assert!(result.accuracy_reward != 0.0 || result.format_reward != 0.0 || result.total_reward != 0.0);
+        assert!(
+            result.accuracy_reward != 0.0
+                || result.format_reward != 0.0
+                || result.total_reward != 0.0
+        );
     }
 }

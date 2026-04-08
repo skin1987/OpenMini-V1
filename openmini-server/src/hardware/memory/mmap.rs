@@ -56,7 +56,7 @@ impl MmapFile {
         let file = File::open(path)?;
         Self::from_file(file)
     }
-    
+
     /// 从已打开的文件创建内存映射
     ///
     /// # 参数
@@ -74,22 +74,22 @@ impl MmapFile {
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         Ok(Self { mmap })
     }
-    
+
     /// 获取文件内容的字节切片
     pub fn as_slice(&self) -> &[u8] {
         &self.mmap
     }
-    
+
     /// 获取文件大小
     pub fn len(&self) -> usize {
         self.mmap.len()
     }
-    
+
     /// 检查文件是否为空
     pub fn is_empty(&self) -> bool {
         self.mmap.is_empty()
     }
-    
+
     /// 获取指定范围的数据
     ///
     /// # 参数
@@ -109,7 +109,7 @@ impl MmapFile {
 
 impl Deref for MmapFile {
     type Target = [u8];
-    
+
     fn deref(&self) -> &Self::Target {
         &self.mmap
     }
@@ -126,7 +126,7 @@ mod tests {
     fn test_open_from_path() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"Hello, mmap!").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).expect("应该成功打开文件");
         assert_eq!(mmap.len(), 12);
         assert!(!mmap.is_empty());
@@ -138,7 +138,7 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"test data").unwrap();
         let file_handle = file.reopen().unwrap();
-        
+
         let mmap = MmapFile::from_file(file_handle).expect("应该从文件对象创建成功");
         assert_eq!(mmap.len(), 9);
     }
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn test_empty_file() {
         let file = NamedTempFile::new().unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).expect("空文件也应该能打开");
         assert_eq!(mmap.len(), 0);
         assert!(mmap.is_empty());
@@ -160,7 +160,7 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         let data = b"Test content for slice";
         file.write_all(data).unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         assert_eq!(mmap.as_slice(), *data);
     }
@@ -170,7 +170,7 @@ mod tests {
     fn test_get_range_normal() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"0123456789").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         let range = mmap.get_range(2, 5).expect("应该获取到范围");
         assert_eq!(range, b"23456");
@@ -181,7 +181,7 @@ mod tests {
     fn test_get_range_from_start() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"abcdef").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         let range = mmap.get_range(0, 3).expect("应该能从头开始");
         assert_eq!(range, b"abc");
@@ -192,7 +192,7 @@ mod tests {
     fn test_get_range_zero_length() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"hello").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         let range = mmap.get_range(3, 0).expect("零长度范围应该有效");
         assert_eq!(range.len(), 0);
@@ -203,9 +203,9 @@ mod tests {
     fn test_get_range_out_of_bounds() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"short").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
-        
+
         // offset超出范围
         assert!(mmap.get_range(100, 1).is_none());
         // len超出范围
@@ -221,7 +221,7 @@ mod tests {
     fn test_deref_trait() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"deref test").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         // 通过Deref自动转换为&[u8]
         let slice: &[u8] = &*mmap;
@@ -243,10 +243,10 @@ mod tests {
         // 写入约16KB数据（远小于20KB限制）
         let data: Vec<u8> = (0..255).cycle().take(16384).collect();
         file.write_all(&data).unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         assert_eq!(mmap.len(), 16384);
-        
+
         // 验证不同位置的数据正确性
         assert_eq!(mmap.get_range(0, 256).unwrap(), &data[..256]);
         assert_eq!(mmap.get_range(8000, 1000).unwrap(), &data[8000..9000]);
@@ -261,7 +261,7 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         let data = b"Complete file content";
         file.write_all(data).unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         let full_content = mmap.get_range(0, data.len()).expect("应该能读取完整文件");
         assert_eq!(full_content, *data);
@@ -273,9 +273,11 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         let data = b"ABCDE";
         file.write_all(data).unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
-        let last_byte = mmap.get_range(data.len() - 1, 1).expect("应该能读取最后一个字节");
+        let last_byte = mmap
+            .get_range(data.len() - 1, 1)
+            .expect("应该能读取最后一个字节");
         assert_eq!(last_byte, b"E");
     }
 
@@ -284,7 +286,7 @@ mod tests {
     fn test_from_file_empty() {
         let file = NamedTempFile::new().unwrap();
         let file_handle = file.reopen().unwrap();
-        
+
         let mmap = MmapFile::from_file(file_handle).expect("空文件也应该能从file对象创建");
         assert_eq!(mmap.len(), 0);
         assert!(mmap.is_empty());
@@ -294,10 +296,10 @@ mod tests {
     #[test]
     fn test_deref_empty_file() {
         let file = NamedTempFile::new().unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
-        let slice: &[u8] = &*mmap;  // 通过Deref自动转换
-        
+        let slice: &[u8] = &*mmap; // 通过Deref自动转换
+
         assert_eq!(slice.len(), 0);
         assert!(slice.is_empty());
     }
@@ -306,10 +308,10 @@ mod tests {
     #[test]
     fn test_as_slice_empty_file() {
         let file = NamedTempFile::new().unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         let slice = mmap.as_slice();
-        
+
         assert_eq!(slice.len(), 0);
         assert!(slice.is_empty());
     }
@@ -321,13 +323,13 @@ mod tests {
         // 包含所有可能的字节值（0-255）
         let binary_data: Vec<u8> = (0..=255).collect();
         file.write_all(&binary_data).unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
-        assert_eq!(mmap.len(), 256);  // 0-255 共256个字节
-        
+        assert_eq!(mmap.len(), 256); // 0-255 共256个字节
+
         // 验证二进制数据完整性
         assert_eq!(mmap.as_slice(), binary_data.as_slice());
-        
+
         // 验证可以正确访问每个字节
         for (i, &byte) in mmap.as_slice().iter().enumerate() {
             assert_eq!(byte as usize, i, "Byte at index {} should equal {}", i, i);
@@ -339,7 +341,7 @@ mod tests {
     fn test_get_range_double_zero() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"data").unwrap();
-        
+
         let mmap = MmapFile::open(file.path()).unwrap();
         let range = mmap.get_range(0, 0).expect("offset=0, len=0 应该有效");
         assert_eq!(range.len(), 0);
@@ -350,12 +352,12 @@ mod tests {
     fn test_multiple_opens_independence() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(b"shared content").unwrap();
-        
+
         // 多次打开同一文件，应该是独立的MmapFile实例
         let mmap1 = MmapFile::open(file.path()).unwrap();
         let mmap2 = MmapFile::open(file.path()).unwrap();
         let mmap3 = MmapFile::from_file(file.reopen().unwrap()).unwrap();
-        
+
         // 所有实例都应该能独立访问相同的内容
         assert_eq!(mmap1.len(), mmap2.len());
         assert_eq!(mmap2.len(), mmap3.len());
@@ -367,11 +369,11 @@ mod tests {
     #[test]
     fn test_unicode_filename() {
         use std::path::PathBuf;
-        
+
         // 在临时目录中创建带中文的文件名
         let temp_dir = tempfile::tempdir().unwrap();
         let unicode_path = PathBuf::from(temp_dir.path()).join("测试文件.bin");
-        
+
         // 写入并读取
         {
             use std::fs::File;
@@ -379,10 +381,10 @@ mod tests {
             let mut f = File::create(&unicode_path).unwrap();
             f.write_all(b"unicode test").unwrap();
         }
-        
+
         let result = MmapFile::open(&unicode_path);
         assert!(result.is_ok(), "应该能打开Unicode文件名的文件");
-        
+
         let mmap = result.unwrap();
         assert_eq!(mmap.as_slice(), b"unicode test");
     }

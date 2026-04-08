@@ -212,11 +212,21 @@ pub struct HealthCheckResponse {
 // 默认值函数
 // ============================================================================
 
-fn default_max_tokens() -> i32 { 1024 }
-fn default_temperature() -> f32 { 0.7 }
-fn default_voice() -> String { "alloy".to_string() }
-fn default_language() -> String { "zh".to_string() }
-fn default_speed() -> f32 { 1.0 }
+fn default_max_tokens() -> i32 {
+    1024
+}
+fn default_temperature() -> f32 {
+    0.7
+}
+fn default_voice() -> String {
+    "alloy".to_string()
+}
+fn default_language() -> String {
+    "zh".to_string()
+}
+fn default_speed() -> f32 {
+    1.0
+}
 
 #[cfg(test)]
 mod tests {
@@ -236,7 +246,10 @@ mod tests {
     fn test_chat_completion_request_full() {
         let req = ChatCompletionRequest {
             session_id: Some("sess-123".to_string()),
-            messages: vec![ChatMessage { role: "user".to_string(), content: "Hi".to_string() }],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
             stream: true,
             max_tokens: 2048,
             temperature: 0.9,

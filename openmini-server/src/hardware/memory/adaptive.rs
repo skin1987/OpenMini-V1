@@ -20,7 +20,7 @@ use super::arena::Arena;
 use crate::hardware::scheduler::MemoryStrategy;
 
 /// 自适应内存管理器
-/// 
+///
 /// # 线程安全
 /// 此类型未实现内部同步。若需跨线程共享，请使用 `Mutex` 或 `RwLock` 包装。
 pub struct AdaptiveMemoryManager {
@@ -38,14 +38,14 @@ impl AdaptiveMemoryManager {
     /// 创建新的自适应内存管理器
     pub fn new(strategy: MemoryStrategy, total_memory_mb: usize) -> Self {
         let total_capacity = total_memory_mb * 1024 * 1024;
-        
+
         let arena_size = match strategy {
             MemoryStrategy::SmallArena => total_capacity / 4,
             MemoryStrategy::StandardArena => total_capacity / 2,
             MemoryStrategy::PagedAttention => total_capacity * 3 / 4,
             MemoryStrategy::Distributed => total_capacity,
         };
-        
+
         let arena = Some(Arena::new(arena_size));
         let kv_cache_size = match strategy {
             MemoryStrategy::SmallArena => total_capacity / 8,
@@ -53,7 +53,7 @@ impl AdaptiveMemoryManager {
             MemoryStrategy::PagedAttention => total_capacity / 2,
             MemoryStrategy::Distributed => total_capacity * 3 / 4,
         };
-        
+
         Self {
             strategy,
             arena,
@@ -61,16 +61,16 @@ impl AdaptiveMemoryManager {
             kv_cache_size,
         }
     }
-    
+
     /// 从调度器配置创建
-    /// 
+    ///
     /// # 参数说明
     /// - `config.memory`: 内存策略（MemoryStrategy 枚举）
     /// - `config.kv_cache_size`: KV Cache 大小，单位为 MB
-    /// 
+    ///
     /// # 内存计算
     /// 总内存 = kv_cache_size * 4（预留 4 倍空间用于其他开销）
-    /// 
+    ///
     /// # 示例
     /// ```
     /// let config = InferenceConfig {
@@ -86,46 +86,46 @@ impl AdaptiveMemoryManager {
         let total_memory_mb = config.kv_cache_size.saturating_mul(4);
         Self::new(config.memory, total_memory_mb)
     }
-    
+
     /// 获取当前策略
     pub fn strategy(&self) -> MemoryStrategy {
         self.strategy
     }
-    
+
     /// 获取 KV Cache 大小
     pub fn kv_cache_size(&self) -> usize {
         self.kv_cache_size
     }
-    
+
     /// 获取总容量
     pub fn total_capacity(&self) -> usize {
         self.total_capacity
     }
-    
+
     /// 分配内存
     pub fn alloc(&self, size: usize, align: usize) -> Option<*mut u8> {
         self.arena.as_ref()?.alloc(size, align)
     }
-    
+
     /// 重置内存
     pub fn reset(&self) {
         if let Some(ref arena) = self.arena {
             arena.reset();
         }
     }
-    
+
     /// 获取已使用内存
     pub fn used(&self) -> usize {
         self.arena.as_ref().map(|a| a.used()).unwrap_or(0)
     }
-    
+
     /// 获取可用内存
     pub fn available(&self) -> usize {
         self.arena.as_ref().map(|a| a.available()).unwrap_or(0)
     }
-    
+
     /// 动态调整策略
-    /// 
+    ///
     /// 注意：此方法会创建新的 Arena，应在系统初始化或确保所有分配已释放后调用。
     /// 如果之前有未释放的分配，这些内存将无法再访问。
     pub fn adjust_strategy(&mut self, available_memory_mb: usize) {
@@ -138,30 +138,30 @@ impl AdaptiveMemoryManager {
         } else {
             MemoryStrategy::Distributed
         };
-        
+
         if new_strategy != self.strategy {
             // 先重置旧 Arena，释放资源
             if let Some(ref arena) = self.arena {
                 arena.reset();
             }
-            
+
             self.strategy = new_strategy;
             let total_capacity = available_memory_mb * 1024 * 1024;
-            
+
             let arena_size = match new_strategy {
                 MemoryStrategy::SmallArena => total_capacity / 4,
                 MemoryStrategy::StandardArena => total_capacity / 2,
                 MemoryStrategy::PagedAttention => total_capacity * 3 / 4,
                 MemoryStrategy::Distributed => total_capacity,
             };
-            
+
             let kv_cache_size = match new_strategy {
                 MemoryStrategy::SmallArena => total_capacity / 8,
                 MemoryStrategy::StandardArena => total_capacity / 4,
                 MemoryStrategy::PagedAttention => total_capacity / 2,
                 MemoryStrategy::Distributed => total_capacity * 3 / 4,
             };
-            
+
             self.arena = Some(Arena::new(arena_size));
             self.total_capacity = total_capacity;
             self.kv_cache_size = kv_cache_size;
@@ -184,83 +184,89 @@ impl std::fmt::Debug for AdaptiveMemoryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_small_arena_strategy() {
         let manager = AdaptiveMemoryManager::new(MemoryStrategy::SmallArena, 512);
         assert_eq!(manager.strategy(), MemoryStrategy::SmallArena);
         assert!(manager.kv_cache_size() > 0);
     }
-    
+
     #[test]
     fn test_standard_arena_strategy() {
         let manager = AdaptiveMemoryManager::new(MemoryStrategy::StandardArena, 2048);
         assert_eq!(manager.strategy(), MemoryStrategy::StandardArena);
     }
-    
+
     #[test]
     fn test_paged_attention_strategy() {
         let manager = AdaptiveMemoryManager::new(MemoryStrategy::PagedAttention, 8192);
         assert_eq!(manager.strategy(), MemoryStrategy::PagedAttention);
     }
-    
+
     #[test]
     fn test_memory_allocation() {
         let manager = AdaptiveMemoryManager::new(MemoryStrategy::StandardArena, 1024);
         let ptr = manager.alloc(1024, 8);
         assert!(ptr.is_some());
     }
-    
+
     #[test]
     fn test_strategy_adjustment() {
         let mut manager = AdaptiveMemoryManager::new(MemoryStrategy::StandardArena, 2048);
         manager.adjust_strategy(512);
         assert_eq!(manager.strategy(), MemoryStrategy::SmallArena);
-        
+
         manager.adjust_strategy(8192);
         assert_eq!(manager.strategy(), MemoryStrategy::PagedAttention);
     }
-    
+
     #[test]
     fn test_distributed_strategy() {
         let mut manager = AdaptiveMemoryManager::new(MemoryStrategy::PagedAttention, 8192);
         manager.adjust_strategy(16384);
         assert_eq!(manager.strategy(), MemoryStrategy::Distributed);
     }
-    
+
     #[test]
     fn test_kv_cache_size_sync_on_adjust() {
         let mut manager = AdaptiveMemoryManager::new(MemoryStrategy::SmallArena, 512);
         let initial_kv = manager.kv_cache_size();
-        
+
         manager.adjust_strategy(8192);
         let new_kv = manager.kv_cache_size();
-        
+
         // PagedAttention 策略的 kv_cache_size 应该是 total_capacity / 2
         // total_capacity = 8192 * 1024 * 1024 = 8GB
         // kv_cache_size = 4GB
         assert!(new_kv > initial_kv, "KV cache size should increase");
         assert_eq!(new_kv, 8192 * 1024 * 1024 / 2);
     }
-    
+
     #[test]
     fn test_arena_reset_on_strategy_change() {
         let mut manager = AdaptiveMemoryManager::new(MemoryStrategy::StandardArena, 2048);
-        
+
         // 分配一些内存
         let ptr = manager.alloc(1024, 8);
         assert!(ptr.is_some());
         assert!(manager.used() > 0);
-        
+
         // 调整策略应该重置 Arena
         manager.adjust_strategy(512);
-        assert_eq!(manager.used(), 0, "Arena should be reset after strategy change");
+        assert_eq!(
+            manager.used(),
+            0,
+            "Arena should be reset after strategy change"
+        );
     }
-    
+
     #[test]
     fn test_saturating_mul_in_from_config() {
-        use crate::hardware::scheduler::{InferenceConfig, ScheduleStrategy, AttentionStrategy, ParallelStrategy};
-        
+        use crate::hardware::scheduler::{
+            AttentionStrategy, InferenceConfig, ParallelStrategy, ScheduleStrategy,
+        };
+
         let config = InferenceConfig {
             strategy: ScheduleStrategy::Standard,
             attention: AttentionStrategy::Standard,
@@ -272,7 +278,7 @@ mod tests {
             kv_cache_size: 1024, // 1GB
             batch_size: 32,
         };
-        
+
         let manager = AdaptiveMemoryManager::from_scheduler_config(&config);
         // 总内存 = 1024 * 4 = 4096 MB
         assert_eq!(manager.total_capacity(), 4096 * 1024 * 1024);
@@ -335,7 +341,11 @@ mod tests {
         manager.adjust_strategy(3000); // 3000 在 [1024, 4096) => StandardArena
         assert_eq!(manager.strategy(), MemoryStrategy::StandardArena);
         // 因为策略没变，Arena 不应被重置
-        assert_eq!(manager.used(), used_before, "Same strategy should not reset arena");
+        assert_eq!(
+            manager.used(),
+            used_before,
+            "Same strategy should not reset arena"
+        );
     }
 
     /// 测试各策略的 arena 和 kv_cache_size 比例关系
@@ -373,7 +383,10 @@ mod tests {
         manager.reset();
         assert_eq!(manager.used(), 0);
         // 可用内存应该恢复（至少接近原始值，考虑对齐）
-        assert!(manager.available() >= avail_before - 16, "Available should be restored after reset");
+        assert!(
+            manager.available() >= avail_before - 16,
+            "Available should be restored after reset"
+        );
     }
 
     /// 测试 alloc/used/available 联动一致性
@@ -412,7 +425,9 @@ mod tests {
     /// 测试 from_scheduler_config 的 saturating_mul 溢出保护
     #[test]
     fn test_from_config_saturating_overflow_protection() {
-        use crate::hardware::scheduler::{InferenceConfig, ScheduleStrategy, AttentionStrategy, ParallelStrategy};
+        use crate::hardware::scheduler::{
+            AttentionStrategy, InferenceConfig, ParallelStrategy, ScheduleStrategy,
+        };
 
         let config = InferenceConfig {
             strategy: ScheduleStrategy::Standard,
@@ -442,6 +457,9 @@ mod tests {
 
         // 应该能进行小量分配
         let ptr = manager.alloc(64, 8);
-        assert!(ptr.is_some(), "Should be able to allocate in minimum config");
+        assert!(
+            ptr.is_some(),
+            "Should be able to allocate in minimum config"
+        );
     }
 }

@@ -18,9 +18,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    opts, register_int_counter_vec, register_histogram_vec, register_gauge,
-    register_int_counter, register_histogram, IntCounterVec, HistogramVec,
-    IntCounter, Histogram, Gauge,
+    opts, register_gauge, register_histogram, register_histogram_vec, register_int_counter,
+    register_int_counter_vec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
 
 // ============================================================================
@@ -36,7 +35,8 @@ pub static INFERENCE_REQUESTS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
         "openmini_inference_requests_total",
         "Total number of inference requests",
         &["model_name", "status"]
-    ).expect("Cannot register inference_requests_total counter")
+    )
+    .expect("Cannot register inference_requests_total counter")
 });
 
 /// 推理延迟直方图 (ms)
@@ -50,43 +50,41 @@ pub static INFERENCE_LATENCY_HISTOGRAM: Lazy<HistogramVec> = Lazy::new(|| {
         "Inference latency in milliseconds",
         &["model_name", "quantization", "backend"],
         vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0]
-    ).expect("Cannot register inference_latency histogram")
+    )
+    .expect("Cannot register inference_latency histogram")
 });
 
 /// Token生成吞吐量 (tokens/second)
 ///
 /// 实时记录当前token生成速率。
 pub static TOKEN_THROUGHPUT: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_token_throughput",
-            "Token generation throughput in tokens per second"
-        )
-    ).expect("Cannot register token_throughput gauge")
+    register_gauge!(opts!(
+        "openmini_token_throughput",
+        "Token generation throughput in tokens per second"
+    ))
+    .expect("Cannot register token_throughput gauge")
 });
 
 /// 活跃请求数
 ///
 /// 当前正在处理的推理请求数量。
 pub static ACTIVE_REQUESTS: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_active_requests",
-            "Number of currently active inference requests"
-        )
-    ).expect("Cannot register active_requests gauge")
+    register_gauge!(opts!(
+        "openmini_active_requests",
+        "Number of currently active inference requests"
+    ))
+    .expect("Cannot register active_requests gauge")
 });
 
 /// 批处理大小分布
 ///
 /// 当前批处理中的请求数量。
 pub static BATCH_SIZE: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_batch_size",
-            "Current batch size for inference"
-        )
-    ).expect("Cannot register batch_size gauge")
+    register_gauge!(opts!(
+        "openmini_batch_size",
+        "Current batch size for inference"
+    ))
+    .expect("Cannot register batch_size gauge")
 });
 
 // ============================================================================
@@ -97,60 +95,55 @@ pub static BATCH_SIZE: Lazy<Gauge> = Lazy::new(|| {
 ///
 /// 实时GPU计算单元利用率，范围 0-100。
 pub static GPU_UTILIZATION: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_gpu_utilization_percent",
-            "GPU utilization percentage (0-100)"
-        )
-    ).expect("Cannot register gpu_utilization gauge")
+    register_gauge!(opts!(
+        "openmini_gpu_utilization_percent",
+        "GPU utilization percentage (0-100)"
+    ))
+    .expect("Cannot register gpu_utilization gauge")
 });
 
 /// GPU显存使用 (bytes)
 ///
 /// 当前GPU显存使用量（字节）。
 pub static GPU_MEMORY_USED: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_gpu_memory_used_bytes",
-            "GPU memory used in bytes"
-        )
-    ).expect("Cannot register gpu_memory_used gauge")
+    register_gauge!(opts!(
+        "openmini_gpu_memory_used_bytes",
+        "GPU memory used in bytes"
+    ))
+    .expect("Cannot register gpu_memory_used gauge")
 });
 
 /// CPU使用率 (%)
 ///
 /// CPU整体使用率，范围 0-100。
 pub static CPU_USAGE: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_cpu_usage_percent",
-            "CPU usage percentage (0-100)"
-        )
-    ).expect("Cannot register cpu_usage gauge")
+    register_gauge!(opts!(
+        "openmini_cpu_usage_percent",
+        "CPU usage percentage (0-100)"
+    ))
+    .expect("Cannot register cpu_usage gauge")
 });
 
 /// 内存使用量 (bytes)
 ///
 /// 进程当前内存使用量（字节）。
 pub static MEMORY_USED: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_memory_used_bytes",
-            "Memory used by the process in bytes"
-        )
-    ).expect("Cannot register memory_used gauge")
+    register_gauge!(opts!(
+        "openmini_memory_used_bytes",
+        "Memory used by the process in bytes"
+    ))
+    .expect("Cannot register memory_used gauge")
 });
 
 /// KV Cache大小 (bytes)
 ///
 /// KV Cache占用的总内存（字节）。
 pub static KV_CACHE_SIZE: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_kv_cache_size_bytes",
-            "Total KV cache size in bytes"
-        )
-    ).expect("Cannot register kv_cache_size gauge")
+    register_gauge!(opts!(
+        "openmini_kv_cache_size_bytes",
+        "Total KV cache size in bytes"
+    ))
+    .expect("Cannot register kv_cache_size gauge")
 });
 
 // ============================================================================
@@ -165,7 +158,8 @@ pub static DSA_TOP_K_LATENCY: Lazy<Histogram> = Lazy::new(|| {
         "openmini_dsa_top_k_latency_us",
         "DSA Top-K selection latency in microseconds",
         vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
-    ).expect("Cannot register dsa_top_k_latency histogram")
+    )
+    .expect("Cannot register dsa_top_k_latency histogram")
 });
 
 /// 反量化操作计数
@@ -175,19 +169,19 @@ pub static DEQUANTIZE_OPS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     register_int_counter!(
         "openmini_dequantize_ops_total",
         "Total number of dequantize operations"
-    ).expect("Cannot register dequantize_ops_total counter")
+    )
+    .expect("Cannot register dequantize_ops_total counter")
 });
 
 /// 反量化吞吐量 (elements/second)
 ///
 /// 反量化操作的处理速率。
 pub static DEQUANTIZE_THROUGHPUT: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_dequantize_throughput",
-            "Dequantize throughput in elements per second"
-        )
-    ).expect("Cannot register dequantize_throughput gauge")
+    register_gauge!(opts!(
+        "openmini_dequantize_throughput",
+        "Dequantize throughput in elements per second"
+    ))
+    .expect("Cannot register dequantize_throughput gauge")
 });
 
 // ============================================================================
@@ -198,12 +192,11 @@ pub static DEQUANTIZE_THROUGHPUT: Lazy<Gauge> = Lazy::new(|| {
 ///
 /// 等待调度的请求数量。
 pub static SCHEDULER_QUEUE_LENGTH: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_scheduler_queue_length",
-            "Number of requests waiting in scheduler queue"
-        )
-    ).expect("Cannot register scheduler_queue_length gauge")
+    register_gauge!(opts!(
+        "openmini_scheduler_queue_length",
+        "Number of requests waiting in scheduler queue"
+    ))
+    .expect("Cannot register scheduler_queue_length gauge")
 });
 
 /// 抢占次数
@@ -213,19 +206,19 @@ pub static PREEMPTIONS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     register_int_counter!(
         "openmini_preemptions_total",
         "Total number of request preemptions"
-    ).expect("Cannot register preemptions_total counter")
+    )
+    .expect("Cannot register preemptions_total counter")
 });
 
 /// 平均等待时间 (ms)
 ///
 /// 请求在调度队列中的平均等待时间。
 pub static AVG_WAIT_TIME: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!(
-        opts!(
-            "openmini_avg_wait_time_ms",
-            "Average wait time in scheduler queue (milliseconds)"
-        )
-    ).expect("Cannot register avg_wait_time gauge")
+    register_gauge!(opts!(
+        "openmini_avg_wait_time_ms",
+        "Average wait time in scheduler queue (milliseconds)"
+    ))
+    .expect("Cannot register avg_wait_time gauge")
 });
 
 // ============================================================================
@@ -418,7 +411,10 @@ mod tests {
         // 验证指标可以被正常操作
         DEQUANTIZE_OPS_TOTAL.inc();
         let ops_after = DEQUANTIZE_OPS_TOTAL.get();
-        assert!(ops_after > _ops_before, "Counter should increase after inc()");
+        assert!(
+            ops_after > _ops_before,
+            "Counter should increase after inc()"
+        );
 
         DEQUANTIZE_THROUGHPUT.set(999.0);
         assert!((DEQUANTIZE_THROUGHPUT.get() - 999.0).abs() < 0.01);
@@ -444,13 +440,7 @@ mod tests {
         assert!((ACTIVE_REQUESTS.get() - (active_before + 1.0)).abs() < 0.001);
 
         // 完成推理
-        record_inference_complete(
-            "test-model",
-            true,
-            50.5,
-            "q4_0",
-            "metal",
-        );
+        record_inference_complete("test-model", true, 50.5, "q4_0", "metal");
         // 验证活跃请求数回到基准值（start和complete配对）
         assert!((ACTIVE_REQUESTS.get() - active_before).abs() < 0.001);
 
@@ -469,11 +459,24 @@ mod tests {
         update_gpu_metrics(test_value, test_memory as u64);
         // 验证值被设置（由于全局状态共享，使用较宽松的检查）
         let gpu_val = GPU_UTILIZATION.get();
-        assert!(gpu_val > 0.0, "GPU utilization should be positive, got {}", gpu_val);
-        assert!((gpu_val - test_value).abs() < 1.0, "GPU utilization should be close to {}, got {}", test_value, gpu_val);
+        assert!(
+            gpu_val > 0.0,
+            "GPU utilization should be positive, got {}",
+            gpu_val
+        );
+        assert!(
+            (gpu_val - test_value).abs() < 1.0,
+            "GPU utilization should be close to {}, got {}",
+            test_value,
+            gpu_val
+        );
 
         let mem_val = GPU_MEMORY_USED.get();
-        assert!(mem_val > 0.0, "GPU memory should be positive, got {}", mem_val);
+        assert!(
+            mem_val > 0.0,
+            "GPU memory should be positive, got {}",
+            mem_val
+        );
     }
 
     /// 测试系统指标更新
@@ -562,10 +565,10 @@ mod tests {
         // 观察不同范围的延迟值
         INFERENCE_LATENCY_HISTOGRAM
             .with_label_values(&["model-x", "q4_0", "cpu"])
-            .observe(0.5);   // < 1ms bucket
+            .observe(0.5); // < 1ms bucket
         INFERENCE_LATENCY_HISTOGRAM
             .with_label_values(&["model-x", "q4_0", "cpu"])
-            .observe(15.0);  // 10-25ms bucket
+            .observe(15.0); // 10-25ms bucket
         INFERENCE_LATENCY_HISTOGRAM
             .with_label_values(&["model-x", "q4_0", "cpu"])
             .observe(3000.0); // > 2500ms bucket
@@ -609,7 +612,7 @@ mod tests {
     fn test_counter_inc_by_multiple() {
         // 测试批量增加计数器
         let initial = DEQUANTIZE_OPS_TOTAL.get();
-        
+
         // 使用多次inc来模拟批量增加
         for _ in 0..10 {
             DEQUANTIZE_OPS_TOTAL.inc();
@@ -643,18 +646,26 @@ mod tests {
             .with_label_values(&["test-model-2", "error"])
             .get();
 
-        assert!(success_count >= 1, "Success count should be at least 1, got {}", success_count);
-        assert!(error_count >= 1, "Error count should be at least 1, got {}", error_count);
+        assert!(
+            success_count >= 1,
+            "Success count should be at least 1, got {}",
+            success_count
+        );
+        assert!(
+            error_count >= 1,
+            "Error count should be at least 1, got {}",
+            error_count
+        );
     }
 
     #[test]
     fn test_dsa_latency_histogram_observation() {
         // 测试DSA延迟直方图观察各种微秒级延迟
-        DSA_TOP_K_LATENCY.observe(0.5);   // < 1μs
-        DSA_TOP_K_LATENCY.observe(5.0);   // 5μs
-        DSA_TOP_K_LATENCY.observe(50.0);  // 50μs
+        DSA_TOP_K_LATENCY.observe(0.5); // < 1μs
+        DSA_TOP_K_LATENCY.observe(5.0); // 5μs
+        DSA_TOP_K_LATENCY.observe(50.0); // 50μs
         DSA_TOP_K_LATENCY.observe(500.0); // 500μs
-        
+
         // 验证没有panic即可（实际值通过prometheus格式验证）
     }
 
@@ -674,7 +685,7 @@ mod tests {
         // Gauge应该覆盖之前的值
         assert!((TOKEN_THROUGHPUT.get() - 200.0).abs() < 0.01);
         assert!((BATCH_SIZE.get() - 8.0).abs() < 0.01);
-        
+
         // 确认之前的不同
         assert!((throughput_before - 100.0).abs() < 0.01);
         assert!((batch_before - 4.0).abs() < 0.01);

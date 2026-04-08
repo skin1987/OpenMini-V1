@@ -364,10 +364,8 @@ impl Tokenizer {
         // 以及扩展 Latin-1 字符: ¡ (161) 到 ¬ (172) 和 ® (174) 到 ÿ (255)
         let mut n = 0;
         for b in 0u8..=255 {
-            let is_printable = (b'!'..=b'~').contains(&b)
-                || (161..=172).contains(&b)
-                || b >= 174;
-            
+            let is_printable = (b'!'..=b'~').contains(&b) || (161..=172).contains(&b) || b >= 174;
+
             if is_printable {
                 byte_encoder.insert(b, b as char);
                 byte_decoder.insert(b as char, b);
@@ -440,7 +438,9 @@ impl Tokenizer {
         let mut tokenizer = Self::new();
 
         // 加载词表大小
-        let vocab_size = gguf.metadata.get_u64("general.vocab_size")
+        let vocab_size = gguf
+            .metadata
+            .get_u64("general.vocab_size")
             .unwrap_or(VOCAB_SIZE as u64) as usize;
         tokenizer.vocab_size = vocab_size;
 
@@ -470,7 +470,9 @@ impl Tokenizer {
         }
 
         // 加载额外添加的特殊 Token
-        if let Some(GgufValue::Array(special_tokens)) = gguf.metadata.kv.get("tokenizer.ggml.added_tokens") {
+        if let Some(GgufValue::Array(special_tokens)) =
+            gguf.metadata.kv.get("tokenizer.ggml.added_tokens")
+        {
             for (id, token_value) in special_tokens.iter().enumerate() {
                 if let GgufValue::String(token) = token_value {
                     let token_id = id as u32;
@@ -547,8 +549,12 @@ impl Tokenizer {
         // 加载添加的特殊 Token
         if let Some(added_tokens) = tokenizer_json.added_tokens {
             for token in added_tokens {
-                tokenizer.special_tokens.insert(token.content.clone(), token.id);
-                tokenizer.special_token_ids.insert(token.id, token.content.clone());
+                tokenizer
+                    .special_tokens
+                    .insert(token.content.clone(), token.id);
+                tokenizer
+                    .special_token_ids
+                    .insert(token.id, token.content.clone());
             }
         }
 
@@ -607,7 +613,7 @@ impl Tokenizer {
         // 循环处理文本，优先匹配特殊 Token
         while !remaining.is_empty() {
             let mut found_special = false;
-            
+
             // 查找最早出现的特殊 Token
             let mut earliest_pos = usize::MAX;
             let mut earliest_token = String::new();
@@ -735,15 +741,15 @@ impl Tokenizer {
 
         while i < chars.len() {
             let mut matched = false;
-            
+
             // 从剩余字符开始，尝试最长匹配
             let remaining: String = chars[i..].iter().collect();
             let remaining_chars: Vec<char> = remaining.chars().collect();
-            
+
             // 尝试从长到短匹配（按字符数，而非字节数）
             for char_len in (1..=remaining_chars.len()).rev() {
                 let substr: String = remaining_chars[..char_len].iter().collect();
-                
+
                 if let Some(&token_id) = self.vocab.get(&substr) {
                     tokens.push(token_id);
                     i += char_len;
@@ -751,7 +757,7 @@ impl Tokenizer {
                     break;
                 }
             }
-            
+
             if !matched {
                 // 未找到匹配，使用 unk token
                 tokens.push(self.unk_token_id);
@@ -910,7 +916,9 @@ impl Tokenizer {
     /// # Returns
     /// Token ID（如果存在）
     pub fn get_token_id(&self, token: &str) -> Option<u32> {
-        self.vocab.get(token).copied()
+        self.vocab
+            .get(token)
+            .copied()
             .or_else(|| self.special_tokens.get(token).copied())
     }
 
@@ -922,7 +930,9 @@ impl Tokenizer {
     /// # Returns
     /// Token 字符串（如果存在）
     pub fn get_token(&self, id: u32) -> Option<&str> {
-        self.id_to_token.get(&id).map(|s| s.as_str())
+        self.id_to_token
+            .get(&id)
+            .map(|s| s.as_str())
             .or_else(|| self.special_token_ids.get(&id).map(|s| s.as_str()))
     }
 
@@ -977,7 +987,8 @@ impl Tokenizer {
         let mut encodings = Vec::new();
 
         for text in texts {
-            let encoding = self.encode_with_options(text, add_special_tokens, max_length, padding)?;
+            let encoding =
+                self.encode_with_options(text, add_special_tokens, max_length, padding)?;
             encodings.push(encoding);
         }
 
@@ -1030,9 +1041,15 @@ mod tests {
     fn test_special_tokens() {
         let tokenizer = Tokenizer::new();
         assert_eq!(tokenizer.get_token_id(IMAGE_TOKEN), Some(IMAGE_TOKEN_ID));
-        assert_eq!(tokenizer.get_token_id(IM_START_TOKEN), Some(IM_START_TOKEN_ID));
+        assert_eq!(
+            tokenizer.get_token_id(IM_START_TOKEN),
+            Some(IM_START_TOKEN_ID)
+        );
         assert_eq!(tokenizer.get_token_id(IM_END_TOKEN), Some(IM_END_TOKEN_ID));
-        assert_eq!(tokenizer.get_token_id(IM_PATCH_TOKEN), Some(IM_PATCH_TOKEN_ID));
+        assert_eq!(
+            tokenizer.get_token_id(IM_PATCH_TOKEN),
+            Some(IM_PATCH_TOKEN_ID)
+        );
         assert_eq!(tokenizer.get_token_id(UNK_TOKEN), Some(UNK_TOKEN_ID));
         assert_eq!(tokenizer.get_token_id(PAD_TOKEN), Some(PAD_TOKEN_ID));
     }
@@ -1064,14 +1081,18 @@ mod tests {
     #[test]
     fn test_decode_skip_special_tokens() {
         let tokenizer = Tokenizer::new();
-        let result = tokenizer.decode_with_options(&[IMAGE_TOKEN_ID], true, true).unwrap();
+        let result = tokenizer
+            .decode_with_options(&[IMAGE_TOKEN_ID], true, true)
+            .unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_decode_skip_pad() {
         let tokenizer = Tokenizer::new();
-        let result = tokenizer.decode_with_options(&[PAD_TOKEN_ID, PAD_TOKEN_ID], false, true).unwrap();
+        let result = tokenizer
+            .decode_with_options(&[PAD_TOKEN_ID, PAD_TOKEN_ID], false, true)
+            .unwrap();
         assert!(result.is_empty());
     }
 
@@ -1108,7 +1129,9 @@ mod tests {
     #[test]
     fn test_decode_multiple_special_tokens() {
         let tokenizer = Tokenizer::new();
-        let result = tokenizer.decode(&[IM_START_TOKEN_ID, IM_PATCH_TOKEN_ID, IM_END_TOKEN_ID]).unwrap();
+        let result = tokenizer
+            .decode(&[IM_START_TOKEN_ID, IM_PATCH_TOKEN_ID, IM_END_TOKEN_ID])
+            .unwrap();
         assert!(result.contains(IM_START_TOKEN));
         assert!(result.contains(IM_PATCH_TOKEN));
         assert!(result.contains(IM_END_TOKEN));
@@ -1151,7 +1174,7 @@ mod tests {
         let mut tokenizer = Tokenizer::new();
         tokenizer.add_token("hello", 100);
         tokenizer.add_token("world", 101);
-        
+
         let result = tokenizer.encode("hello world").unwrap();
         assert!(!result.is_empty());
     }
@@ -1177,19 +1200,19 @@ mod tests {
     #[test]
     fn test_tokenizer_encode_decode_roundtrip() {
         let mut tokenizer = Tokenizer::new();
-        
+
         // 构建简单词表
         tokenizer.add_token("hello", 100);
         tokenizer.add_token("world", 101);
         tokenizer.add_token(" ", 102);
-        
+
         // 编码
         let tokens = tokenizer.encode("hello world").unwrap();
         assert!(!tokens.is_empty());
-        
+
         // 解码
         let decoded = tokenizer.decode(&tokens).unwrap();
-        
+
         // 验证包含原始文本
         assert!(decoded.contains("hello"));
         assert!(decoded.contains("world"));
@@ -1198,17 +1221,17 @@ mod tests {
     #[test]
     fn test_tokenizer_bpe_merge_rules() {
         let mut tokenizer = Tokenizer::new();
-        
+
         // 模拟 BPE 合并规则
         tokenizer.add_token("h", 1);
         tokenizer.add_token("e", 2);
         tokenizer.add_token("l", 3);
         tokenizer.add_token("o", 4);
         tokenizer.add_token("he", 10);
-        
+
         // 添加合并规则: "h" + "e" -> "he"
         tokenizer.build_bpe_index(&[("h".to_string(), "e".to_string())]);
-        
+
         let tokens = tokenizer.encode("hello").unwrap();
         // 应该能识别 "he" 这个合并 token
         assert!(!tokens.is_empty());
@@ -1218,29 +1241,43 @@ mod tests {
     fn test_encode_with_options() {
         let mut tokenizer = Tokenizer::new();
         tokenizer.add_token("test", 100);
-        
+
         // 测试添加特殊 token
-        let encoding = tokenizer.encode_with_options("test", true, Some(10), true).unwrap();
+        let encoding = tokenizer
+            .encode_with_options("test", true, Some(10), true)
+            .unwrap();
         assert!(encoding.input_ids.starts_with(&[BOS_TOKEN_ID]));
         assert!(encoding.input_ids.contains(&100));
         assert!(encoding.input_ids.contains(&EOS_TOKEN_ID));
-        
+
         // 验证 attention mask
-        assert!(encoding.attention_mask.iter().all(|&m| m == 1 || encoding.input_ids[encoding.attention_mask.iter().position(|&x| x == 0).unwrap_or(0)] == PAD_TOKEN_ID));
+        assert!(encoding.attention_mask.iter().all(|&m| m == 1
+            || encoding.input_ids[encoding
+                .attention_mask
+                .iter()
+                .position(|&x| x == 0)
+                .unwrap_or(0)]
+                == PAD_TOKEN_ID));
     }
 
     #[test]
     fn test_encode_with_padding() {
         let mut tokenizer = Tokenizer::new();
         tokenizer.add_token("a", 100);
-        
-        let encoding = tokenizer.encode_with_options("a", false, Some(10), true).unwrap();
+
+        let encoding = tokenizer
+            .encode_with_options("a", false, Some(10), true)
+            .unwrap();
         assert_eq!(encoding.len(), 10);
-        
+
         // 验证填充
-        let pad_count = encoding.input_ids.iter().filter(|&&id| id == PAD_TOKEN_ID).count();
+        let pad_count = encoding
+            .input_ids
+            .iter()
+            .filter(|&&id| id == PAD_TOKEN_ID)
+            .count();
         assert!(pad_count > 0);
-        
+
         // 验证 attention mask
         let valid_count = encoding.attention_mask.iter().filter(|&&m| m == 1).count();
         let pad_mask_count = encoding.attention_mask.iter().filter(|&&m| m == 0).count();
@@ -1254,8 +1291,15 @@ mod tests {
         for i in 0..20 {
             tokenizer.add_token(&format!("t{}", i), 100 + i as u32);
         }
-        
-        let encoding = tokenizer.encode_with_options("t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16 t17 t18 t19", false, Some(5), false).unwrap();
+
+        let encoding = tokenizer
+            .encode_with_options(
+                "t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15 t16 t17 t18 t19",
+                false,
+                Some(5),
+                false,
+            )
+            .unwrap();
         assert_eq!(encoding.len(), 5);
     }
 
@@ -1264,10 +1308,10 @@ mod tests {
         let mut tokenizer = Tokenizer::new();
         tokenizer.add_token("a", 100);
         tokenizer.add_token("b", 101);
-        
+
         let texts = vec!["a", "b", "a b"];
         let encodings = tokenizer.batch_encode(&texts, false, None, false).unwrap();
-        
+
         assert_eq!(encodings.len(), 3);
         assert!(encodings[0].input_ids.contains(&100));
         assert!(encodings[1].input_ids.contains(&101));
@@ -1276,12 +1320,12 @@ mod tests {
     #[test]
     fn test_batch_decode() {
         let tokenizer = Tokenizer::new();
-        
+
         let batch_ids = vec![
             vec![IMAGE_TOKEN_ID],
             vec![IM_START_TOKEN_ID, IM_END_TOKEN_ID],
         ];
-        
+
         let results = tokenizer.batch_decode(&batch_ids, false).unwrap();
         assert_eq!(results.len(), 2);
         assert!(results[0].contains(IMAGE_TOKEN));
@@ -1290,11 +1334,11 @@ mod tests {
     #[test]
     fn test_byte_maps() {
         let tokenizer = Tokenizer::new();
-        
+
         // 验证字节映射完整性
         assert_eq!(tokenizer.byte_encoder.len(), 256);
         assert_eq!(tokenizer.byte_decoder.len(), 256);
-        
+
         // 验证可打印字符映射
         for b in b'!'..=b'~' {
             assert_eq!(tokenizer.byte_encoder[&b], b as char);
@@ -1304,12 +1348,12 @@ mod tests {
     #[test]
     fn test_set_token_ids() {
         let mut tokenizer = Tokenizer::new();
-        
+
         tokenizer.set_bos_token_id(1);
         tokenizer.set_eos_token_id(2);
         tokenizer.set_pad_token_id(3);
         tokenizer.set_unk_token_id(4);
-        
+
         assert_eq!(tokenizer.bos_token_id(), 1);
         assert_eq!(tokenizer.eos_token_id(), 2);
         assert_eq!(tokenizer.pad_token_id(), 3);
@@ -1321,7 +1365,7 @@ mod tests {
         let encoding = Encoding::new(vec![1, 2, 3], vec![1, 1, 1]);
         assert_eq!(encoding.len(), 3);
         assert!(!encoding.is_empty());
-        
+
         let empty_encoding = Encoding::new(vec![], vec![]);
         assert!(empty_encoding.is_empty());
     }
@@ -1337,7 +1381,7 @@ mod tests {
     fn test_decode_byte_token() {
         let mut tokenizer = Tokenizer::new();
         tokenizer.add_token("<0x41>", 200);
-        
+
         let result = tokenizer.decode(&[200]).unwrap();
         assert!(result.contains('A'));
     }
@@ -1346,7 +1390,7 @@ mod tests {
     fn test_add_token() {
         let mut tokenizer = Tokenizer::new();
         tokenizer.add_token("new_token", 12345);
-        
+
         assert_eq!(tokenizer.get_token_id("new_token"), Some(12345));
         assert_eq!(tokenizer.get_token(12345), Some("new_token"));
     }

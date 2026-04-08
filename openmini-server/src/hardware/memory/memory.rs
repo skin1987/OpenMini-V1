@@ -12,8 +12,8 @@
 //! - `alloc` 方法线程安全
 //! - `reset` 方法需要外部同步
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use super::pool::MemoryPool;
 use crate::hardware::scheduler::MemoryStrategy;
@@ -57,14 +57,14 @@ impl MemoryManager {
     pub fn new(arena_size: usize, num_arenas: usize) -> Self {
         let pool = Arc::new(MemoryPool::new(arena_size, num_arenas));
         let total_capacity = arena_size * num_arenas;
-        
+
         Self {
             pool,
             total_capacity,
             used: AtomicUsize::new(0),
         }
     }
-    
+
     /// 根据策略创建内存管理器
     ///
     /// # 参数
@@ -80,17 +80,17 @@ impl MemoryManager {
     /// | Distributed | total/8 | 8 | 分布式部署 |
     pub fn with_strategy(strategy: MemoryStrategy, total_memory_mb: usize) -> Self {
         let total_capacity = total_memory_mb * 1024 * 1024;
-        
+
         let (arena_size, num_arenas) = match strategy {
             MemoryStrategy::SmallArena => (total_capacity / 4, 4),
             MemoryStrategy::StandardArena => (total_capacity / 2, 2),
             MemoryStrategy::PagedAttention => (total_capacity / 4, 4),
             MemoryStrategy::Distributed => (total_capacity / 8, 8),
         };
-        
+
         Self::new(arena_size, num_arenas)
     }
-    
+
     /// 分配内存
     ///
     /// # 参数
@@ -106,16 +106,16 @@ impl MemoryManager {
         if size == 0 {
             return Some(std::ptr::null_mut());
         }
-        
+
         let aligned_size = (size + ALIGN - 1) & !(ALIGN - 1);
-        
+
         let ptr = self.pool.alloc(aligned_size, ALIGN)?;
-        
+
         self.used.fetch_add(aligned_size, Ordering::SeqCst);
-        
+
         Some(ptr)
     }
-    
+
     /// 重置内存管理器，释放所有分配
     ///
     /// # ⚠️ 线程安全警告
@@ -130,27 +130,27 @@ impl MemoryManager {
         self.pool.reset();
         self.used.store(0, Ordering::SeqCst);
     }
-    
+
     /// 获取总容量
     pub fn capacity(&self) -> usize {
         self.total_capacity
     }
-    
+
     /// 获取已使用内存大小
     pub fn used(&self) -> usize {
         self.used.load(Ordering::SeqCst)
     }
-    
+
     /// 获取可用内存大小
     pub fn available(&self) -> usize {
         self.total_capacity.saturating_sub(self.used())
     }
-    
+
     /// 获取内存池引用
     pub fn pool(&self) -> &Arc<MemoryPool> {
         &self.pool
     }
-    
+
     /// 获取内存使用率
     pub fn utilization(&self) -> f64 {
         if self.total_capacity == 0 {
@@ -172,7 +172,10 @@ impl std::fmt::Debug for MemoryManager {
             .field("total_capacity", &self.total_capacity)
             .field("used", &self.used())
             .field("available", &self.available())
-            .field("utilization", &format!("{:.2}%", self.utilization() * 100.0))
+            .field(
+                "utilization",
+                &format!("{:.2}%", self.utilization() * 100.0),
+            )
             .finish()
     }
 }
@@ -200,10 +203,10 @@ mod tests {
     #[test]
     fn test_reset() {
         let manager = MemoryManager::new(1024 * 1024, 1);
-        
+
         manager.alloc(128);
         assert!(manager.used() > 0);
-        
+
         manager.reset();
         assert_eq!(manager.used(), 0);
     }
@@ -218,7 +221,7 @@ mod tests {
     fn test_available() {
         let manager = MemoryManager::new(1024 * 1024, 1);
         let initial = manager.available();
-        
+
         manager.alloc(128);
         assert!(manager.available() < initial);
     }
@@ -227,7 +230,7 @@ mod tests {
     fn test_utilization() {
         let manager = MemoryManager::new(1024 * 1024, 1);
         assert_eq!(manager.utilization(), 0.0);
-        
+
         manager.alloc(1024 * 512); // 分配一半
         assert!(manager.utilization() > 0.0);
     }
@@ -301,8 +304,8 @@ mod tests {
 
         // 尝试分配超过容量的内存
         let large_alloc = manager.alloc(2048); // 2KB > 1KB capacity
-        // 应该返回None（因为容量不足）
-        // 注意：实际行为取决于底层MemoryPool实现
+                                               // 应该返回None（因为容量不足）
+                                               // 注意：实际行为取决于底层MemoryPool实现
         let _ = large_alloc; // 只要不panic即可
 
         // 小分配应该仍然可能成功

@@ -25,8 +25,8 @@
 //! ```
 
 pub mod json_logger;
-pub mod structured_fields;
 pub mod log_sampler;
+pub mod structured_fields;
 
 pub use json_logger::init_json_logging;
 pub use structured_fields::*;

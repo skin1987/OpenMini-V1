@@ -6,9 +6,9 @@
 
 #![allow(dead_code)]
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::collections::VecDeque;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,27 +144,27 @@ impl TransferManager {
     pub fn process_batch(&self) -> Vec<u64> {
         let mut completed_ids = Vec::new();
         let mut processed = 0;
-        
+
         while processed < self.batch_size {
             let task = {
                 let mut pending = self.pending_transfers.write().unwrap();
                 pending.pop_front()
             };
-            
+
             if let Some(task) = task {
                 completed_ids.push(task.id);
-                
+
                 {
                     let mut completed = self.completed_transfers.write().unwrap();
                     completed.push_back(task);
                 }
-                
+
                 processed += 1;
             } else {
                 break;
             }
         }
-        
+
         completed_ids
     }
 
@@ -172,11 +172,11 @@ impl TransferManager {
     pub fn get_completed(&self) -> Vec<TransferTask> {
         let mut completed = self.completed_transfers.write().unwrap();
         let mut result = Vec::new();
-        
+
         while let Some(task) = completed.pop_front() {
             result.push(task);
         }
-        
+
         result
     }
 
@@ -199,11 +199,11 @@ mod tests {
     #[test]
     fn test_flash_transfer_basic() {
         let transfer = FlashTransfer::new();
-        
+
         let data = vec![1, 2, 3, 4, 5];
         let result = transfer.transfer_to_device(&data);
         assert_eq!(result, Some(data.clone()));
-        
+
         let result = transfer.transfer_to_host(&data);
         assert_eq!(result, Some(data));
     }
@@ -211,10 +211,10 @@ mod tests {
     #[test]
     fn test_uva_transfer() {
         let transfer = FlashTransfer::new();
-        
+
         let src = vec![1, 2, 3, 4, 5];
         let mut dst = vec![0u8; 5];
-        
+
         let size = transfer.uva_transfer(&src, &mut dst);
         assert_eq!(size, 5);
         assert_eq!(dst, src);
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn test_optimal_chunk_size() {
         let transfer = FlashTransfer::new();
-        
+
         assert_eq!(transfer.optimal_chunk_size(100), 256);
         assert_eq!(transfer.optimal_chunk_size(10000), 4096);
         assert_eq!(transfer.optimal_chunk_size(1000000), 16384);
@@ -232,10 +232,10 @@ mod tests {
     #[test]
     fn test_transfer_manager_submit() {
         let manager = TransferManager::new(10);
-        
+
         let id1 = manager.submit(vec![1, 2, 3], TransferDirection::ToGPU);
         let id2 = manager.submit(vec![4, 5, 6], TransferDirection::ToCPU);
-        
+
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(manager.pending_count(), 2);
@@ -244,10 +244,10 @@ mod tests {
     #[test]
     fn test_transfer_manager_process_batch() {
         let manager = TransferManager::new(10);
-        
+
         manager.submit(vec![1, 2, 3], TransferDirection::ToGPU);
         manager.submit(vec![4, 5, 6], TransferDirection::ToCPU);
-        
+
         let completed = manager.process_batch();
         assert_eq!(completed.len(), 2);
         assert_eq!(manager.pending_count(), 0);
@@ -256,11 +256,11 @@ mod tests {
     #[test]
     fn test_transfer_manager_batch_limit() {
         let manager = TransferManager::new(2);
-        
+
         for i in 0..5 {
             manager.submit(vec![i as u8], TransferDirection::ToGPU);
         }
-        
+
         let completed = manager.process_batch();
         assert_eq!(completed.len(), 2);
         assert_eq!(manager.pending_count(), 3);
@@ -269,14 +269,14 @@ mod tests {
     #[test]
     fn test_transfer_manager_get_completed() {
         let manager = TransferManager::new(10);
-        
+
         manager.submit(vec![1, 2, 3], TransferDirection::ToGPU);
         manager.process_batch();
-        
+
         let completed = manager.get_completed();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].data, vec![1, 2, 3]);
-        
+
         let completed2 = manager.get_completed();
         assert!(completed2.is_empty());
     }
@@ -307,7 +307,7 @@ mod tests {
         let transfer = FlashTransfer::new();
         let src: Vec<u8> = vec![];
         let mut dst = vec![0u8; 5];
-        
+
         let size = transfer.uva_transfer(&src, &mut dst);
         assert_eq!(size, 0);
         // dst 不应被修改
@@ -320,7 +320,7 @@ mod tests {
         let transfer = FlashTransfer::new();
         let src = vec![1, 2, 3, 4, 5];
         let mut dst = vec![0u8; 3];
-        
+
         let size = transfer.uva_transfer(&src, &mut dst);
         assert_eq!(size, 3); // 取 min(5, 3)
         assert_eq!(dst, vec![1, 2, 3]);
@@ -391,7 +391,7 @@ mod tests {
     fn test_transfer_direction_enum() {
         let dir_gpu = TransferDirection::ToGPU;
         let dir_cpu = TransferDirection::ToCPU;
-        
+
         assert_eq!(dir_gpu, TransferDirection::ToGPU);
         assert_ne!(dir_gpu, dir_cpu);
         assert!(dir_gpu == TransferDirection::ToGPU || dir_gpu == TransferDirection::ToCPU);
@@ -406,7 +406,7 @@ mod tests {
             direction: TransferDirection::ToGPU,
             timestamp: Instant::now(),
         };
-        
+
         assert_eq!(task.id, 42);
         assert_eq!(task.data, vec![1, 2, 3]);
         assert_eq!(task.direction, TransferDirection::ToGPU);

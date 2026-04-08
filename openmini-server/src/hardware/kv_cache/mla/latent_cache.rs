@@ -7,9 +7,9 @@
 
 #![allow(dead_code)]
 
+use crate::hardware::kv_cache::mla::config::MLAConfig;
 use ndarray::Array2;
 use std::sync::RwLock;
-use crate::hardware::kv_cache::mla::config::MLAConfig;
 
 #[derive(Debug)]
 pub struct MLALatentCache {
@@ -56,7 +56,12 @@ impl MLALatentCache {
         }
     }
 
-    pub fn append(&self, c_kv: &Array2<f32>, q_rope: Option<&Array2<f32>>, k_rope: Option<&Array2<f32>>) -> Result<(), String> {
+    pub fn append(
+        &self,
+        c_kv: &Array2<f32>,
+        q_rope: Option<&Array2<f32>>,
+        k_rope: Option<&Array2<f32>>,
+    ) -> Result<(), String> {
         if c_kv.nrows() != 1 {
             return Err("Only single token append supported".to_string());
         }
@@ -251,18 +256,16 @@ impl MLALatentCache {
 
         let c_kv_mem = actual_len * self.config.latent_dim * 4;
 
-        let q_rope_mem = self.q_rope_cache
+        let q_rope_mem = self
+            .q_rope_cache
             .read()
-            .map(|g| {
-                g.as_ref().map_or(0, |c| actual_len * c.ncols() * 4)
-            })
+            .map(|g| g.as_ref().map_or(0, |c| actual_len * c.ncols() * 4))
             .unwrap_or(0);
 
-        let k_rope_mem = self.k_rope_cache
+        let k_rope_mem = self
+            .k_rope_cache
             .read()
-            .map(|g| {
-                g.as_ref().map_or(0, |c| actual_len * c.ncols() * 4)
-            })
+            .map(|g| g.as_ref().map_or(0, |c| actual_len * c.ncols() * 4))
             .unwrap_or(0);
 
         c_kv_mem + q_rope_mem + k_rope_mem
@@ -271,18 +274,16 @@ impl MLALatentCache {
     pub fn max_memory_usage(&self) -> usize {
         let c_kv_mem = self.max_seq_len * self.config.latent_dim * 4;
 
-        let q_rope_mem = self.q_rope_cache
+        let q_rope_mem = self
+            .q_rope_cache
             .read()
-            .map(|g| {
-                g.as_ref().map_or(0, |c| self.max_seq_len * c.ncols() * 4)
-            })
+            .map(|g| g.as_ref().map_or(0, |c| self.max_seq_len * c.ncols() * 4))
             .unwrap_or(0);
 
-        let k_rope_mem = self.k_rope_cache
+        let k_rope_mem = self
+            .k_rope_cache
             .read()
-            .map(|g| {
-                g.as_ref().map_or(0, |c| self.max_seq_len * c.ncols() * 4)
-            })
+            .map(|g| g.as_ref().map_or(0, |c| self.max_seq_len * c.ncols() * 4))
             .unwrap_or(0);
 
         c_kv_mem + q_rope_mem + k_rope_mem
@@ -306,9 +307,21 @@ impl MLALatentCache {
 impl Clone for MLALatentCache {
     fn clone(&self) -> Self {
         let seq_len = *self.seq_len.read().unwrap_or_else(|e| e.into_inner());
-        let c_kv = self.c_kv_cache.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let q_rope = self.q_rope_cache.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let k_rope = self.k_rope_cache.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let c_kv = self
+            .c_kv_cache
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let q_rope = self
+            .q_rope_cache
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let k_rope = self
+            .k_rope_cache
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let q_rope_dim = *self.q_rope_dim.read().unwrap_or_else(|e| e.into_inner());
         let k_rope_dim = *self.k_rope_dim.read().unwrap_or_else(|e| e.into_inner());
 
@@ -331,7 +344,8 @@ impl crate::hardware::kv_cache::KVCache for MLALatentCache {
     }
 
     fn clear_cache(&mut self) -> Result<(), crate::hardware::kv_cache::KVCacheError> {
-        self.clear().map_err(|e| crate::hardware::kv_cache::KVCacheError::ClearError(e))
+        self.clear()
+            .map_err(|e| crate::hardware::kv_cache::KVCacheError::ClearError(e))
     }
 
     fn memory_usage(&self) -> usize {
@@ -520,7 +534,7 @@ mod tests {
             latent_dim: 512,
             use_decoupled_rope: false,
             rope_theta: 10000.0,
-            max_seq_len: 2,  // 小的max_seq_len用于测试缓存满
+            max_seq_len: 2, // 小的max_seq_len用于测试缓存满
         };
         let cache = MLALatentCache::new(config);
 
@@ -560,7 +574,7 @@ mod tests {
     #[test]
     fn test_get_all_c_kv_empty() {
         let config = create_test_config();
-        let latent_dim = config.latent_dim;  // 保存需要的字段
+        let latent_dim = config.latent_dim; // 保存需要的字段
         let cache = MLALatentCache::new(config);
 
         // 覆盖：空缓存返回零行矩阵
@@ -595,8 +609,8 @@ mod tests {
             hidden_size: 128,
             num_attention_heads: 4,
             num_key_value_heads: 1,
-            head_dim: 64,      // kv_dim = 1*64 = 64
-            latent_dim: 16,     // latent_dim=16 < kv_dim=64 -> 压缩比 > 0
+            head_dim: 64,   // kv_dim = 1*64 = 64
+            latent_dim: 16, // latent_dim=16 < kv_dim=64 -> 压缩比 > 0
             use_decoupled_rope: false,
             rope_theta: 10000.0,
             max_seq_len: 100,
@@ -609,13 +623,17 @@ mod tests {
 
         // compression_ratio 应在 (0, 1) 范围内（因为 latent_dim < kv_dim）
         let ratio = cache.compression_ratio();
-        assert!(ratio > 0.0 && ratio <= 1.0, "compression_ratio应在(0,1]范围内，实际: {}", ratio);
+        assert!(
+            ratio > 0.0 && ratio <= 1.0,
+            "compression_ratio应在(0,1]范围内，实际: {}",
+            ratio
+        );
 
         // standard_kv_memory vs compressed_kv_memory
         let seq_len = 10;
         let standard_mem = cache.standard_kv_memory(seq_len);
         let compressed_mem = cache.compressed_kv_memory(seq_len);
-        
+
         assert!(standard_mem > compressed_mem, "压缩后内存应该更小");
         assert!(compressed_mem == seq_len * config.latent_dim * 4);
     }

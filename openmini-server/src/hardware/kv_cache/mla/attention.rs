@@ -7,10 +7,10 @@
 
 #![allow(dead_code)]
 
-use ndarray::{Array2, Axis};
 use crate::hardware::kv_cache::mla::config::MLAConfig;
-use crate::hardware::kv_cache::mla::projection::MLAProjection;
 use crate::hardware::kv_cache::mla::latent_cache::MLALatentCache;
+use crate::hardware::kv_cache::mla::projection::MLAProjection;
+use ndarray::{Array2, Axis};
 
 #[derive(Debug)]
 pub struct RoPECache {
@@ -38,12 +38,7 @@ impl RoPECache {
         Self { freqs_cis }
     }
 
-    pub fn apply_rotary_emb(
-        &self,
-        q: &mut Array2<f32>,
-        k: &mut Array2<f32>,
-        start_pos: usize,
-    ) {
+    pub fn apply_rotary_emb(&self, q: &mut Array2<f32>, k: &mut Array2<f32>, start_pos: usize) {
         let seq_len = q.nrows();
         let q_dim = q.ncols();
         let k_dim = k.ncols();
@@ -72,11 +67,7 @@ impl RoPECache {
         }
     }
 
-    pub fn apply_rotary_emb_single(
-        &self,
-        x: &mut Array2<f32>,
-        start_pos: usize,
-    ) {
+    pub fn apply_rotary_emb_single(&self, x: &mut Array2<f32>, start_pos: usize) {
         let seq_len = x.nrows();
         let x_dim = x.ncols();
         let rope_dim = self.freqs_cis.ncols().min(x_dim);
@@ -133,21 +124,21 @@ impl MLAAttention {
         let q = self.projection.forward_q(hidden_states);
         let c_kv = self.projection.compress_kv(hidden_states);
 
-        
         let (q_rope, k_rope) = if config.use_decoupled_rope {
             let qr = hidden_states.dot(self.projection.qr_proj.as_ref().unwrap());
             let kr = hidden_states.dot(self.projection.kr_proj.as_ref().unwrap());
 
-            
-            let mut qr_reshaped = qr.into_shape_with_order((seq_len, num_heads, head_dim))
+            let mut qr_reshaped = qr
+                .into_shape_with_order((seq_len, num_heads, head_dim))
                 .map_err(|e| e.to_string())?;
-            let mut kr_reshaped = kr.into_shape_with_order((seq_len, num_kv_heads, head_dim))
+            let mut kr_reshaped = kr
+                .into_shape_with_order((seq_len, num_kv_heads, head_dim))
                 .map_err(|e| e.to_string())?;
 
-            
             for h in 0..num_heads {
                 let mut qr_h = qr_reshaped.index_axis_mut(Axis(1), h).to_owned();
-                self.rope_cache.apply_rotary_emb_single(&mut qr_h, start_pos);
+                self.rope_cache
+                    .apply_rotary_emb_single(&mut qr_h, start_pos);
                 for s in 0..seq_len {
                     for d in 0..head_dim {
                         qr_reshaped[[s, h, d]] = qr_h[[s, d]];
@@ -157,7 +148,8 @@ impl MLAAttention {
 
             for h in 0..num_kv_heads {
                 let mut kr_h = kr_reshaped.index_axis_mut(Axis(1), h).to_owned();
-                self.rope_cache.apply_rotary_emb_single(&mut kr_h, start_pos);
+                self.rope_cache
+                    .apply_rotary_emb_single(&mut kr_h, start_pos);
                 for s in 0..seq_len {
                     for d in 0..head_dim {
                         kr_reshaped[[s, h, d]] = kr_h[[s, d]];
@@ -165,10 +157,11 @@ impl MLAAttention {
                 }
             }
 
-            
-            let qr_flat = qr_reshaped.into_shape_with_order((seq_len, num_heads * head_dim))
+            let qr_flat = qr_reshaped
+                .into_shape_with_order((seq_len, num_heads * head_dim))
                 .map_err(|e| e.to_string())?;
-            let kr_flat = kr_reshaped.into_shape_with_order((seq_len, num_kv_heads * head_dim))
+            let kr_flat = kr_reshaped
+                .into_shape_with_order((seq_len, num_kv_heads * head_dim))
                 .map_err(|e| e.to_string())?;
 
             (Some(qr_flat), Some(kr_flat))
@@ -176,7 +169,8 @@ impl MLAAttention {
             (None, None)
         };
 
-        self.kv_cache.append(&c_kv, q_rope.as_ref(), k_rope.as_ref())?;
+        self.kv_cache
+            .append(&c_kv, q_rope.as_ref(), k_rope.as_ref())?;
 
         let total_seq_len = self.kv_cache.seq_len()?;
         let c_kv_all = self.kv_cache.get_all_c_kv()?;
@@ -184,7 +178,6 @@ impl MLAAttention {
         let k_decompressed = self.projection.decompress_k(&c_kv_all);
         let v_decompressed = self.projection.decompress_v(&c_kv_all);
 
-        
         let (q_rope_all, k_rope_all) = if config.use_decoupled_rope {
             let q_rope_data = self.kv_cache.get_q_rope(total_seq_len - seq_len, seq_len)?;
             let k_rope_data = self.kv_cache.get_k_rope(0, total_seq_len)?;
@@ -193,11 +186,14 @@ impl MLAAttention {
             (None, None)
         };
 
-        let q_reshaped = q.into_shape_with_order((seq_len, num_heads, head_dim))
+        let q_reshaped = q
+            .into_shape_with_order((seq_len, num_heads, head_dim))
             .map_err(|e| e.to_string())?;
-        let k_reshaped = k_decompressed.into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
+        let k_reshaped = k_decompressed
+            .into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
             .map_err(|e| e.to_string())?;
-        let v_reshaped = v_decompressed.into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
+        let v_reshaped = v_decompressed
+            .into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
             .map_err(|e| e.to_string())?;
 
         let mut output = Array2::zeros((seq_len, num_heads * head_dim));
@@ -213,15 +209,12 @@ impl MLAAttention {
             let mut q_h_owned = q_h.to_owned();
             let mut k_h_owned = k_h.to_owned();
 
-            
             if config.use_decoupled_rope {
-                
                 if let Some(ref q_rope_data) = q_rope_all {
                     let rope_dim = q_rope_data.ncols();
                     let rope_dim_per_head = rope_dim / num_heads;
                     let rope_start = h * rope_dim_per_head;
 
-                    
                     for s in 0..seq_len {
                         for d in 0..rope_dim_per_head.min(head_dim) {
                             q_h_owned[[s, d]] += q_rope_data[[s, rope_start + d]];
@@ -229,13 +222,11 @@ impl MLAAttention {
                     }
                 }
 
-                
                 if let Some(ref k_rope_data) = k_rope_all {
                     let rope_dim = k_rope_data.ncols();
                     let rope_dim_per_head = rope_dim / num_kv_heads;
                     let rope_start = kv_h * rope_dim_per_head;
 
-                    
                     for s in 0..total_seq_len {
                         for d in 0..rope_dim_per_head.min(head_dim) {
                             k_h_owned[[s, d]] += k_rope_data[[s, rope_start + d]];
@@ -249,7 +240,10 @@ impl MLAAttention {
             let scores = q_h_owned.dot(&k_h_owned.t());
             let scaled_scores = scores * scale;
 
-            let max_val = scaled_scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let max_val = scaled_scores
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             let exp_sum: f32 = scaled_scores.iter().map(|&s| (s - max_val).exp()).sum();
             let attn_weights = scaled_scores.mapv(|s| (s - max_val).exp() / exp_sum);
 
@@ -307,18 +301,17 @@ pub fn mla_attention_forward(
     let q = projection.forward_q(hidden_states);
     let c_kv = projection.compress_kv(hidden_states);
 
-    
     let (q_rope, k_rope) = if config.use_decoupled_rope {
         let qr = hidden_states.dot(projection.qr_proj.as_ref().unwrap());
         let kr = hidden_states.dot(projection.kr_proj.as_ref().unwrap());
 
-        
-        let mut qr_reshaped = qr.into_shape_with_order((seq_len, num_heads, head_dim))
+        let mut qr_reshaped = qr
+            .into_shape_with_order((seq_len, num_heads, head_dim))
             .map_err(|e| e.to_string())?;
-        let mut kr_reshaped = kr.into_shape_with_order((seq_len, num_kv_heads, head_dim))
+        let mut kr_reshaped = kr
+            .into_shape_with_order((seq_len, num_kv_heads, head_dim))
             .map_err(|e| e.to_string())?;
 
-        
         for h in 0..num_heads {
             let mut qr_h = qr_reshaped.index_axis_mut(Axis(1), h).to_owned();
             rope_cache.apply_rotary_emb_single(&mut qr_h, start_pos);
@@ -339,10 +332,11 @@ pub fn mla_attention_forward(
             }
         }
 
-        
-        let qr_flat = qr_reshaped.into_shape_with_order((seq_len, num_heads * head_dim))
+        let qr_flat = qr_reshaped
+            .into_shape_with_order((seq_len, num_heads * head_dim))
             .map_err(|e| e.to_string())?;
-        let kr_flat = kr_reshaped.into_shape_with_order((seq_len, num_kv_heads * head_dim))
+        let kr_flat = kr_reshaped
+            .into_shape_with_order((seq_len, num_kv_heads * head_dim))
             .map_err(|e| e.to_string())?;
 
         (Some(qr_flat), Some(kr_flat))
@@ -358,7 +352,6 @@ pub fn mla_attention_forward(
     let k_decompressed = projection.decompress_k(&c_kv_all);
     let v_decompressed = projection.decompress_v(&c_kv_all);
 
-    
     let (q_rope_all, k_rope_all) = if config.use_decoupled_rope {
         let q_rope_data = kv_cache.get_q_rope(total_seq_len - seq_len, seq_len)?;
         let k_rope_data = kv_cache.get_k_rope(0, total_seq_len)?;
@@ -367,11 +360,14 @@ pub fn mla_attention_forward(
         (None, None)
     };
 
-    let q_reshaped = q.into_shape_with_order((seq_len, num_heads, head_dim))
+    let q_reshaped = q
+        .into_shape_with_order((seq_len, num_heads, head_dim))
         .map_err(|e| e.to_string())?;
-    let k_reshaped = k_decompressed.into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
+    let k_reshaped = k_decompressed
+        .into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
         .map_err(|e| e.to_string())?;
-    let v_reshaped = v_decompressed.into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
+    let v_reshaped = v_decompressed
+        .into_shape_with_order((total_seq_len, num_kv_heads, head_dim))
         .map_err(|e| e.to_string())?;
 
     let mut output = Array2::zeros((seq_len, num_heads * head_dim));
@@ -387,15 +383,12 @@ pub fn mla_attention_forward(
         let mut q_h_owned = q_h.to_owned();
         let mut k_h_owned = k_h.to_owned();
 
-        
         if config.use_decoupled_rope {
-            
             if let Some(ref q_rope_data) = q_rope_all {
                 let rope_dim = q_rope_data.ncols();
                 let rope_dim_per_head = rope_dim / num_heads;
                 let rope_start = h * rope_dim_per_head;
 
-                
                 for s in 0..seq_len {
                     for d in 0..rope_dim_per_head.min(head_dim) {
                         q_h_owned[[s, d]] += q_rope_data[[s, rope_start + d]];
@@ -403,13 +396,11 @@ pub fn mla_attention_forward(
                 }
             }
 
-            
             if let Some(ref k_rope_data) = k_rope_all {
                 let rope_dim = k_rope_data.ncols();
                 let rope_dim_per_head = rope_dim / num_kv_heads;
                 let rope_start = kv_h * rope_dim_per_head;
 
-                
                 for s in 0..total_seq_len {
                     for d in 0..rope_dim_per_head.min(head_dim) {
                         k_h_owned[[s, d]] += k_rope_data[[s, rope_start + d]];
@@ -423,7 +414,10 @@ pub fn mla_attention_forward(
         let scores = q_h_owned.dot(&k_h_owned.t());
         let scaled_scores = scores * scale;
 
-        let max_val = scaled_scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let max_val = scaled_scores
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
         let exp_sum: f32 = scaled_scores.iter().map(|&s| (s - max_val).exp()).sum();
         let attn_weights = scaled_scores.mapv(|s| (s - max_val).exp() / exp_sum);
 
@@ -468,11 +462,15 @@ mod tests {
             for i in 0..config.head_dim / 2 {
                 let cos = rope_cache.freqs_cis[[pos, 2 * i]];
                 let sin = rope_cache.freqs_cis[[pos, 2 * i + 1]];
-                
+
                 let cos_sq = cos * cos;
                 let sin_sq = sin * sin;
-                assert!((cos_sq + sin_sq - 1.0).abs() < 1e-5, 
-                    "cos^2 + sin^2 should be 1 at pos={}, i={}", pos, i);
+                assert!(
+                    (cos_sq + sin_sq - 1.0).abs() < 1e-5,
+                    "cos^2 + sin^2 should be 1 at pos={}, i={}",
+                    pos,
+                    i
+                );
             }
         }
     }
@@ -489,7 +487,7 @@ mod tests {
 
         assert_eq!(q.dim(), (4, 128));
         assert_eq!(k.dim(), (4, 128));
-        
+
         for i in 0..4 {
             for j in 0..128 {
                 assert!(q[[i, j]].is_finite());
@@ -517,7 +515,10 @@ mod tests {
                 diff_count += 1;
             }
         }
-        assert!(diff_count > 0, "RoPE should produce different values for different positions");
+        assert!(
+            diff_count > 0,
+            "RoPE should produce different values for different positions"
+        );
     }
 
     #[test]
@@ -588,7 +589,8 @@ mod tests {
         let rope_cache = RoPECache::new(&config);
 
         let hidden = Array2::zeros((1, config.hidden_size));
-        let output = mla_attention_forward(&config, &projection, &mut kv_cache, &rope_cache, &hidden, 0);
+        let output =
+            mla_attention_forward(&config, &projection, &mut kv_cache, &rope_cache, &hidden, 0);
 
         assert!(output.is_ok());
         assert_eq!(kv_cache.seq_len().unwrap(), 1);
@@ -601,12 +603,10 @@ mod tests {
         let _kv_cache = MLALatentCache::new(config.clone());
         let rope_cache = RoPECache::new(&config);
 
-        
         let hidden_size = config.hidden_size;
         let q_dim = config.num_attention_heads * config.head_dim;
         let kv_dim = config.num_key_value_heads * config.head_dim;
 
-        
         projection.qr_proj = Some(Array2::from_shape_fn((hidden_size, q_dim), |(i, j)| {
             (i + j + 1) as f32 * 0.01
         }));
@@ -614,7 +614,6 @@ mod tests {
             (i + j + 2) as f32 * 0.01
         }));
 
-        
         let mut hidden1 = Array2::zeros((1, hidden_size));
         for i in 0..hidden_size {
             hidden1[[0, i]] = (i as f32 + 1.0) * 0.01;
@@ -641,14 +640,16 @@ mod tests {
         rope_cache.apply_rotary_emb_single(&mut q_r2, 1);
         rope_cache.apply_rotary_emb_single(&mut k_r2, 1);
 
-        
         let mut diff_count = 0;
         for i in 0..k_r1.ncols().min(k_r2.ncols()) {
             if (k_r1[[0, i]] - k_r2[[0, i]]).abs() > 1e-6 {
                 diff_count += 1;
             }
         }
-        assert!(diff_count > 0, "Different positions should have different RoPE values");
+        assert!(
+            diff_count > 0,
+            "Different positions should have different RoPE values"
+        );
     }
 
     // ==================== 新增分支覆盖测试 ====================
@@ -666,9 +667,11 @@ mod tests {
         rope_cache.apply_rotary_emb_single(&mut x, 0);
 
         // 验证值已被修改（旋转后应不同）
-        assert!((x[[1, 50]] - original_val).abs() > 1e-6 || x[[1, 50]] != 1.0,
-            "RoPE应该修改输入值");
-        
+        assert!(
+            (x[[1, 50]] - original_val).abs() > 1e-6 || x[[1, 50]] != 1.0,
+            "RoPE应该修改输入值"
+        );
+
         // 验证所有值为有限数
         for i in 0..3 {
             for j in 0..128 {
@@ -688,7 +691,7 @@ mod tests {
             latent_dim: 64,
             use_decoupled_rope: false,
             rope_theta: 10000.0,
-            max_seq_len: 10,  // 小的max_seq_len用于测试边界
+            max_seq_len: 10, // 小的max_seq_len用于测试边界
         };
         let rope_cache = RoPECache::new(&config);
 
@@ -700,8 +703,10 @@ mod tests {
         rope_cache.apply_rotary_emb(&mut q, &mut k, 8);
 
         // 前2行应该被修改，后3行保持原值(1.0)
-        assert!((q[[0, 0]] - 1.0).abs() > 1e-6 || (k[[0, 0]] - 1.0).abs() > 1e-6,
-            "有效范围内的位置应被旋转");
+        assert!(
+            (q[[0, 0]] - 1.0).abs() > 1e-6 || (k[[0, 0]] - 1.0).abs() > 1e-6,
+            "有效范围内的位置应被旋转"
+        );
     }
 
     /// 测试 forward_with_position 空位置切片（覆盖第276行 unwrap_or 分支）
@@ -710,12 +715,12 @@ mod tests {
         let config = create_test_config();
         let projection = MLAProjection::new(&config);
         let kv_cache = MLALatentCache::new(config.clone());
-        let hidden_size = config.hidden_size;  // 保存需要的字段
+        let hidden_size = config.hidden_size; // 保存需要的字段
 
         let mut attn = MLAAttention::new(config, projection, kv_cache);
 
         let hidden = Array2::zeros((1, hidden_size));
-        
+
         // 覆盖：空 positions 切片，start_pos 应默认为 0
         let output = attn.forward_with_position(&hidden, &[]);
         assert!(output.is_ok());
@@ -741,15 +746,14 @@ mod tests {
         let config = create_test_config();
         let projection = MLAProjection::new(&config);
         let kv_cache = MLALatentCache::new(config.clone());
-        let hidden_size = config.hidden_size;  // 保存需要的字段
+        let hidden_size = config.hidden_size; // 保存需要的字段
 
         let mut attn = MLAAttention::new(config, projection, kv_cache);
 
         // 覆盖：多token输入（seq_len=3）
-        let hidden = Array2::from_shape_fn((3, hidden_size), |(i, j)| {
-            ((i + 1) * (j + 1)) as f32 * 0.01
-        });
-        
+        let hidden =
+            Array2::from_shape_fn((3, hidden_size), |(i, j)| ((i + 1) * (j + 1)) as f32 * 0.01);
+
         match attn.forward(&hidden, 0) {
             Ok(output) => {
                 assert_eq!(output.dim(), (3, hidden_size));
@@ -769,8 +773,8 @@ mod tests {
     fn test_mla_forward_decoupled_rope() {
         let config = MLAConfig::default()
             .with_decoupled_rope(true)
-            .with_latent_dim(64);  // 使用较小维度避免大内存
-        
+            .with_latent_dim(64); // 使用较小维度避免大内存
+
         let mut projection = MLAProjection::new(&config);
         let kv_cache = MLALatentCache::new(config.clone());
 
@@ -788,9 +792,7 @@ mod tests {
 
         let mut attn = MLAAttention::new(config.clone(), projection, kv_cache);
 
-        let hidden = Array2::from_shape_fn((1, hidden_size), |(i, j)| {
-            (i + j) as f32 * 0.01
-        });
+        let hidden = Array2::from_shape_fn((1, hidden_size), |(i, j)| (i + j) as f32 * 0.01);
 
         // 覆盖：decoupled_rope=true 的完整路径
         let result = attn.forward(&hidden, 0);
@@ -803,7 +805,7 @@ mod tests {
         let config = MLAConfig::default()
             .with_decoupled_rope(true)
             .with_latent_dim(64);
-        
+
         let mut projection = MLAProjection::new(&config);
         let mut kv_cache = MLALatentCache::new(config.clone());
         let rope_cache = RoPECache::new(&config);
@@ -814,14 +816,15 @@ mod tests {
         let kv_dim = config.num_key_value_heads * config.head_dim;
 
         projection.qr_proj = Some(Array2::from_shape_fn((hidden_size, q_dim), |(_i, _j)| 0.01));
-        projection.kr_proj = Some(Array2::from_shape_fn((hidden_size, kv_dim), |(_i, _j)| 0.01));
+        projection.kr_proj = Some(Array2::from_shape_fn((hidden_size, kv_dim), |(_i, _j)| {
+            0.01
+        }));
 
         let hidden = Array2::zeros((1, hidden_size));
 
         // 覆盖独立函数的 decoupled_rope=true 路径
-        let result = mla_attention_forward(
-            &config, &projection, &mut kv_cache, &rope_cache, &hidden, 0
-        );
+        let result =
+            mla_attention_forward(&config, &projection, &mut kv_cache, &rope_cache, &hidden, 0);
         assert!(result.is_ok());
         assert_eq!(kv_cache.seq_len().unwrap(), 1);
     }

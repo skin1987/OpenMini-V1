@@ -13,8 +13,8 @@
 
 #![allow(dead_code)]
 
-use ndarray::{Array1, Array2};
 use crate::hardware::kv_cache::mla::config::MLAConfig;
+use ndarray::{Array1, Array2};
 
 #[derive(Debug, Clone)]
 pub struct MLAProjection {
@@ -156,7 +156,17 @@ impl MLAProjection {
         let q_norm_mem = self.q_norm.as_ref().map_or(0, |p| p.len() * 4);
         let k_norm_mem = self.k_norm.as_ref().map_or(0, |p| p.len() * 4);
 
-        q_mem + k_mem + v_mem + o_mem + dkv_mem + uk_mem + uv_mem + qr_mem + kr_mem + q_norm_mem + k_norm_mem
+        q_mem
+            + k_mem
+            + v_mem
+            + o_mem
+            + dkv_mem
+            + uk_mem
+            + uv_mem
+            + qr_mem
+            + kr_mem
+            + q_norm_mem
+            + k_norm_mem
     }
 }
 
@@ -240,7 +250,7 @@ mod tests {
         let q_dim = 32;
         let kv_dim = 16;
         let latent_dim = 8;
-        
+
         let q_proj = Array2::zeros((hidden_size, q_dim));
         let k_proj = Array2::zeros((hidden_size, kv_dim));
         let v_proj = Array2::zeros((hidden_size, kv_dim));
@@ -250,7 +260,7 @@ mod tests {
         let uv_proj = Array2::zeros((latent_dim, kv_dim));
         let qr_proj = Some(Array2::zeros((hidden_size, q_dim)));
         let kr_proj = Some(Array2::zeros((hidden_size, kv_dim)));
-        
+
         let proj = MLAProjection::from_weights(
             q_proj.clone(),
             k_proj.clone(),
@@ -264,7 +274,7 @@ mod tests {
             None,
             None,
         );
-        
+
         assert!(proj.has_decoupled_rope());
         assert_eq!(proj.q_dim(), q_dim);
         assert_eq!(proj.kv_dim(), kv_dim);
@@ -279,7 +289,7 @@ mod tests {
         let q_dim = 32;
         let kv_dim = 16;
         let latent_dim = 8;
-        
+
         let q_proj = Array2::zeros((hidden_size, q_dim));
         let k_proj = Array2::zeros((hidden_size, kv_dim));
         let v_proj = Array2::zeros((hidden_size, kv_dim));
@@ -287,21 +297,11 @@ mod tests {
         let dkv_proj = Array2::zeros((hidden_size, latent_dim));
         let uk_proj = Array2::zeros((latent_dim, kv_dim));
         let uv_proj = Array2::zeros((latent_dim, kv_dim));
-        
+
         let proj = MLAProjection::from_weights(
-            q_proj,
-            k_proj,
-            v_proj,
-            o_proj,
-            dkv_proj,
-            uk_proj,
-            uv_proj,
-            None,
-            None,
-            None,
-            None,
+            q_proj, k_proj, v_proj, o_proj, dkv_proj, uk_proj, uv_proj, None, None, None, None,
         );
-        
+
         assert!(!proj.has_decoupled_rope());
     }
 
@@ -393,13 +393,13 @@ mod tests {
     #[test]
     fn test_from_weights_with_norms() {
         use ndarray::Array1;
-        
+
         // 使用小尺寸避免大内存分配（<20KB）
         let hidden_size = 64;
         let q_dim = 32;
         let kv_dim = 16;
         let latent_dim = 8;
-        
+
         let q_proj = Array2::zeros((hidden_size, q_dim));
         let k_proj = Array2::zeros((hidden_size, kv_dim));
         let v_proj = Array2::zeros((hidden_size, kv_dim));
@@ -409,20 +409,17 @@ mod tests {
         let uv_proj = Array2::zeros((latent_dim, kv_dim));
         let q_norm = Some(Array1::zeros(q_dim));
         let k_norm = Some(Array1::zeros(kv_dim));
-        
+
         let proj = MLAProjection::from_weights(
-            q_proj, k_proj, v_proj, o_proj,
-            dkv_proj, uk_proj, uv_proj,
-            None, None,
-            q_norm, k_norm,
+            q_proj, k_proj, v_proj, o_proj, dkv_proj, uk_proj, uv_proj, None, None, q_norm, k_norm,
         );
-        
+
         // 验证 norm 向量被正确存储
         assert!(proj.q_norm.is_some());
         assert!(proj.k_norm.is_some());
         assert_eq!(proj.q_norm.as_ref().unwrap().len(), q_dim);
         assert_eq!(proj.k_norm.as_ref().unwrap().len(), kv_dim);
-        
+
         // 验证 memory_usage 包含 norm 的内存
         let mem = proj.memory_usage();
         assert!(mem > 0);
@@ -434,15 +431,15 @@ mod tests {
     fn test_projection_clone() {
         let config = create_test_config();
         let proj = MLAProjection::new(&config);
-        
+
         let cloned = proj.clone();
-        
+
         // 验证所有字段都被正确克隆
         assert_eq!(proj.q_dim(), cloned.q_dim());
         assert_eq!(proj.kv_dim(), cloned.kv_dim());
         assert_eq!(proj.latent_dim(), cloned.latent_dim());
         assert_eq!(proj.has_decoupled_rope(), cloned.has_decoupled_rope());
-        
+
         // 验证内存使用量相同
         assert_eq!(proj.memory_usage(), cloned.memory_usage());
     }
@@ -453,17 +450,17 @@ mod tests {
     fn test_forward_q_different_batch_sizes() {
         let config = create_test_config();
         let proj = MLAProjection::new(&config);
-        
+
         // batch_size = 1
         let hidden_1 = Array2::zeros((1, config.hidden_size));
         let q_1 = proj.forward_q(&hidden_1);
         assert_eq!(q_1.dim().0, 1);
-        
+
         // batch_size = 10
         let hidden_10 = Array2::zeros((10, config.hidden_size));
         let q_10 = proj.forward_q(&hidden_10);
         assert_eq!(q_10.dim().0, 10);
-        
+
         // batch_size = 100
         let hidden_100 = Array2::zeros((100, config.hidden_size));
         let q_100 = proj.forward_q(&hidden_100);
@@ -476,21 +473,21 @@ mod tests {
     fn test_compress_decompress_roundtrip() {
         let config = create_test_config();
         let proj = MLAProjection::new(&config);
-        
+
         // 创建非零输入
         let hidden = Array2::from_shape_fn((3, config.hidden_size), |(i, j)| {
             (i * config.hidden_size + j) as f32
         });
-        
+
         // 压缩
         let c_kv = proj.compress_kv(&hidden);
         assert_eq!(c_kv.dim(), (3, config.latent_dim));
-        
+
         // 解压缩
         let (k, v) = proj.decompress_kv(&c_kv);
         assert_eq!(k.dim(), (3, config.kv_dim()));
         assert_eq!(v.dim(), (3, config.kv_dim()));
-        
+
         // 验证输出维度正确性
         assert_eq!(k.dim().1, config.num_key_value_heads * config.head_dim);
         assert_eq!(v.dim().1, config.num_key_value_heads * config.head_dim);
@@ -505,13 +502,13 @@ mod tests {
         let proj_with_rope = MLAProjection::new(&config_with_rope);
         let mem_with_rope = proj_with_rope.memory_usage();
         assert!(mem_with_rope > 0);
-        
+
         // 不带 RoPE 的配置
         let config_without_rope = MLAConfig::default().with_decoupled_rope(false);
         let proj_without_rope = MLAProjection::new(&config_without_rope);
         let mem_without_rope = proj_without_rope.memory_usage();
         assert!(mem_without_rope > 0);
-        
+
         // 带有 RoPE 的应该占用更多内存（qr_proj 和 kr_proj）
         assert!(mem_with_rope > mem_without_rope);
     }
@@ -524,7 +521,7 @@ mod tests {
         let config_default = create_test_config();
         let proj_default = MLAProjection::new(&config_default);
         assert!(proj_default.has_decoupled_rope());
-        
+
         // 禁用 RoPE
         let config_no_rope = MLAConfig::default().with_decoupled_rope(false);
         let proj_no_rope = MLAProjection::new(&config_no_rope);

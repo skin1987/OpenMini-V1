@@ -3,9 +3,9 @@
 //! 保存推理时使用的专家路由，训练时强制使用相同路由，确保动作空间匹配
 
 use crate::rl::Tensor;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// 路由器缓存
 ///
@@ -36,13 +36,13 @@ impl RouterCacheManager {
 
     pub fn store(&self, key: String, cache: RouterCache) {
         let mut caches = self.caches.write();
-        
+
         if caches.len() >= self.max_caches && !caches.contains_key(&key) {
             if let Some(first_key) = caches.keys().next().cloned() {
                 caches.remove(&first_key);
             }
         }
-        
+
         caches.insert(key, cache);
     }
 
@@ -110,7 +110,13 @@ impl KeepRouting {
         self
     }
 
-    pub fn save_routing(&self, key: String, expert_indices: Tensor, routing_weights: Tensor, layer_idx: usize) {
+    pub fn save_routing(
+        &self,
+        key: String,
+        expert_indices: Tensor,
+        routing_weights: Tensor,
+        layer_idx: usize,
+    ) {
         if !self.enabled {
             return;
         }
@@ -120,7 +126,7 @@ impl KeepRouting {
             routing_weights,
             layer_idx,
         };
-        
+
         self.cache_manager.store(key, cache);
     }
 
@@ -132,22 +138,19 @@ impl KeepRouting {
         self.cache_manager.get(key)
     }
 
-    pub fn apply_routing(&self, key: &str, default_indices: &Tensor, default_weights: &Tensor) -> (Tensor, Tensor) {
+    pub fn apply_routing(
+        &self,
+        key: &str,
+        default_indices: &Tensor,
+        default_weights: &Tensor,
+    ) -> (Tensor, Tensor) {
         match self.get_routing(key) {
             Some(cache) => (cache.expert_indices, cache.routing_weights),
-            None => {
-                match self.enforce_mode {
-                    EnforceMode::Strict => {
-                        (default_indices.clone(), default_weights.clone())
-                    }
-                    EnforceMode::Soft => {
-                        (default_indices.clone(), default_weights.clone())
-                    }
-                    EnforceMode::None => {
-                        (default_indices.clone(), default_weights.clone())
-                    }
-                }
-            }
+            None => match self.enforce_mode {
+                EnforceMode::Strict => (default_indices.clone(), default_weights.clone()),
+                EnforceMode::Soft => (default_indices.clone(), default_weights.clone()),
+                EnforceMode::None => (default_indices.clone(), default_weights.clone()),
+            },
         }
     }
 
@@ -293,7 +296,7 @@ mod tests {
         );
 
         assert_eq!(manager.len(), 2); // 容量仍为 2
-        // 新添加的 key2 应该存在
+                                      // 新添加的 key2 应该存在
         assert!(manager.get("key2").is_some());
     }
 
@@ -347,12 +350,7 @@ mod tests {
         let expert_indices = Tensor::from_slice(&[0.0f32, 1.0, 2.0]);
         let routing_weights = Tensor::from_slice(&[0.9, 0.7, 0.8]);
 
-        routing.save_routing(
-            "prompt1".to_string(),
-            expert_indices,
-            routing_weights,
-            0,
-        );
+        routing.save_routing("prompt1".to_string(), expert_indices, routing_weights, 0);
 
         // 获取已保存的路由
         let cache = routing.get_routing("prompt1").unwrap();
@@ -400,11 +398,8 @@ mod tests {
         let default_indices = Tensor::from_slice(&[99.0f32, 88.0]); // 这些不应该被使用
         let default_weights = Tensor::from_slice(&[0.1, 0.2]);
 
-        let (indices, weights) = routing.apply_routing(
-            "cached_prompt",
-            &default_indices,
-            &default_weights,
-        );
+        let (indices, weights) =
+            routing.apply_routing("cached_prompt", &default_indices, &default_weights);
 
         // 应该返回缓存的值，而不是默认值
         assert_eq!(indices.as_slice()[0], 0.0); // 来自缓存
@@ -419,11 +414,8 @@ mod tests {
         let default_indices = Tensor::from_slice(&[42.0f32, 43.0]);
         let default_weights = Tensor::from_slice(&[0.6, 0.7]);
 
-        let (indices, weights) = routing.apply_routing(
-            "uncached_prompt",
-            &default_indices,
-            &default_weights,
-        );
+        let (indices, weights) =
+            routing.apply_routing("uncached_prompt", &default_indices, &default_weights);
 
         // 无缓存时应该返回默认值
         assert_eq!(indices.as_slice()[0], 42.0);
@@ -467,11 +459,7 @@ mod tests {
         let loaded = load_router_cache("/nonexistent/path.cache");
         assert!(loaded.is_none());
 
-        let cache = RouterCache::new(
-            Tensor::from_slice(&[0.0f32]),
-            Tensor::from_slice(&[0.9]),
-            0,
-        );
+        let cache = RouterCache::new(Tensor::from_slice(&[0.0f32]), Tensor::from_slice(&[0.9]), 0);
         let saved = save_router_cache("/tmp/test.cache", &cache);
         assert!(!saved);
     }
@@ -483,28 +471,17 @@ mod tests {
         // 覆盖分支: 容量刚好达到上限时的行为
         let manager = RouterCacheManager::new(2);
 
-        let cache0 = RouterCache::new(
-            Tensor::from_slice(&[0.0f32]),
-            Tensor::from_slice(&[1.0]),
-            0,
-        );
+        let cache0 = RouterCache::new(Tensor::from_slice(&[0.0f32]), Tensor::from_slice(&[1.0]), 0);
         manager.store("key0".to_string(), cache0);
         assert_eq!(manager.len(), 1);
 
-        let cache1 = RouterCache::new(
-            Tensor::from_slice(&[1.0f32]),
-            Tensor::from_slice(&[0.8]),
-            1,
-        );
+        let cache1 = RouterCache::new(Tensor::from_slice(&[1.0f32]), Tensor::from_slice(&[0.8]), 1);
         manager.store("key1".to_string(), cache1);
         assert_eq!(manager.len(), 2); // 刚好达到容量
 
         // 更新已存在的 key 不应增加长度
-        let cache0_updated = RouterCache::new(
-            Tensor::from_slice(&[2.0f32]),
-            Tensor::from_slice(&[0.7]),
-            2,
-        );
+        let cache0_updated =
+            RouterCache::new(Tensor::from_slice(&[2.0f32]), Tensor::from_slice(&[0.7]), 2);
         manager.store("key0".to_string(), cache0_updated);
         assert_eq!(manager.len(), 2); // 仍然是 2
     }
@@ -616,11 +593,7 @@ mod tests {
         assert!(result.is_none());
 
         // 单元素缓存
-        let single = RouterCache::new(
-            Tensor::from_slice(&[0.0f32]),
-            Tensor::from_slice(&[1.0]),
-            5,
-        );
+        let single = RouterCache::new(Tensor::from_slice(&[0.0f32]), Tensor::from_slice(&[1.0]), 5);
         let (expert, weight) = single.get_expert_for_token(0).unwrap();
         assert_eq!(expert, 0);
         assert!((weight - 1.0).abs() < f32::EPSILON);

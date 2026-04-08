@@ -52,41 +52,40 @@ impl CpuAffinity {
     pub fn new(topology: HyperthreadTopology, numa: NumaTopology) -> Self {
         Self { topology, numa }
     }
-    
+
     /// 从硬件配置创建
     pub fn from_hardware() -> Self {
-        Self::new(
-            HyperthreadTopology::detect(),
-            NumaTopology::detect(),
-        )
+        Self::new(HyperthreadTopology::detect(), NumaTopology::detect())
     }
-    
+
     /// 根据策略选择核心
     ///
     /// # 返回值
     /// 返回逻辑核心 ID 列表，可用于 `bind_current_thread` 绑定
-    pub fn select_cores(&self, strategy: CoreSelectionStrategy, count: Option<usize>) -> Vec<usize> {
+    pub fn select_cores(
+        &self,
+        strategy: CoreSelectionStrategy,
+        count: Option<usize>,
+    ) -> Vec<usize> {
         let available_cores = match strategy {
-            CoreSelectionStrategy::AllCores => {
-                (0..self.topology.logical_core_count()).collect()
-            }
-            CoreSelectionStrategy::PhysicalOnly => {
-                self.topology.get_primary_logical_cores()
-            }
-            CoreSelectionStrategy::PerformanceFirst => {
-                self.topology.physical_cores.iter()
-                    .filter(|c| c.core_type == CoreType::Performance)
-                    .flat_map(|c| c.logical_cores.iter())
-                    .copied()
-                    .collect()
-            }
-            CoreSelectionStrategy::EfficiencyFirst => {
-                self.topology.physical_cores.iter()
-                    .filter(|c| c.core_type == CoreType::Efficiency)
-                    .flat_map(|c| c.logical_cores.iter())
-                    .copied()
-                    .collect()
-            }
+            CoreSelectionStrategy::AllCores => (0..self.topology.logical_core_count()).collect(),
+            CoreSelectionStrategy::PhysicalOnly => self.topology.get_primary_logical_cores(),
+            CoreSelectionStrategy::PerformanceFirst => self
+                .topology
+                .physical_cores
+                .iter()
+                .filter(|c| c.core_type == CoreType::Performance)
+                .flat_map(|c| c.logical_cores.iter())
+                .copied()
+                .collect(),
+            CoreSelectionStrategy::EfficiencyFirst => self
+                .topology
+                .physical_cores
+                .iter()
+                .filter(|c| c.core_type == CoreType::Efficiency)
+                .flat_map(|c| c.logical_cores.iter())
+                .copied()
+                .collect(),
             CoreSelectionStrategy::NumaAware => {
                 if let Some(node) = self.numa.get_optimal_node() {
                     node.cpus.clone()
@@ -95,20 +94,16 @@ impl CpuAffinity {
                 }
             }
         };
-        
+
         let target_count = count.unwrap_or(available_cores.len());
         available_cores.into_iter().take(target_count).collect()
     }
-    
+
     /// 计算最优线程数
     pub fn optimal_thread_count(&self, task_type: TaskType) -> usize {
         match task_type {
-            TaskType::ComputeIntensive => {
-                self.topology.physical_core_count()
-            }
-            TaskType::IoIntensive => {
-                self.topology.logical_core_count()
-            }
+            TaskType::ComputeIntensive => self.topology.physical_core_count(),
+            TaskType::IoIntensive => self.topology.logical_core_count(),
             TaskType::Mixed => {
                 let physical = self.topology.physical_core_count();
                 let logical = self.topology.logical_core_count();
@@ -116,7 +111,7 @@ impl CpuAffinity {
             }
         }
     }
-    
+
     /// 绑定当前线程到指定核心
     ///
     /// # 参数
@@ -130,52 +125,52 @@ impl CpuAffinity {
         {
             self.bind_linux(core_id)
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             self.bind_macos(core_id)
         }
-        
+
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             let _ = core_id;
             Ok(())
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     fn bind_linux(&self, core_id: usize) -> Result<(), CpuAffinityError> {
         use libc::{cpu_set_t, sched_setaffinity, CPU_SET, CPU_ZERO};
-        
+
         if core_id >= self.topology.logical_core_count() {
             return Err(CpuAffinityError::InvalidCoreId(core_id));
         }
-        
+
         unsafe {
             let mut set: cpu_set_t = std::mem::zeroed();
             CPU_ZERO(&mut set);
             CPU_SET(core_id, &mut set);
-            
+
             let result = sched_setaffinity(0, std::mem::size_of::<cpu_set_t>(), &set);
             if result != 0 {
                 return Err(CpuAffinityError::BindFailed(core_id));
             }
         }
-        
+
         Ok(())
     }
-    
+
     #[cfg(target_os = "macos")]
     fn bind_macos(&self, core_id: usize) -> Result<(), CpuAffinityError> {
         if core_id >= self.topology.logical_core_count() {
             return Err(CpuAffinityError::InvalidCoreId(core_id));
         }
-        
+
         // macOS 不支持线程级 CPU 亲和性绑定
         // 返回成功但无实际效果
         Ok(())
     }
-    
+
     /// 绑定当前线程到多个核心
     ///
     /// # 参数
@@ -189,25 +184,25 @@ impl CpuAffinity {
         #[cfg(target_os = "linux")]
         {
             use libc::{cpu_set_t, sched_setaffinity, CPU_SET, CPU_ZERO};
-            
+
             unsafe {
                 let mut set: cpu_set_t = std::mem::zeroed();
                 CPU_ZERO(&mut set);
-                
+
                 for &core_id in core_ids {
                     if core_id >= self.topology.logical_core_count() {
                         return Err(CpuAffinityError::InvalidCoreId(core_id));
                     }
                     CPU_SET(core_id, &mut set);
                 }
-                
+
                 let result = sched_setaffinity(0, std::mem::size_of::<cpu_set_t>(), &set);
                 if result != 0 {
                     return Err(CpuAffinityError::BindFailed(core_ids[0]));
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             for &core_id in core_ids {
@@ -218,15 +213,15 @@ impl CpuAffinity {
             // macOS 不支持线程级 CPU 亲和性绑定
             // 返回成功但无实际效果
         }
-        
+
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             let _ = core_ids;
         }
-        
+
         Ok(())
     }
-    
+
     /// 获取当前线程绑定的核心
     ///
     /// # 平台支持
@@ -238,34 +233,34 @@ impl CpuAffinity {
         {
             self.get_affinity_linux()
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             // macOS 不支持获取线程亲和性
             // 返回所有逻辑核心，表示假设无限制
             (0..self.topology.logical_core_count()).collect()
         }
-        
+
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             (0..self.topology.logical_core_count()).collect()
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     #[allow(dead_code)]
     fn get_affinity_linux(&self) -> Vec<usize> {
         use libc::{cpu_set_t, sched_getaffinity, CPU_ISSET, CPU_ZERO};
-        
+
         unsafe {
             let mut set: cpu_set_t = std::mem::zeroed();
             CPU_ZERO(&mut set);
-            
+
             let result = sched_getaffinity(0, std::mem::size_of::<cpu_set_t>(), &mut set);
             if result != 0 {
                 return (0..self.topology.logical_core_count()).collect();
             }
-            
+
             let mut cores = Vec::new();
             for i in 0..self.topology.logical_core_count() {
                 if CPU_ISSET(i, &set) {
@@ -275,13 +270,13 @@ impl CpuAffinity {
             cores
         }
     }
-    
+
     /// 获取超线程拓扑
     #[allow(dead_code)]
     pub fn topology(&self) -> &HyperthreadTopology {
         &self.topology
     }
-    
+
     /// 获取 NUMA 拓扑
     #[allow(dead_code)]
     pub fn numa(&self) -> &NumaTopology {
@@ -343,7 +338,7 @@ impl ThreadPoolConfig {
     ) -> Self {
         let affinity = CpuAffinity::new(topology.clone(), NumaTopology::detect());
         let num_threads = affinity.optimal_thread_count(task_type);
-        
+
         Self {
             num_threads,
             core_strategy: strategy,
@@ -351,23 +346,35 @@ impl ThreadPoolConfig {
             enable_affinity: true,
         }
     }
-    
+
     /// 计算密集型任务配置
     #[allow(dead_code)]
     pub fn compute_intensive(topology: &HyperthreadTopology) -> Self {
-        Self::new(topology, TaskType::ComputeIntensive, CoreSelectionStrategy::PhysicalOnly)
+        Self::new(
+            topology,
+            TaskType::ComputeIntensive,
+            CoreSelectionStrategy::PhysicalOnly,
+        )
     }
-    
+
     /// I/O 密集型任务配置
     #[allow(dead_code)]
     pub fn io_intensive(topology: &HyperthreadTopology) -> Self {
-        Self::new(topology, TaskType::IoIntensive, CoreSelectionStrategy::AllCores)
+        Self::new(
+            topology,
+            TaskType::IoIntensive,
+            CoreSelectionStrategy::AllCores,
+        )
     }
-    
+
     /// 混合型任务配置
     #[allow(dead_code)]
     pub fn mixed(topology: &HyperthreadTopology) -> Self {
-        Self::new(topology, TaskType::Mixed, CoreSelectionStrategy::PerformanceFirst)
+        Self::new(
+            topology,
+            TaskType::Mixed,
+            CoreSelectionStrategy::PerformanceFirst,
+        )
     }
 }
 
@@ -388,7 +395,7 @@ impl HyperthreadEfficiency {
     /// 估算超线程效率
     pub fn estimate(topology: &HyperthreadTopology, task_type: TaskType) -> Self {
         let threads_per_core = topology.threads_per_core;
-        
+
         let (speedup, efficiency, thread_factor) = match task_type {
             TaskType::ComputeIntensive => {
                 if threads_per_core > 1 {
@@ -412,7 +419,7 @@ impl HyperthreadEfficiency {
                 }
             }
         };
-        
+
         Self {
             speedup,
             efficiency,
@@ -424,92 +431,92 @@ impl HyperthreadEfficiency {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_cpu_affinity_creation() {
         let affinity = CpuAffinity::from_hardware();
         assert!(affinity.topology().physical_core_count() > 0);
     }
-    
+
     #[test]
     fn test_core_selection() {
         let affinity = CpuAffinity::from_hardware();
-        
+
         let physical_cores = affinity.select_cores(CoreSelectionStrategy::PhysicalOnly, None);
         assert!(!physical_cores.is_empty());
-        
+
         let all_cores = affinity.select_cores(CoreSelectionStrategy::AllCores, None);
         assert!(all_cores.len() >= physical_cores.len());
-        
+
         // 验证 PerformanceFirst 返回逻辑核心 ID
         let perf_cores = affinity.select_cores(CoreSelectionStrategy::PerformanceFirst, None);
         for core_id in &perf_cores {
             assert!(*core_id < affinity.topology().logical_core_count());
         }
-        
+
         // 验证 EfficiencyFirst 返回逻辑核心 ID
         let eff_cores = affinity.select_cores(CoreSelectionStrategy::EfficiencyFirst, None);
         for core_id in &eff_cores {
             assert!(*core_id < affinity.topology().logical_core_count());
         }
     }
-    
+
     #[test]
     fn test_optimal_thread_count() {
         let affinity = CpuAffinity::from_hardware();
-        
+
         let compute_threads = affinity.optimal_thread_count(TaskType::ComputeIntensive);
         let io_threads = affinity.optimal_thread_count(TaskType::IoIntensive);
         let mixed_threads = affinity.optimal_thread_count(TaskType::Mixed);
-        
+
         assert!(compute_threads > 0);
         assert!(io_threads >= compute_threads);
         assert!(mixed_threads >= compute_threads && mixed_threads <= io_threads);
     }
-    
+
     #[test]
     fn test_thread_pool_config() {
         let topology = HyperthreadTopology::detect();
-        
+
         let compute_config = ThreadPoolConfig::compute_intensive(&topology);
         assert!(compute_config.num_threads > 0);
         assert_eq!(compute_config.task_type, TaskType::ComputeIntensive);
-        
+
         let io_config = ThreadPoolConfig::io_intensive(&topology);
         assert!(io_config.num_threads >= compute_config.num_threads);
     }
-    
+
     #[test]
     fn test_hyperthread_efficiency() {
         let topology = HyperthreadTopology::detect();
-        
+
         let compute_eff = HyperthreadEfficiency::estimate(&topology, TaskType::ComputeIntensive);
         assert!(compute_eff.speedup >= 1.0);
         assert!(compute_eff.efficiency > 0.0 && compute_eff.efficiency <= 1.0);
-        
+
         let io_eff = HyperthreadEfficiency::estimate(&topology, TaskType::IoIntensive);
         assert!(io_eff.speedup >= compute_eff.speedup);
     }
-    
+
     #[test]
     fn test_core_count_limit() {
         let affinity = CpuAffinity::from_hardware();
-        
+
         let cores = affinity.select_cores(CoreSelectionStrategy::AllCores, Some(2));
         assert_eq!(cores.len(), 2);
-        
+
         let cores = affinity.select_cores(CoreSelectionStrategy::PhysicalOnly, Some(1));
         assert_eq!(cores.len(), 1);
     }
-    
+
     #[test]
     fn test_bind_current_thread() {
         let affinity = CpuAffinity::from_hardware();
-        
+
         // 测试绑定到第一个核心
         let result = affinity.bind_current_thread(0);
         assert!(result.is_ok());
-        
+
         // 测试无效核心 ID
         let invalid_core = affinity.topology().logical_core_count() + 100;
         let result = affinity.bind_current_thread(invalid_core);
@@ -675,12 +682,18 @@ mod tests {
         let mixed_config = ThreadPoolConfig::mixed(&topology);
         assert!(mixed_config.num_threads > 0);
         assert_eq!(mixed_config.task_type, TaskType::Mixed);
-        assert_eq!(mixed_config.core_strategy, CoreSelectionStrategy::PerformanceFirst);
+        assert_eq!(
+            mixed_config.core_strategy,
+            CoreSelectionStrategy::PerformanceFirst
+        );
         assert!(mixed_config.enable_affinity);
 
         // 测试compute_intensive配置的其他属性
         let compute_config = ThreadPoolConfig::compute_intensive(&topology);
-        assert_eq!(compute_config.core_strategy, CoreSelectionStrategy::PhysicalOnly);
+        assert_eq!(
+            compute_config.core_strategy,
+            CoreSelectionStrategy::PhysicalOnly
+        );
         assert!(compute_config.enable_affinity);
 
         // 测试io_intensive配置的其他属性
@@ -752,13 +765,19 @@ mod tests {
     #[test]
     fn test_cpu_affinity_clone() {
         let affinity = CpuAffinity::from_hardware();
-        
+
         let cloned = affinity.clone();
-        
+
         // 验证克隆后的对象具有相同的拓扑信息
-        assert_eq!(affinity.topology().physical_core_count(), cloned.topology().physical_core_count());
-        assert_eq!(affinity.topology().logical_core_count(), cloned.topology().logical_core_count());
-        
+        assert_eq!(
+            affinity.topology().physical_core_count(),
+            cloned.topology().physical_core_count()
+        );
+        assert_eq!(
+            affinity.topology().logical_core_count(),
+            cloned.topology().logical_core_count()
+        );
+
         // 验证克隆后的独立操作
         let cores1 = affinity.select_cores(CoreSelectionStrategy::AllCores, Some(2));
         let cores2 = cloned.select_cores(CoreSelectionStrategy::AllCores, Some(2));
@@ -770,17 +789,17 @@ mod tests {
     #[test]
     fn test_thread_pool_config_debug_and_fields() {
         let topology = HyperthreadTopology::detect();
-        
+
         let config = ThreadPoolConfig::new(
             &topology,
             TaskType::ComputeIntensive,
             CoreSelectionStrategy::PhysicalOnly,
         );
-        
+
         // Debug trait
         let debug_str = format!("{:?}", config);
         assert!(!debug_str.is_empty());
-        
+
         // 验证所有公共字段
         assert!(config.num_threads > 0);
         assert_eq!(config.task_type, TaskType::ComputeIntensive);
@@ -793,16 +812,17 @@ mod tests {
     #[test]
     fn test_hyperthread_efficiency_single_thread_per_core() {
         let topology = HyperthreadTopology::detect();
-        
+
         // 所有任务类型在单线程每核心时应该返回 speedup=1.0
         if topology.threads_per_core == 1 {
-            let compute_eff = HyperthreadEfficiency::estimate(&topology, TaskType::ComputeIntensive);
+            let compute_eff =
+                HyperthreadEfficiency::estimate(&topology, TaskType::ComputeIntensive);
             assert_eq!(compute_eff.speedup, 1.0);
             assert_eq!(compute_eff.efficiency, 1.0);
-            
+
             let io_eff = HyperthreadEfficiency::estimate(&topology, TaskType::IoIntensive);
             assert_eq!(io_eff.speedup, 1.0);
-            
+
             let mixed_eff = HyperthreadEfficiency::estimate(&topology, TaskType::Mixed);
             assert_eq!(mixed_eff.speedup, 1.0);
         }
@@ -814,7 +834,7 @@ mod tests {
     fn test_select_cores_uniqueness_and_validity() {
         let affinity = CpuAffinity::from_hardware();
         let logical_count = affinity.topology().logical_core_count();
-        
+
         // 测试每种策略返回的核心 ID 都是唯一的且有效的
         let strategies = vec![
             CoreSelectionStrategy::AllCores,
@@ -823,15 +843,20 @@ mod tests {
             CoreSelectionStrategy::EfficiencyFirst,
             CoreSelectionStrategy::NumaAware,
         ];
-        
+
         for strategy in strategies {
             let cores = affinity.select_cores(strategy, None);
-            
+
             // 验证所有核心 ID 都在有效范围内
             for &core_id in &cores {
-                assert!(core_id < logical_count, "策略 {:?} 返回了无效核心 ID: {}", strategy, core_id);
+                assert!(
+                    core_id < logical_count,
+                    "策略 {:?} 返回了无效核心 ID: {}",
+                    strategy,
+                    core_id
+                );
             }
-            
+
             // 验证核心 ID 唯一性（使用 HashSet 去重）
             use std::collections::HashSet;
             let unique_cores: HashSet<usize> = cores.into_iter().collect();
@@ -845,22 +870,22 @@ mod tests {
     #[test]
     fn test_optimal_thread_count_reasonableness() {
         let affinity = CpuAffinity::from_hardware();
-        
+
         let physical = affinity.topology().physical_core_count();
         let logical = affinity.topology().logical_core_count();
-        
+
         // 计算密集型：应该等于物理核心数
         let compute = affinity.optimal_thread_count(TaskType::ComputeIntensive);
         assert_eq!(compute, physical);
-        
+
         // I/O 密集型：应该等于逻辑核心数
         let io = affinity.optimal_thread_count(TaskType::IoIntensive);
         assert_eq!(io, logical);
-        
+
         // 混合型：应该在物理和逻辑之间
         let mixed = affinity.optimal_thread_count(TaskType::Mixed);
         assert!(mixed >= physical && mixed <= logical);
-        
+
         // 所有线程数都应该 > 0
         assert!(compute > 0);
         assert!(io > 0);

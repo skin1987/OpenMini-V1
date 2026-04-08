@@ -20,22 +20,11 @@ use std::time::Instant;
 use ndarray::Array2;
 
 use openmini_server::model::inference::dsa::{
-    dsa_memory_pool,
-    lightning_indexer,
-    lightning_indexer_adaptive,
-    lightning_indexer_auto,
-    lightning_indexer_gpu,
-    lightning_indexer_gpu_chunked,
-    DSAMemoryPool,
-    DSATempBuffers,
-    DSATopKConfig,
-    estimate_dsa_memory_usage,
-    multihead_sparse_attention,
-    optimize_data_layout_for_dsa,
-    sparse_attention_forward,
-    sparse_attention_forward_optimized,
-    sparse_attention_forward_optimized_with_buffers,
-    top_k_selection_metal,
+    dsa_memory_pool, estimate_dsa_memory_usage, lightning_indexer, lightning_indexer_adaptive,
+    lightning_indexer_auto, lightning_indexer_gpu, lightning_indexer_gpu_chunked,
+    multihead_sparse_attention, optimize_data_layout_for_dsa, sparse_attention_forward,
+    sparse_attention_forward_optimized, sparse_attention_forward_optimized_with_buffers,
+    top_k_selection_metal, DSAMemoryPool, DSATempBuffers, DSATopKConfig,
 };
 
 // ============================================================================
@@ -76,7 +65,7 @@ fn test_full_pipeline_correctness() {
         // (seq_len, head_dim, num_heads, top_k, use_causal)
         (8, 64, 1, 4, false),
         (16, 128, 4, 8, false),
-        (32, 64, 8, 16, true),   // 因果掩码
+        (32, 64, 8, 16, true), // 因果掩码
         (64, 128, 4, 32, false),
         (128, 256, 2, 64, false),
     ];
@@ -93,9 +82,7 @@ fn test_full_pipeline_correctness() {
         let k = generate_kv_matrix(seq_len, hidden_size);
         let v = generate_kv_matrix(seq_len, hidden_size);
 
-        let config = DSATopKConfig::new()
-            .with_top_k(top_k)
-            .with_dynamic_k(false);
+        let config = DSATopKConfig::new().with_top_k(top_k).with_dynamic_k(false);
 
         // 1. 单头稀疏注意力（标准版）
         let standard_result = sparse_attention_forward(&q, &k, &v, head_dim, &config, use_causal);
@@ -148,15 +135,8 @@ fn test_full_pipeline_correctness() {
 
         // 4. 多头稀疏注意力
         if num_heads > 1 {
-            let multihead_result = multihead_sparse_attention(
-                &q,
-                &k,
-                &v,
-                num_heads,
-                head_dim,
-                &config,
-                use_causal,
-            );
+            let multihead_result =
+                multihead_sparse_attention(&q, &k, &v, num_heads, head_dim, &config, use_causal);
             assert!(
                 multihead_result.is_ok(),
                 "Multi-head attention failed for heads={}",
@@ -167,14 +147,14 @@ fn test_full_pipeline_correctness() {
 
             // 验证多头输出有限性
             for val in mh_output.iter() {
-                assert!(val.is_finite(), "Multi-head output contains non-finite value");
+                assert!(
+                    val.is_finite(),
+                    "Multi-head output contains non-finite value"
+                );
             }
         }
 
-        println!(
-            "  [PASS] seq_len={}, max_diff={:.6}",
-            seq_len, max_diff
-        );
+        println!("  [PASS] seq_len={}, max_diff={:.6}", seq_len, max_diff);
     }
 
     println!("\n[Full Pipeline Correctness] All tests passed!\n");
@@ -215,7 +195,10 @@ fn test_memory_usage_under_load() {
         );
 
         // 验证估算合理性：总内存应该 > 0 且在合理范围内
-        assert!(estimate.peak_bytes > 0, "Memory estimate should be positive");
+        assert!(
+            estimate.peak_bytes > 0,
+            "Memory estimate should be positive"
+        );
 
         // 各组件内存应该非负
         assert!(estimate.qkv_bytes >= 0);
@@ -229,8 +212,10 @@ fn test_memory_usage_under_load() {
     let mut pool = DSAMemoryPool::new(pool_capacity);
 
     let initial_stats = pool.stats();
-    println!("  Initial: hits={}, misses={}, free={}", 
-             initial_stats.hit_count, initial_stats.miss_count, initial_stats.free_buffers_count);
+    println!(
+        "  Initial: hits={}, misses={}, free={}",
+        initial_stats.hit_count, initial_stats.miss_count, initial_stats.free_buffers_count
+    );
 
     // 模拟多次分配/释放循环
     for _cycle in 0..10 {
@@ -297,12 +282,7 @@ fn test_memory_usage_under_load() {
 fn test_graceful_degradation() {
     println!("\n=== Graceful Degradation Test ===\n");
 
-    let test_sizes = vec![
-        (8, 64),
-        (64, 128),
-        (256, 64),
-        (1024, 128),
-    ];
+    let test_sizes = vec![(8, 64), (64, 128), (256, 64), (1024, 128)];
 
     for (seq_len, head_dim) in test_sizes {
         println!("[Test Size] seq_len={}, head_dim={}", seq_len, head_dim);
@@ -366,10 +346,7 @@ fn test_graceful_degradation() {
         match top_k_result {
             Ok((indices, stats)) => {
                 assert_eq!(indices.len(), 4); // 4 行
-                println!(
-                    "  [Top-K Metal] Success: algorithm={}",
-                    stats.algorithm
-                );
+                println!("  [Top-K Metal] Success: algorithm={}", stats.algorithm);
             }
             Err(e) => {
                 println!("  [Top-K Metal] Fallback: {}", e);
@@ -444,8 +421,8 @@ fn test_buffer_reuse_efficiency() {
         (512, 256),
         (1024, 512),
         (2048, 512),
-        (1024, 256),  // 重复之前的大小，应触发命中
-        (512, 128),    // 更小的请求
+        (1024, 256), // 重复之前的大小，应触发命中
+        (512, 128),  // 更小的请求
     ];
 
     println!("\n[Round 1: Mixed size requests]");
@@ -469,10 +446,7 @@ fn test_buffer_reuse_efficiency() {
             assert!(output_buf.len() >= hidden_size);
         }
 
-        println!(
-            "  Request ({:>4}, {:>4}): verified OK",
-            req_seq, req_k
-        );
+        println!("  Request ({:>4}, {:>4}): verified OK", req_seq, req_k);
     }
 
     let (round1_s, round1_i, round1_o) = buffers.stats();
@@ -549,14 +523,7 @@ fn test_buffer_reuse_efficiency() {
     // 动态分配版本计时
     let start_dynamic = Instant::now();
     for _ in 0..iterations {
-        let _result = sparse_attention_forward_optimized(
-            &q,
-            &k,
-            &v,
-            hidden_size,
-            &config,
-            false,
-        );
+        let _result = sparse_attention_forward_optimized(&q, &k, &v, hidden_size, &config, false);
     }
     let dynamic_time = start_dynamic.elapsed();
 

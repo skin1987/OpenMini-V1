@@ -3,9 +3,9 @@
 //! 保存采样截断掩码，确保训练与推理动作空间一致
 
 use crate::rl::Tensor;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// 采样掩码数据
 ///
@@ -34,13 +34,13 @@ impl SamplingMaskManager {
 
     pub fn store(&self, key: String, mask_data: SamplingMaskData) {
         let mut masks = self.masks.write();
-        
+
         if masks.len() >= self.max_masks && !masks.contains_key(&key) {
             if let Some(first_key) = masks.keys().next().cloned() {
                 masks.remove(&first_key);
             }
         }
-        
+
         masks.insert(key, mask_data);
     }
 
@@ -103,7 +103,7 @@ impl KeepSamplingMask {
             mask,
             valid_lengths,
         };
-        
+
         self.mask_manager.store(key, mask_data);
     }
 
@@ -140,7 +140,7 @@ impl Default for KeepSamplingMask {
 pub fn create_sampling_mask(max_length: usize, _eos_token_id: usize) -> (Tensor, Vec<usize>) {
     let mask_data: Vec<f32> = vec![1.0; max_length];
     let valid_lengths = vec![max_length];
-    
+
     (Tensor::new(mask_data, vec![max_length]), valid_lengths)
 }
 
@@ -151,12 +151,12 @@ pub fn create_mask_from_terminated(
 ) -> (Tensor, Vec<usize>) {
     let terminate_pos = terminated_at.unwrap_or(sequence_length);
     let valid_length = terminate_pos.min(max_length);
-    
+
     let mut mask_data = vec![0.0; max_length];
     for i in 0..valid_length {
         mask_data[i] = 1.0;
     }
-    
+
     (Tensor::new(mask_data, vec![max_length]), vec![valid_length])
 }
 
@@ -263,7 +263,7 @@ mod tests {
         );
 
         assert_eq!(manager.len(), 2); // 容量仍为 2
-        // 新添加的 key2 应该存在
+                                      // 新添加的 key2 应该存在
         assert!(manager.get("key2").is_some());
     }
 
@@ -296,11 +296,7 @@ mod tests {
         let disabled = mask.disable();
 
         // 禁用状态下保存不生效
-        disabled.save_mask(
-            "test".to_string(),
-            Tensor::from_slice(&[1.0]),
-            vec![1],
-        );
+        disabled.save_mask("test".to_string(), Tensor::from_slice(&[1.0]), vec![1]);
 
         assert!(disabled.get_mask("test").is_none());
     }
@@ -328,11 +324,7 @@ mod tests {
         let mask = KeepSamplingMask::new(100);
 
         let cached_mask = Tensor::from_slice(&[1.0, 1.0, 0.0]);
-        mask.save_mask(
-            "cached_seq".to_string(),
-            cached_mask.clone(),
-            vec![2],
-        );
+        mask.save_mask("cached_seq".to_string(), cached_mask.clone(), vec![2]);
 
         let default_mask = Tensor::from_slice(&[0.5, 0.5, 0.5]); // 不应该被使用
 
@@ -378,11 +370,7 @@ mod tests {
         // 测试默认配置
         let mask = KeepSamplingMask::default();
         // 默认启用，可以正常操作
-        mask.save_mask(
-            "test".to_string(),
-            Tensor::from_slice(&[1.0]),
-            vec![1],
-        );
+        mask.save_mask("test".to_string(), Tensor::from_slice(&[1.0]), vec![1]);
         assert!(mask.get_mask("test").is_some());
     }
 
@@ -391,16 +379,8 @@ mod tests {
         // 测试清空所有掩码
         let mask = KeepSamplingMask::new(100);
 
-        mask.save_mask(
-            "key1".to_string(),
-            Tensor::from_slice(&[1.0]),
-            vec![1],
-        );
-        mask.save_mask(
-            "key2".to_string(),
-            Tensor::from_slice(&[1.0, 0.0]),
-            vec![1],
-        );
+        mask.save_mask("key1".to_string(), Tensor::from_slice(&[1.0]), vec![1]);
+        mask.save_mask("key2".to_string(), Tensor::from_slice(&[1.0, 0.0]), vec![1]);
 
         mask.clear();
 

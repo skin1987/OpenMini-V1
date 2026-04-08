@@ -80,18 +80,18 @@ impl Arena {
                 offset: std::sync::atomic::AtomicUsize::new(0),
             };
         }
-        
+
         let layout = Layout::from_size_align(capacity, 64).expect("Invalid layout");
         let ptr = unsafe { alloc(layout) };
         let buffer = NonNull::new(ptr).expect("Allocation failed");
-        
+
         Self {
             buffer,
             capacity,
             offset: std::sync::atomic::AtomicUsize::new(0),
         }
     }
-    
+
     /// 分配指定大小的内存
     ///
     /// 使用 CAS (Compare-And-Swap) 实现无锁分配。
@@ -118,16 +118,19 @@ impl Arena {
     /// ```
     pub fn alloc(&self, size: usize, align: usize) -> Option<*mut u8> {
         // 验证对齐值是 2 的幂
-        debug_assert!(align == 0 || align.is_power_of_two(), 
-            "Alignment must be power of two, got {}", align);
-        
+        debug_assert!(
+            align == 0 || align.is_power_of_two(),
+            "Alignment must be power of two, got {}",
+            align
+        );
+
         if align == 0 || !align.is_power_of_two() {
             return None;
         }
-        
+
         // 最小对齐 8 字节
         let align = align.max(8);
-        
+
         // 计算对齐后的大小（防止溢出）
         let aligned_size = if size == 0 {
             0
@@ -136,24 +139,24 @@ impl Arena {
             let blocks = size.checked_add(align - 1)?.checked_div(align)?;
             blocks.checked_mul(align)?
         };
-        
+
         loop {
             let current = self.offset.load(std::sync::atomic::Ordering::Relaxed);
-            
+
             // 防止整数溢出：检查 size > capacity - current
             // 而不是 current + size > capacity
             let available = match self.capacity.checked_sub(current) {
                 Some(avail) => avail,
                 None => return None, // current > capacity，不应该发生
             };
-            
+
             if aligned_size > available {
                 return None;
             }
-            
+
             // 现在可以安全计算 new_offset
             let new_offset = current + aligned_size;
-            
+
             match self.offset.compare_exchange_weak(
                 current,
                 new_offset,
@@ -168,7 +171,7 @@ impl Arena {
             }
         }
     }
-    
+
     /// 重置 Arena，释放所有已分配的内存
     ///
     /// O(1) 时间复杂度，只需重置偏移量。
@@ -195,22 +198,22 @@ impl Arena {
     pub fn reset(&self) {
         self.offset.store(0, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     /// 获取已使用的内存大小
     pub fn used(&self) -> usize {
         self.offset.load(std::sync::atomic::Ordering::Relaxed)
     }
-    
+
     /// 获取可用内存大小
     pub fn available(&self) -> usize {
         self.capacity.saturating_sub(self.used())
     }
-    
+
     /// 获取总容量
     pub fn capacity(&self) -> usize {
         self.capacity
     }
-    
+
     /// 检查 Arena 是否为空（无分配）
     pub fn is_empty(&self) -> bool {
         self.used() == 0
@@ -223,7 +226,7 @@ impl Drop for Arena {
         if self.capacity == 0 {
             return;
         }
-        
+
         // Layout 已在 new 中验证，这里应该不会失败
         let layout = Layout::from_size_align(self.capacity, 64);
         if let Ok(layout) = layout {
@@ -252,13 +255,13 @@ mod tests {
     #[test]
     fn test_multiple_allocations() {
         let arena = Arena::new(1024);
-        
+
         let ptr1 = arena.alloc(100, 8);
         assert!(ptr1.is_some());
-        
+
         let ptr2 = arena.alloc(200, 8);
         assert!(ptr2.is_some());
-        
+
         // 100 对齐到 8 = 104, 200 对齐到 8 = 200
         assert_eq!(arena.used(), 304);
     }
@@ -266,10 +269,10 @@ mod tests {
     #[test]
     fn test_capacity_exceeded() {
         let arena = Arena::new(100);
-        
+
         let ptr1 = arena.alloc(50, 8);
         assert!(ptr1.is_some());
-        
+
         let ptr2 = arena.alloc(100, 8);
         assert!(ptr2.is_none()); // 应该失败
     }
@@ -277,14 +280,14 @@ mod tests {
     #[test]
     fn test_reset() {
         let arena = Arena::new(1024);
-        
+
         arena.alloc(100, 8);
         // 100 对齐到 8 = 104
         assert_eq!(arena.used(), 104);
-        
+
         arena.reset();
         assert_eq!(arena.used(), 0);
-        
+
         // 重置后可以重新分配
         let ptr = arena.alloc(100, 8);
         assert!(ptr.is_some());
@@ -293,14 +296,14 @@ mod tests {
     #[test]
     fn test_alignment() {
         let arena = Arena::new(1024);
-        
+
         // 分配 17 字节，8 字节对齐 -> 应该分配 24 字节
         let ptr = arena.alloc(17, 8);
         assert!(ptr.is_some());
         assert_eq!(arena.used(), 24);
-        
+
         arena.reset();
-        
+
         // 分配 10 字节，16 字节对齐 -> 应该分配 16 字节
         let ptr = arena.alloc(10, 16);
         assert!(ptr.is_some());
@@ -311,7 +314,7 @@ mod tests {
     fn test_zero_capacity() {
         let arena = Arena::new(0);
         assert_eq!(arena.capacity(), 0);
-        
+
         // 0 容量无法分配
         let ptr = arena.alloc(1, 8);
         assert!(ptr.is_none());
@@ -320,7 +323,7 @@ mod tests {
     #[test]
     fn test_zero_size_allocation() {
         let arena = Arena::new(1024);
-        
+
         // 分配 0 字节应该成功
         let ptr = arena.alloc(0, 8);
         assert!(ptr.is_some());
@@ -330,7 +333,7 @@ mod tests {
     #[test]
     fn test_invalid_alignment() {
         let arena = Arena::new(1024);
-        
+
         // 非 2 的幂对齐应该失败（不使用 debug_assert panic）
         // 注意：在 debug 模式下会 panic，所以这里测试 0 对齐
         let ptr = arena.alloc(10, 0);
@@ -340,7 +343,7 @@ mod tests {
     #[test]
     fn test_integer_overflow_protection() {
         let arena = Arena::new(1024);
-        
+
         // 尝试分配接近 usize::MAX 的大小
         let huge_size = usize::MAX - 100;
         let ptr = arena.alloc(huge_size, 8);
@@ -351,7 +354,7 @@ mod tests {
     fn test_available() {
         let arena = Arena::new(1024);
         assert_eq!(arena.available(), 1024);
-        
+
         arena.alloc(100, 8);
         // 100 对齐到 8 = 104
         assert_eq!(arena.available(), 920);
@@ -392,7 +395,10 @@ mod tests {
         assert!(arena.is_empty(), "New arena should be empty");
 
         arena.alloc(64, 8);
-        assert!(!arena.is_empty(), "Arena with allocation should not be empty");
+        assert!(
+            !arena.is_empty(),
+            "Arena with allocation should not be empty"
+        );
 
         arena.reset();
         assert!(arena.is_empty(), "Arena after reset should be empty");
@@ -410,7 +416,7 @@ mod tests {
     #[test]
     fn test_exact_capacity_fill() {
         let arena = Arena::new(128);
-        
+
         // 精确分配整个容量（128 字节，8字节对齐 -> 128）
         let ptr = arena.alloc(128, 8);
         assert!(ptr.is_some());
@@ -468,8 +474,18 @@ mod tests {
             assert!(arena.used() > 0, "Cycle {}: used should > 0", cycle);
 
             arena.reset();
-            assert_eq!(arena.used(), 0, "Cycle {}: used should be 0 after reset", cycle);
-            assert_eq!(arena.available(), 512, "Cycle {}: available should be full", cycle);
+            assert_eq!(
+                arena.used(),
+                0,
+                "Cycle {}: used should be 0 after reset",
+                cycle
+            );
+            assert_eq!(
+                arena.available(),
+                512,
+                "Cycle {}: available should be full",
+                cycle
+            );
         }
     }
 

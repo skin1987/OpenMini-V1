@@ -155,7 +155,10 @@ impl Ord for SimilarityResult {
             (true, true) => std::cmp::Ordering::Equal,
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
-            (false, false) => self.score.partial_cmp(&other.score).unwrap_or(std::cmp::Ordering::Equal),
+            (false, false) => self
+                .score
+                .partial_cmp(&other.score)
+                .unwrap_or(std::cmp::Ordering::Equal),
         }
     }
 }
@@ -743,9 +746,7 @@ impl SimdVectorOps {
         candidates
             .iter()
             .enumerate()
-            .map(|(id, candidate)| {
-                self.compute_similarity_result(id, query, candidate, query_norm)
-            })
+            .map(|(id, candidate)| self.compute_similarity_result(id, query, candidate, query_norm))
             .collect()
     }
 
@@ -765,7 +766,11 @@ impl SimdVectorOps {
         top_k: usize,
     ) -> Vec<SimilarityResult> {
         let mut results = self.batch_cosine_similarity(query, candidates);
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(top_k);
         results
     }
@@ -789,7 +794,10 @@ impl SimdVectorOps {
         if query_norm == 0.0 {
             return candidates
                 .iter()
-                .map(|(id, _)| SimilarityResult { id: *id, score: 0.0 })
+                .map(|(id, _)| SimilarityResult {
+                    id: *id,
+                    score: 0.0,
+                })
                 .collect();
         }
 
@@ -817,7 +825,11 @@ impl SimdVectorOps {
         top_k: usize,
     ) -> Vec<SimilarityResult> {
         let mut results = self.batch_cosine_similarity_with_ids(query, candidates);
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(top_k);
         results
     }
@@ -939,10 +951,7 @@ impl SimdVectorOps {
     }
 
     fn euclidean_distance_scalar(&self, a: &[f32], b: &[f32]) -> f32 {
-        let sum: f32 = a.iter()
-            .zip(b.iter())
-            .map(|(&x, &y)| (x - y).powi(2))
-            .sum();
+        let sum: f32 = a.iter().zip(b.iter()).map(|(&x, &y)| (x - y).powi(2)).sum();
         sum.sqrt()
     }
 
@@ -1182,7 +1191,7 @@ impl SimdVectorOps {
     }
 
     /// 计算 softmax 函数
-    /// 
+    ///
     /// 对输入向量进行 softmax 归一化，使用数值稳定实现
     pub fn softmax(&self, v: &[f32]) -> Vec<f32> {
         let max_val = self.max(v);
@@ -1525,7 +1534,7 @@ pub mod benchmark {
     use std::time::Instant;
 
     /// 点积性能基准测试
-    /// 
+    ///
     /// 返回 (SIMD 时间, 标量时间)
     pub fn benchmark_dot_product(dim: usize, iterations: usize) -> (f64, f64) {
         let ops = SimdVectorOps::new();
@@ -1548,7 +1557,7 @@ pub mod benchmark {
     }
 
     /// 余弦相似度性能基准测试
-    /// 
+    ///
     /// 返回 (SIMD 时间, 标量时间)
     pub fn benchmark_cosine_similarity(dim: usize, iterations: usize) -> (f64, f64) {
         let ops = SimdVectorOps::new();

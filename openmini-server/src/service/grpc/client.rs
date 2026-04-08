@@ -2,14 +2,13 @@
 //!
 //! 提供 gRPC 客户端，用于连接 OpenMini 服务
 
-use super::types::{
-    ChatRequest, ChatResponse,
-    HealthResponse,
-};
+use super::types::{ChatRequest, ChatResponse, HealthResponse};
 use futures::Stream;
 use std::pin::Pin;
 
-pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send>>;
+pub type ChatStream = Pin<
+    Box<dyn Stream<Item = Result<ChatResponse, Box<dyn std::error::Error + Send + Sync>>> + Send>,
+>;
 
 pub struct GrpcClient {
     pub address: String,
@@ -42,7 +41,9 @@ impl GrpcClient {
     /// - `Ok(HealthResponse)`: 包含健康状态和诊断信息
     /// - `Err`: 地址无效或客户端未正确初始化
     #[allow(dead_code)]
-    pub async fn health_check(&self) -> Result<HealthResponse, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn health_check(
+        &self,
+    ) -> Result<HealthResponse, Box<dyn std::error::Error + Send + Sync>> {
         // 验证地址配置
         if self.address.is_empty() {
             return Err(Box::new(std::io::Error::new(
@@ -64,10 +65,7 @@ impl GrpcClient {
         // 后续版本可通过 tonic Channel 实现真实 RPC 调用
         Ok(HealthResponse {
             healthy: true,
-            message: format!(
-                "Client configured and ready to connect to {}",
-                self.address
-            ),
+            message: format!("Client configured and ready to connect to {}", self.address),
         })
     }
 
@@ -84,7 +82,7 @@ impl GrpcClient {
 
         // 检查是否包含协议前缀（如 http://, grpc://）
         if addr.contains("://") {
-            return true;  // URL 格式，由后续连接逻辑验证
+            return true; // URL 格式，由后续连接逻辑验证
         }
 
         // 检查 host:port 格式
@@ -177,8 +175,11 @@ mod tests {
 
         assert!(result.is_err(), "Empty address should return error");
         let err = result.err().unwrap();
-        assert!(err.to_string().contains("not configured"),
-            "Error should mention address not configured, got: {}", err);
+        assert!(
+            err.to_string().contains("not configured"),
+            "Error should mention address not configured, got: {}",
+            err
+        );
     }
 
     /// 测试健康检查 - 无效地址格式应返回错误
@@ -186,20 +187,27 @@ mod tests {
     async fn test_health_check_invalid_address_format() {
         // 无效的地址格式（没有端口号）
         let invalid_addresses = vec![
-                            "localhost",  // 缺少端口
-                            "192.168.1.1",  // IP缺少端口
-                            "hostname",  // 纯主机名
-                        ];
+            "localhost",   // 缺少端口
+            "192.168.1.1", // IP缺少端口
+            "hostname",    // 纯主机名
+        ];
 
         for addr in &invalid_addresses {
             let client = GrpcClient::new(addr);
             let result = client.health_check().await;
-            assert!(result.is_err(),
-                "Address '{}' should be invalid and return error", addr);
+            assert!(
+                result.is_err(),
+                "Address '{}' should be invalid and return error",
+                addr
+            );
 
             let err = result.err().unwrap();
-            assert!(err.to_string().contains("Invalid address format"),
-                "Error for '{}' should mention invalid format, got: {}", addr, err);
+            assert!(
+                err.to_string().contains("Invalid address format"),
+                "Error for '{}' should mention invalid format, got: {}",
+                addr,
+                err
+            );
         }
     }
 
@@ -241,8 +249,11 @@ mod tests {
 
         let err = result.err().unwrap();
         // 验证错误消息包含"not implemented"
-        assert!(err.to_string().contains("not implemented"),
-            "错误消息应包含'not implemented'，实际: {}", err);
+        assert!(
+            err.to_string().contains("not implemented"),
+            "错误消息应包含'not implemented'，实际: {}",
+            err
+        );
     }
 
     /// 测试GrpcClient结构体的字段可访问性
@@ -267,7 +278,7 @@ mod tests {
     fn test_multiple_clients_independent() {
         let client1 = GrpcClient::new("server1:5001");
         let client2 = GrpcClient::new("server2:5002");
-        
+
         assert_ne!(client1.address, client2.address);
         assert_eq!(client1.address, "server1:5001");
         assert_eq!(client2.address, "server2:5002");
@@ -328,7 +339,12 @@ mod tests {
     #[tokio::test]
     async fn test_health_check_valid_addresses_healthy() {
         // 使用各种有效的地址创建客户端，验证health_check都返回healthy=true
-        let addresses = vec!["localhost:1", "192.168.1.1:8080", "[::1]:50051", "http://server:1234"];
+        let addresses = vec![
+            "localhost:1",
+            "192.168.1.1:8080",
+            "[::1]:50051",
+            "http://server:1234",
+        ];
 
         for addr in &addresses {
             let client = GrpcClient::new(addr);
@@ -337,8 +353,11 @@ mod tests {
             let response = result.unwrap();
             assert!(response.healthy, "Address {} should return healthy", addr);
             assert!(!response.message.is_empty(), "Message should not be empty");
-            assert!(response.message.contains(addr) || response.message.contains("configured"),
-                "Message should contain address or status info for {}", addr);
+            assert!(
+                response.message.contains(addr) || response.message.contains("configured"),
+                "Message should contain address or status info for {}",
+                addr
+            );
         }
     }
 
@@ -348,11 +367,11 @@ mod tests {
         let client = GrpcClient::new("localhost:50051");
         let request = ChatRequest {
             session_id: "empty-session".to_string(),
-            messages: vec![],  // 空消息列表
-            max_tokens: 0,     // 极端值：0 tokens
-            temperature: 0.0,  // 极端值：0温度
+            messages: vec![], // 空消息列表
+            max_tokens: 0,    // 极端值：0 tokens
+            temperature: 0.0, // 极端值：0温度
         };
-        
+
         // chat未实现，这里主要验证请求构建不会panic
         assert_eq!(request.session_id, "empty-session");
         assert!(request.messages.is_empty());
@@ -365,15 +384,15 @@ mod tests {
     async fn test_chat_request_extreme_params() {
         let client = GrpcClient::new("localhost:50051");
         let request = ChatRequest {
-            session_id: "x".repeat(1000),  // 长session_id
+            session_id: "x".repeat(1000), // 长session_id
             messages: vec![super::types::Message {
                 role: "user".to_string(),
-                content: "y".repeat(10000),  // 超长内容
+                content: "y".repeat(10000), // 超长内容
             }],
-            max_tokens: u32::MAX,  // 最大token数
-            temperature: 2.0,      // 超高温度
+            max_tokens: u32::MAX, // 最大token数
+            temperature: 2.0,     // 超高温度
         };
-        
+
         // 验证极端参数可以正常构建
         assert_eq!(request.session_id.len(), 1000);
         assert_eq!(request.messages[0].content.len(), 10000);
@@ -393,9 +412,14 @@ mod tests {
         // 验证所有字段都有合理值
         assert!(response.healthy, "healthy should be true");
         assert!(!response.message.is_empty(), "message should not be empty");
-        assert!(response.message.contains("test:1234"), "message should contain address");
-        assert!(response.message.contains("configured") || response.message.contains("ready"),
-            "message should contain status info");
+        assert!(
+            response.message.contains("test:1234"),
+            "message should contain address"
+        );
+        assert!(
+            response.message.contains("configured") || response.message.contains("ready"),
+            "message should contain status info"
+        );
     }
 
     // ==================== 新增测试：达到 20+ 覆盖率 ====================
@@ -409,7 +433,7 @@ mod tests {
             "https://api.example.com:443",
             "user:pass@host:8080",
             "192.168.1.100:3000",
-            "[2001:db8::1]:8080",  // IPv6 with zone
+            "[2001:db8::1]:8080", // IPv6 with zone
         ];
 
         for url in &full_urls {
@@ -439,7 +463,11 @@ mod tests {
 
         // 所有结果都应该healthy=true且消息非空
         assert!(response1.healthy && response2.healthy && response3.healthy);
-        assert!(!response1.message.is_empty() && !response2.message.is_empty() && !response3.message.is_empty());
+        assert!(
+            !response1.message.is_empty()
+                && !response2.message.is_empty()
+                && !response3.message.is_empty()
+        );
 
         // 消息内容应该相同（因为地址相同）
         assert_eq!(response1.message, response2.message);
@@ -480,7 +508,7 @@ mod tests {
     #[tokio::test]
     async fn test_struct_traits_implementation() {
         // 验证结构体实现了基本trait（如果适用）
-        
+
         // HealthResponse 可以 clone（如果实现了Clone）
         let response = HealthResponse {
             healthy: true,
@@ -543,14 +571,14 @@ mod tests {
 
         // 各种极端temperature值
         let extreme_temps: Vec<f32> = vec![
-            -1.0,      // 负温度
-            0.0,       // 零温度（贪婪解码）
-            0.001,     // 接近零
-            1.0,       // 正常最大值
-            1.5,       // 略高于正常范围
-            10.0,      // 极高温度
-            100.0,     // 极端高温度
-            f32::MAX,  // 最大f32值
+            -1.0,     // 负温度
+            0.0,      // 零温度（贪婪解码）
+            0.001,    // 接近零
+            1.0,      // 正常最大值
+            1.5,      // 略高于正常范围
+            10.0,     // 极高温度
+            100.0,    // 极端高温度
+            f32::MAX, // 最大f32值
         ];
 
         for &temp in &extreme_temps {

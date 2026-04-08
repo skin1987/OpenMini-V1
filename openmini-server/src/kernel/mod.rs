@@ -7,8 +7,8 @@
 //! - 内存优化
 
 pub mod cpu;
-pub mod ops;
 pub mod executor;
+pub mod ops;
 
 #[cfg(feature = "cuda")]
 pub mod cuda;
@@ -16,5 +16,5 @@ pub mod cuda;
 #[cfg(feature = "metal")]
 pub mod metal;
 
-pub use ops::*;
 pub use executor::*;
+pub use ops::*;

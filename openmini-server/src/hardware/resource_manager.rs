@@ -2,16 +2,16 @@
 //!
 //! 统一管理 CPU/GPU/内存资源，实现协同调度。
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::sync::Mutex;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex;
 
-use super::{
-    HardwareProfile, HardwareLevel, HardwareClassifier,
-    CpuAffinity, TaskType, CoreSelectionStrategy,
-};
 use super::gpu::{GpuBackend, GpuOps};
+use super::{
+    CoreSelectionStrategy, CpuAffinity, HardwareClassifier, HardwareLevel, HardwareProfile,
+    TaskType,
+};
 
 /// 计算设备类型 (资源管理器专用)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,12 +97,9 @@ impl HardwareResourceManager {
         let profile = HardwareProfile::detect();
         let classifier = HardwareClassifier::new(profile.clone());
         let level = classifier.level();
-        let cpu_affinity = CpuAffinity::new(
-            profile.hyperthreading.clone(),
-            profile.numa.clone(),
-        );
+        let cpu_affinity = CpuAffinity::new(profile.hyperthreading.clone(), profile.numa.clone());
         let gpu_backend = GpuBackend::detect();
-        
+
         Self {
             profile,
             level,
@@ -114,36 +111,37 @@ impl HardwareResourceManager {
             request_queue: Mutex::new(VecDeque::new()),
         }
     }
-    
+
     /// 初始化资源管理器
     pub fn initialize(&self) -> Result<(), String> {
         if self.initialized.load(Ordering::SeqCst) {
             return Ok(());
         }
-        
+
         // 预留系统资源
         let reserved_memory = self.profile.memory.total_gb * 1024 / 4; // 预留 25%
-        self.system_memory_used.store(
-            reserved_memory,
-            Ordering::SeqCst,
-        );
-        
+        self.system_memory_used
+            .store(reserved_memory, Ordering::SeqCst);
+
         self.initialized.store(true, Ordering::SeqCst);
         Ok(())
     }
-    
+
     /// 请求资源分配
-    pub fn request_resources(&self, request: ResourceRequest) -> Result<ResourceAllocation, String> {
+    pub fn request_resources(
+        &self,
+        request: ResourceRequest,
+    ) -> Result<ResourceAllocation, String> {
         if !self.initialized.load(Ordering::SeqCst) {
             self.initialize()?;
         }
-        
+
         let device = self.select_device(&request);
         let memory_type = self.select_memory_type(&request, &device);
         let memory_mb = self.allocate_memory(&request, &memory_type)?;
         let cpu_cores = self.allocate_cpu_cores(&request, &device);
         let gpu_device_id = self.get_gpu_device_id(&device);
-        
+
         Ok(ResourceAllocation {
             device,
             memory_mb,
@@ -152,7 +150,7 @@ impl HardwareResourceManager {
             gpu_device_id,
         })
     }
-    
+
     /// 释放资源
     pub fn release_resources(&self, allocation: &ResourceAllocation) {
         match allocation.memory_type {
@@ -172,12 +170,14 @@ impl HardwareResourceManager {
             }
         }
     }
-    
+
     /// 选择计算设备
     fn select_device(&self, request: &ResourceRequest) -> ResourceManagerDevice {
         match request.device {
             ResourceManagerDevice::Auto => {
-                if self.gpu_backend.is_some() && matches!(request.task_type, TaskType::ComputeIntensive) {
+                if self.gpu_backend.is_some()
+                    && matches!(request.task_type, TaskType::ComputeIntensive)
+                {
                     ResourceManagerDevice::Gpu
                 } else {
                     ResourceManagerDevice::Cpu
@@ -186,20 +186,28 @@ impl HardwareResourceManager {
             device => device,
         }
     }
-    
-    fn select_memory_type(&self, _request: &ResourceRequest, device: &ResourceManagerDevice) -> MemoryType {
+
+    fn select_memory_type(
+        &self,
+        _request: &ResourceRequest,
+        device: &ResourceManagerDevice,
+    ) -> MemoryType {
         if self.profile.cpu.is_apple_silicon {
             return MemoryType::Unified;
         }
-        
+
         match device {
             ResourceManagerDevice::Gpu => MemoryType::Gpu,
             ResourceManagerDevice::Cpu | ResourceManagerDevice::Auto => MemoryType::System,
         }
     }
-    
+
     /// 分配内存
-    fn allocate_memory(&self, request: &ResourceRequest, memory_type: &MemoryType) -> Result<usize, String> {
+    fn allocate_memory(
+        &self,
+        request: &ResourceRequest,
+        memory_type: &MemoryType,
+    ) -> Result<usize, String> {
         let (available, used) = match memory_type {
             MemoryType::System | MemoryType::Unified => {
                 let total = self.profile.memory.total_gb * 1024;
@@ -216,7 +224,7 @@ impl HardwareResourceManager {
                 }
             }
         };
-        
+
         if used + request.memory_mb > available {
             return Err(format!(
                 "Insufficient memory: requested {} MB, available {} MB",
@@ -224,36 +232,42 @@ impl HardwareResourceManager {
                 available.saturating_sub(used)
             ));
         }
-        
+
         // 更新使用量
         match memory_type {
             MemoryType::System | MemoryType::Unified => {
-                self.system_memory_used.fetch_add(request.memory_mb, Ordering::SeqCst);
+                self.system_memory_used
+                    .fetch_add(request.memory_mb, Ordering::SeqCst);
             }
             MemoryType::Gpu => {
-                self.gpu_memory_used.fetch_add(request.memory_mb, Ordering::SeqCst);
+                self.gpu_memory_used
+                    .fetch_add(request.memory_mb, Ordering::SeqCst);
             }
         }
-        
+
         Ok(request.memory_mb)
     }
-    
+
     /// 分配 CPU 核心
-    fn allocate_cpu_cores(&self, request: &ResourceRequest, device: &ResourceManagerDevice) -> Vec<usize> {
+    fn allocate_cpu_cores(
+        &self,
+        request: &ResourceRequest,
+        device: &ResourceManagerDevice,
+    ) -> Vec<usize> {
         if *device == ResourceManagerDevice::Gpu {
             return Vec::new();
         }
-        
+
         let strategy = match request.task_type {
             TaskType::ComputeIntensive => CoreSelectionStrategy::PhysicalOnly,
             TaskType::IoIntensive => CoreSelectionStrategy::AllCores,
             TaskType::Mixed => CoreSelectionStrategy::PerformanceFirst,
         };
-        
+
         let num_cores = self.cpu_affinity.optimal_thread_count(request.task_type);
         self.cpu_affinity.select_cores(strategy, Some(num_cores))
     }
-    
+
     fn get_gpu_device_id(&self, device: &ResourceManagerDevice) -> Option<usize> {
         if *device == ResourceManagerDevice::Gpu && self.gpu_backend.is_some() {
             Some(0)
@@ -261,29 +275,29 @@ impl HardwareResourceManager {
             None
         }
     }
-    
+
     /// 获取硬件配置
     pub fn profile(&self) -> &HardwareProfile {
         &self.profile
     }
-    
+
     /// 获取硬件级别
     pub fn level(&self) -> HardwareLevel {
         self.level
     }
-    
+
     /// 获取 GPU 后端
     pub fn gpu_backend(&self) -> Option<&GpuBackend> {
         self.gpu_backend.as_ref()
     }
-    
+
     /// 获取可用系统内存 (MB)
     pub fn available_system_memory(&self) -> usize {
         let total = self.profile.memory.total_gb * 1024;
         let used = self.system_memory_used.load(Ordering::SeqCst);
         total - used
     }
-    
+
     /// 获取可用 GPU 内存 (MB)
     pub fn available_gpu_memory(&self) -> usize {
         if let Some(ref gpu) = self.gpu_backend {
@@ -294,15 +308,16 @@ impl HardwareResourceManager {
             0
         }
     }
-    
+
     /// 获取最优线程数
     pub fn optimal_threads(&self, task_type: TaskType) -> usize {
         self.cpu_affinity.optimal_thread_count(task_type)
     }
-    
+
     /// 绑定当前线程到指定核心
     pub fn bind_thread(&self, core_id: usize) -> Result<(), String> {
-        self.cpu_affinity.bind_current_thread(core_id)
+        self.cpu_affinity
+            .bind_current_thread(core_id)
             .map_err(|e| e.to_string())
     }
 }
@@ -402,16 +417,22 @@ mod tests {
         let after_alloc_available = manager.available_system_memory();
 
         // 分配后可用内存应该减少
-        assert!(after_alloc_available < initial_available,
-            "分配后可用内存应减少: {} < {}", after_alloc_available, initial_available);
+        assert!(
+            after_alloc_available < initial_available,
+            "分配后可用内存应减少: {} < {}",
+            after_alloc_available,
+            initial_available
+        );
 
         // 释放资源
         manager.release_resources(&allocation);
         let after_release_available = manager.available_system_memory();
 
         // 释放后可用内存应该恢复（或至少增加）
-        assert!(after_release_available >= after_alloc_available,
-            "释放后可用内存应恢复或增加");
+        assert!(
+            after_release_available >= after_alloc_available,
+            "释放后可用内存应恢复或增加"
+        );
     }
 
     /// 测试内存不足时的错误处理
@@ -434,9 +455,11 @@ mod tests {
         // 应该返回错误
         assert!(result.is_err(), "请求超大内存应返回错误");
         let error_msg = result.unwrap_err();
-        assert!(error_msg.to_lowercase().contains("insufficient") ||
-                error_msg.to_lowercase().contains("memory"),
-                "错误消息应包含'insufficient'或'memory'");
+        assert!(
+            error_msg.to_lowercase().contains("insufficient")
+                || error_msg.to_lowercase().contains("memory"),
+            "错误消息应包含'insufficient'或'memory'"
+        );
     }
 
     /// 测试不同设备类型的选择逻辑
@@ -712,7 +735,7 @@ mod tests {
         // 请求0MB内存
         let zero_request = ResourceRequest {
             device: ResourceManagerDevice::Cpu,
-            memory_mb: 0,  // 零内存
+            memory_mb: 0, // 零内存
             memory_type: MemoryType::System,
             task_type: TaskType::IoIntensive,
             priority: 50,
@@ -722,7 +745,7 @@ mod tests {
         assert!(result.is_ok(), "零内存请求应成功");
 
         let alloc = result.unwrap();
-        assert_eq!(alloc.memory_mb, 0);  // 分配的内存应为0
+        assert_eq!(alloc.memory_mb, 0); // 分配的内存应为0
 
         // 释放零内存不应出错
         manager.release_resources(&alloc);
@@ -843,11 +866,7 @@ mod tests {
             ResourceManagerDevice::Auto,
         ];
 
-        let memory_types = [
-            MemoryType::System,
-            MemoryType::Gpu,
-            MemoryType::Unified,
-        ];
+        let memory_types = [MemoryType::System, MemoryType::Gpu, MemoryType::Unified];
 
         // 验证枚举可以比较和匹配
         assert_eq!(devices[0], ResourceManagerDevice::Cpu);

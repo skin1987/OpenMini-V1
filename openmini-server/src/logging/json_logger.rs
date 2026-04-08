@@ -30,19 +30,17 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub fn init_json_logging(default_level: &str) {
     // 构建环境过滤器，支持RUST_LOG环境变量覆盖
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            tracing_subscriber::EnvFilter::new(default_level)
-        });
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
 
     // 创建JSON格式化层
     let json_layer = tracing_subscriber::fmt::layer()
         .json()
-        .with_target(true)           // 包含目标模块路径
-        .with_thread_ids(false)      // 线程ID通常不需要
-        .with_file(true)             // 包含源码文件名（调试时有用）
-        .with_line_number(true)      // 包含行号
-        .with_current_span(false)    // 不自动包含span信息（手动控制）
-        .with_writer(io::stdout);    // 输出到标准输出
+        .with_target(true) // 包含目标模块路径
+        .with_thread_ids(false) // 线程ID通常不需要
+        .with_file(true) // 包含源码文件名（调试时有用）
+        .with_line_number(true) // 包含行号
+        .with_current_span(false) // 不自动包含span信息（手动控制）
+        .with_writer(io::stdout); // 输出到标准输出
 
     // 初始化全局订阅器
     tracing_subscriber::registry()
@@ -93,11 +91,7 @@ mod tests {
     fn test_structured_fields() {
         create_json_logger("info");
 
-        use crate::logging::{
-            RequestFields,
-            LatencyFields,
-            TokenFields,
-        };
+        use crate::logging::{LatencyFields, RequestFields, TokenFields};
 
         let _request_id = RequestFields::new("test-req-123");
         let _latency = LatencyFields::from_ms(42.5);
@@ -109,7 +103,7 @@ mod tests {
     fn test_span_with_fields() {
         create_json_logger("debug");
 
-        use crate::logging::{RequestFields, ModelFields};
+        use crate::logging::{ModelFields, RequestFields};
 
         let _request = RequestFields::new("span-test-001");
         let _model = ModelFields::new("test-model");
@@ -148,7 +142,7 @@ mod tests {
     #[test]
     fn test_create_json_logger_with_buffer() {
         let _registry = create_json_logger("info");
-        
+
         // 如果没有panic，说明创建成功
         // 注意：实际写入需要subscriber被使用
     }
@@ -191,11 +185,7 @@ mod tests {
     fn test_many_structured_fields() {
         create_json_logger("info");
 
-        use crate::logging::{
-            RequestFields,
-            LatencyFields,
-            TokenFields,
-        };
+        use crate::logging::{LatencyFields, RequestFields, TokenFields};
 
         let _request_id = RequestFields::new("many-fields-test");
         let _latency = LatencyFields::from_ms(123.456);
@@ -224,13 +214,13 @@ mod tests {
     #[test]
     fn test_complex_filter_expressions() {
         let complex_filters = vec![
-            "info",                    // 简单级别
-            "info,my_crate=debug",     // 带模块覆盖
-                            // 全部关闭
-            "trace",                   // 最详细
-            "warn",                    // 仅警告和错误
-            "error",                   // 仅错误
-            "openmini_server=trace",   // 特定crate
+            "info",                // 简单级别
+            "info,my_crate=debug", // 带模块覆盖
+            // 全部关闭
+            "trace",                                 // 最详细
+            "warn",                                  // 仅警告和错误
+            "error",                                 // 仅错误
+            "openmini_server=trace",                 // 特定crate
             "openmini_server=debug,tower_http=info", // 多模块配置
         ];
 
@@ -265,11 +255,7 @@ mod tests {
     /// 覆盖分支：结构化字段类型的边界条件
     #[test]
     fn test_structured_fields_boundary_values() {
-        use crate::logging::{
-            RequestFields,
-            LatencyFields,
-            TokenFields,
-        };
+        use crate::logging::{LatencyFields, RequestFields, TokenFields};
 
         // 空请求ID
         let _req_empty = RequestFields::new("");
@@ -299,12 +285,7 @@ mod tests {
     /// 覆盖分支：所有结构化字段类型的使用
     #[test]
     fn test_all_field_types() {
-        use crate::logging::{
-            RequestFields,
-            ModelFields,
-            LatencyFields,
-            TokenFields,
-        };
+        use crate::logging::{LatencyFields, ModelFields, RequestFields, TokenFields};
 
         create_json_logger("debug");
 
@@ -379,9 +360,7 @@ mod tests {
     #[test]
     fn test_very_long_filter_string() {
         // 创建一个很长的过滤字符串
-        let long_filter: String = (0..100)
-            .map(|i| format!("module_{}=info,", i))
-            .collect();
+        let long_filter: String = (0..100).map(|i| format!("module_{}=info,", i)).collect();
 
         create_json_logger(&long_filter);
     }

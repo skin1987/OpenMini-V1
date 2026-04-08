@@ -133,7 +133,9 @@ impl LatencyFields {
     ///
     /// * `ns` - 延迟时间（纳秒）
     pub fn from_ns(ns: u64) -> Self {
-        Self { milliseconds: ns as f64 / 1_000_000.0 }
+        Self {
+            milliseconds: ns as f64 / 1_000_000.0,
+        }
     }
 
     /// 从 `Instant` 时间差创建延迟字段
@@ -210,7 +212,10 @@ impl TokenFields {
     /// * `input_tokens` - 输入token数
     /// * `output_tokens` - 输出token数
     pub fn new(input_tokens: u32, output_tokens: u32) -> Self {
-        Self { input_tokens, output_tokens }
+        Self {
+            input_tokens,
+            output_tokens,
+        }
     }
 
     /// 计算总token数
@@ -335,8 +340,13 @@ impl GpuMemoryFields {
 
 impl fmt::Display for GpuMemoryFields {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{} MB ({:.1}%)",
-               self.used_mb, self.total_mb, self.utilization_pct())
+        write!(
+            f,
+            "{}/{} MB ({:.1}%)",
+            self.used_mb,
+            self.total_mb,
+            self.utilization_pct()
+        )
     }
 }
 
@@ -506,7 +516,11 @@ impl BatchFields {
     /// * `active_requests` - 活跃请求数
     /// * `cache_usage` - KV缓存使用量
     pub fn new(batch_size: usize, active_requests: usize, cache_usage: u64) -> Self {
-        Self { batch_size, active_requests, cache_usage }
+        Self {
+            batch_size,
+            active_requests,
+            cache_usage,
+        }
     }
 
     /// 获取批次大小
@@ -527,8 +541,11 @@ impl BatchFields {
 
 impl fmt::Display for BatchFields {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "size={}, active={}, cache={} tokens",
-               self.batch_size, self.active_requests, self.cache_usage)
+        write!(
+            f,
+            "size={}, active={}, cache={} tokens",
+            self.batch_size, self.active_requests, self.cache_usage
+        )
     }
 }
 
@@ -850,7 +867,11 @@ mod tests {
     fn test_token_fields_throughput_calculation_with_duration() {
         let tokens = TokenFields::new(100, 50);
         let throughput = tokens.throughput(2.0);
-        assert!((throughput - 25.0).abs() < 0.1, "Throughput should be ~25, got {}", throughput);
+        assert!(
+            (throughput - 25.0).abs() < 0.1,
+            "Throughput should be ~25, got {}",
+            throughput
+        );
     }
 
     #[test]
@@ -875,7 +896,7 @@ mod tests {
     #[test]
     fn test_latency_fields_precision_levels() {
         // 测试不同精度级别的显示格式
-        
+
         // 亚毫秒级
         let sub_ms = LatencyFields::from_ms(0.05);
         let display_sub = format!("{}", sub_ms);
@@ -897,13 +918,18 @@ mod tests {
         // 测试各种转换方法的一致性
         let from_ms = LatencyFields::from_ms(42.5);
         let from_ns = LatencyFields::from_ns(42_500_000); // 42.5ms in ns
-        
-        assert!((from_ms.as_ms() - from_ns.as_ms()).abs() < 0.1, 
-                "ms and ns constructors should be consistent");
+
+        assert!(
+            (from_ms.as_ms() - from_ns.as_ms()).abs() < 0.1,
+            "ms and ns constructors should be consistent"
+        );
 
         // 测试ns转换
         let latency = LatencyFields::from_ms(1.0); // 1ms = 1,000,000 ns
-        assert!(((latency.as_ns() as i64) - 1_000_000).abs() < 100, "ns conversion should be accurate");
+        assert!(
+            ((latency.as_ns() as i64) - 1_000_000).abs() < 100,
+            "ns conversion should be accurate"
+        );
     }
 
     // ==================== ErrorFields 额外测试 ====================
@@ -950,9 +976,15 @@ mod tests {
         // 测试ErrorFields的完整显示格式
         let err = ErrorFields::oom("CUDA out of memory", 8192);
         let display = format!("{}", err);
-        
-        assert!(display.contains("OutOfMemory"), "Should contain category tag");
-        assert!(display.contains("CUDA out of memory"), "Should contain message");
+
+        assert!(
+            display.contains("OutOfMemory"),
+            "Should contain category tag"
+        );
+        assert!(
+            display.contains("CUDA out of memory"),
+            "Should contain message"
+        );
     }
 
     #[test]
@@ -960,7 +992,7 @@ mod tests {
         // 测试ErrorFields的克隆和比较
         let err1 = ErrorFields::timeout("Test error", 10);
         let err2 = err1.clone();
-        
+
         assert_eq!(err1.category(), err2.category());
         assert_eq!(err1.code(), err2.code());
         assert_eq!(err1.message(), err2.message());
@@ -971,7 +1003,7 @@ mod tests {
     #[test]
     fn test_gpu_memory_fields_utilization_calculations() {
         // 测试各种利用率计算场景
-        
+
         // 正常情况
         let normal = GpuMemoryFields::new(8000, 4000);
         assert!((normal.utilization_pct() - 50.0).abs() < 0.01);
@@ -994,7 +1026,7 @@ mod tests {
         // 测试显示格式的各种场景
         let mem = GpuMemoryFields::new(8192, 4096);
         let display = format!("{}", mem);
-        
+
         assert!(display.contains("4096")); // used_mb
         assert!(display.contains("8192")); // total_mb
         assert!(display.contains("50.0%")); // utilization
@@ -1019,7 +1051,7 @@ mod tests {
         // 测试BatchFields显示包含所有信息
         let batch = BatchFields::new(16, 12, 1024);
         let display = format!("{}", batch);
-        
+
         assert!(display.contains("size=16"));
         assert!(display.contains("active=12"));
         assert!(display.contains("cache=1024"));

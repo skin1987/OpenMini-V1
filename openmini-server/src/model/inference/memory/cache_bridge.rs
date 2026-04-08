@@ -31,10 +31,10 @@ use bytes::Bytes;
 use ndarray::Array2;
 use parking_lot::RwLock;
 
-use super::MemoryLevel;
 use super::instant::{InstantMemory, ZeroCopyBuffer};
-use super::short_term::ShortTermMemory;
 use super::long_term::LongTermMemory;
+use super::short_term::ShortTermMemory;
+use super::MemoryLevel;
 use crate::hardware::kv_cache::paged_cache::PagedKVCache;
 
 /// 映射统计信息
@@ -195,11 +195,13 @@ impl CacheMapper {
             .as_secs();
 
         let mut kv_cache = kv_cache.write();
-        
-        kv_cache.allocate_slots(request_id, length).inspect_err(|_e| {
-            let mut stats = self.stats.write();
-            stats.failed_mappings += 1;
-        })?;
+
+        kv_cache
+            .allocate_slots(request_id, length)
+            .inspect_err(|_e| {
+                let mut stats = self.stats.write();
+                stats.failed_mappings += 1;
+            })?;
 
         let v = data.clone();
         kv_cache.write_kv(request_id, layer, start_pos, &data, &v)?;
@@ -245,9 +247,9 @@ impl CacheMapper {
             let mut stats = self.stats.write();
             stats.successful_mappings += 1;
             stats.total_mapped_bytes += data.len() * std::mem::size_of::<f32>();
-            stats.avg_mapping_latency_us = 
+            stats.avg_mapping_latency_us =
                 (stats.avg_mapping_latency_us * (stats.successful_mappings - 1) as f64 + elapsed)
-                / stats.successful_mappings as f64;
+                    / stats.successful_mappings as f64;
         }
 
         self.mapping_counter.fetch_add(1, Ordering::Relaxed);
@@ -303,7 +305,7 @@ impl CacheMapper {
         }
 
         let mut kv_cache = kv_cache.write();
-        
+
         if !kv_cache.contains_request(request_id) {
             kv_cache.allocate_slots(request_id, total_rows)?;
         }
@@ -338,12 +340,12 @@ impl CacheMapper {
     pub fn remove_mapping(&self, memory_index: usize) -> Option<KVMappingEntry> {
         let mut table = self.mapping_table.write();
         let entry = table.remove(&memory_index);
-        
+
         if let Some(ref e) = entry {
             let mut reverse = self.reverse_mapping.write();
             reverse.remove(&e.request_id);
         }
-        
+
         entry
     }
 
@@ -573,13 +575,15 @@ impl CachePreloader {
         }
 
         let mut kv_cache = kv_cache.write();
-        
+
         if !kv_cache.contains_request(request_id) {
-            kv_cache.allocate_slots(request_id, total_rows).map_err(|e| {
-                let mut stats = self.stats.write();
-                stats.failed_preloads += 1;
-                format!("Failed to allocate slots: {}", e)
-            })?;
+            kv_cache
+                .allocate_slots(request_id, total_rows)
+                .map_err(|e| {
+                    let mut stats = self.stats.write();
+                    stats.failed_preloads += 1;
+                    format!("Failed to allocate slots: {}", e)
+                })?;
         }
 
         let v = combined.clone();
@@ -590,9 +594,9 @@ impl CachePreloader {
             let mut stats = self.stats.write();
             stats.successful_preloads += 1;
             stats.total_preloaded_tokens += total_rows;
-            stats.avg_preload_latency_us = 
+            stats.avg_preload_latency_us =
                 (stats.avg_preload_latency_us * (stats.successful_preloads - 1) as f64 + elapsed)
-                / stats.successful_preloads as f64;
+                    / stats.successful_preloads as f64;
         }
 
         Ok(total_rows)
@@ -666,13 +670,15 @@ impl CachePreloader {
         }
 
         let mut kv_cache = kv_cache.write();
-        
+
         if !kv_cache.contains_request(request_id) {
-            kv_cache.allocate_slots(request_id, total_rows).map_err(|e| {
-                let mut stats = self.stats.write();
-                stats.failed_preloads += 1;
-                format!("Failed to allocate slots: {}", e)
-            })?;
+            kv_cache
+                .allocate_slots(request_id, total_rows)
+                .map_err(|e| {
+                    let mut stats = self.stats.write();
+                    stats.failed_preloads += 1;
+                    format!("Failed to allocate slots: {}", e)
+                })?;
         }
 
         let v = combined.clone();
@@ -683,9 +689,9 @@ impl CachePreloader {
             let mut stats = self.stats.write();
             stats.successful_preloads += 1;
             stats.total_preloaded_tokens += total_rows;
-            stats.avg_preload_latency_us = 
+            stats.avg_preload_latency_us =
                 (stats.avg_preload_latency_us * (stats.successful_preloads - 1) as f64 + elapsed)
-                / stats.successful_preloads as f64;
+                    / stats.successful_preloads as f64;
         }
 
         Ok(total_rows)
@@ -700,7 +706,7 @@ impl CachePreloader {
         priority: f32,
     ) -> u64 {
         let task_id = self.task_counter.fetch_add(1, Ordering::Relaxed);
-        
+
         let task = PreloadTask {
             task_id,
             source_level,
@@ -711,7 +717,7 @@ impl CachePreloader {
         };
 
         let mut queue = self.task_queue.write();
-        
+
         if queue.len() >= self.config.max_preload_count {
             queue.retain(|t| t.status != PreloadStatus::Completed);
         }
@@ -732,11 +738,11 @@ impl CachePreloader {
     /// 执行下一个预加载任务
     pub fn execute_next_task(&self) -> Option<Result<usize, String>> {
         let mut queue = self.task_queue.write();
-        
+
         let task_idx = queue
             .iter()
             .position(|t| t.status == PreloadStatus::Pending)?;
-        
+
         let task = &mut queue[task_idx];
         task.status = PreloadStatus::InProgress;
         let task_clone = task.clone();
@@ -956,8 +962,9 @@ impl CacheWriter {
             let mut stats = self.stats.write();
             stats.successful_writebacks += 1;
             stats.total_writeback_tokens += rows;
-            stats.avg_writeback_latency_us = 
-                (stats.avg_writeback_latency_us * (stats.successful_writebacks - 1) as f64 + elapsed)
+            stats.avg_writeback_latency_us = (stats.avg_writeback_latency_us
+                * (stats.successful_writebacks - 1) as f64
+                + elapsed)
                 / stats.successful_writebacks as f64;
         }
 
@@ -989,7 +996,10 @@ impl CacheWriter {
                 .ok_or_else(|| {
                     format!(
                         "No KV data for request {} layer {} range {}-{}",
-                        request_id, layer, start, start + length
+                        request_id,
+                        layer,
+                        start,
+                        start + length
                     )
                 })?
         };
@@ -1034,9 +1044,9 @@ impl CacheWriter {
             let mut stats = self.stats.write();
             stats.extraction_count += 1;
             stats.total_writeback_tokens += rows;
-            stats.avg_writeback_latency_us = 
+            stats.avg_writeback_latency_us =
                 (stats.avg_writeback_latency_us * stats.extraction_count as f64 + elapsed)
-                / (stats.extraction_count + 1) as f64;
+                    / (stats.extraction_count + 1) as f64;
         }
 
         Ok(rows)
@@ -1063,11 +1073,7 @@ impl CacheWriter {
         let count = data.len() as f32;
         let mean = sum / count;
 
-        let variance: f32 = data
-            .iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f32>()
-            / count;
+        let variance: f32 = data.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / count;
 
         let normalized_variance = (variance.sqrt() / (mean.abs() + 1e-6)).min(1.0);
         let sparsity = data.iter().filter(|v| v.abs() < 1e-6).count() as f32 / count;
@@ -1237,10 +1243,7 @@ impl SharedMemoryPool {
     /// 分配共享内存块
     ///
     /// 分配指定大小的共享内存块，返回块ID
-    pub fn allocate_shared(
-        &self,
-        data: &Array2<f32>,
-    ) -> Result<usize, String> {
+    pub fn allocate_shared(&self, data: &Array2<f32>) -> Result<usize, String> {
         let shape = (data.nrows(), data.ncols());
         let byte_size = shape.0 * shape.1 * std::mem::size_of::<f32>();
 
@@ -1269,12 +1272,7 @@ impl SharedMemoryPool {
             .unwrap()
             .as_secs();
 
-        let block = SharedMemoryBlock::new(
-            block_id,
-            Bytes::from(bytes),
-            shape,
-            timestamp,
-        );
+        let block = SharedMemoryBlock::new(block_id, Bytes::from(bytes), shape, timestamp);
 
         {
             let mut blocks = self.blocks.write();
@@ -1294,10 +1292,7 @@ impl SharedMemoryPool {
     }
 
     /// 分配共享内存块（从 ZeroCopyBuffer）
-    pub fn allocate_from_buffer(
-        &self,
-        buffer: ZeroCopyBuffer,
-    ) -> Result<usize, String> {
+    pub fn allocate_from_buffer(&self, buffer: ZeroCopyBuffer) -> Result<usize, String> {
         let shape = buffer.shape();
         let byte_size = buffer.memory_size();
 
@@ -1343,10 +1338,7 @@ impl SharedMemoryPool {
     ///
     /// 从源块传输数据到目标，无需数据拷贝
     /// 返回 `Arc<SharedMemoryBlock>`，引用计数由 `Arc` 管理
-    pub fn zero_copy_transfer(
-        &self,
-        source_block_id: usize,
-    ) -> Option<Arc<SharedMemoryBlock>> {
+    pub fn zero_copy_transfer(&self, source_block_id: usize) -> Option<Arc<SharedMemoryBlock>> {
         let blocks = self.blocks.read();
         let block = match blocks.get(&source_block_id) {
             Some(b) => b,
@@ -1394,7 +1386,7 @@ impl SharedMemoryPool {
     /// 释放块
     pub fn release_block(&self, block_id: usize) -> bool {
         let mut blocks = self.blocks.write();
-        
+
         if let Some(block) = blocks.remove(&block_id) {
             let size = block.size();
             self.total_memory.fetch_sub(size, Ordering::Relaxed);
@@ -1424,7 +1416,7 @@ impl SharedMemoryPool {
     /// 仅驱逐没有被外部引用的块（strong_count == 1 表示只有池持有）
     fn evict_lru(&self) {
         let mut blocks = self.blocks.write();
-        
+
         if blocks.is_empty() {
             return;
         }
@@ -1552,8 +1544,7 @@ pub struct CacheBridge {
 }
 
 /// CacheBridge 配置
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CacheBridgeConfig {
     /// 映射器配置
     pub mapper_config: MapperConfig,
@@ -1564,7 +1555,6 @@ pub struct CacheBridgeConfig {
     /// 内存池配置
     pub pool_config: PoolConfig,
 }
-
 
 impl CacheBridge {
     /// 创建新的 CacheBridge
@@ -1592,13 +1582,15 @@ impl CacheBridge {
 
     /// 关联短期记忆
     pub fn attach_short_term_memory(&self, short_term: Arc<RwLock<ShortTermMemory>>) {
-        self.preloader.attach_short_term_memory(Arc::clone(&short_term));
+        self.preloader
+            .attach_short_term_memory(Arc::clone(&short_term));
         self.writer.attach_short_term_memory(short_term);
     }
 
     /// 关联长期记忆
     pub fn attach_long_term_memory(&self, long_term: Arc<RwLock<LongTermMemory>>) {
-        self.preloader.attach_long_term_memory(Arc::clone(&long_term));
+        self.preloader
+            .attach_long_term_memory(Arc::clone(&long_term));
         self.writer.attach_long_term_memory(long_term);
     }
 
@@ -1609,13 +1601,13 @@ impl CacheBridge {
         request_id: u64,
         layer: usize,
     ) -> Result<usize, String> {
-        let _mapping = self.mapper.map_instant_to_kv(memory_index, request_id, layer, 0)?;
+        let _mapping = self
+            .mapper
+            .map_instant_to_kv(memory_index, request_id, layer, 0)?;
 
-        let tokens = self.writer.writeback_to_memory(
-            request_id,
-            layer,
-            MemoryLevel::LongTerm,
-        )?;
+        let tokens = self
+            .writer
+            .writeback_to_memory(request_id, layer, MemoryLevel::LongTerm)?;
 
         Ok(tokens)
     }
@@ -1875,7 +1867,12 @@ mod tests {
         let data = Array2::from_shape_fn((4, 8), |(i, j)| (i * 8 + j) as f32);
         let buffer = ZeroCopyBuffer::from_array(&data, 123);
 
-        let block = SharedMemoryBlock::new(0, buffer.as_bytes().clone(), buffer.shape(), buffer.timestamp());
+        let block = SharedMemoryBlock::new(
+            0,
+            buffer.as_bytes().clone(),
+            buffer.shape(),
+            buffer.timestamp(),
+        );
 
         assert_eq!(block.block_id, 0);
         assert_eq!(block.shape, (4, 8));
@@ -2080,8 +2077,14 @@ mod tests {
 
         let id3 = pool.allocate_shared(&data3).unwrap();
 
-        assert!(pool.get_block(id1).is_some(), "Block 1 should still exist (has external ref)");
-        assert!(pool.get_block(id2).is_some() || pool.get_block(id3).is_some(), "At least one other block should exist");
+        assert!(
+            pool.get_block(id1).is_some(),
+            "Block 1 should still exist (has external ref)"
+        );
+        assert!(
+            pool.get_block(id2).is_some() || pool.get_block(id3).is_some(),
+            "At least one other block should exist"
+        );
 
         drop(external_ref);
 
@@ -2092,7 +2095,10 @@ mod tests {
         let has_id3 = pool.get_block(id3).is_some();
         let has_id4 = pool.get_block(id4).is_some();
 
-        assert!(has_id1 || has_id2 || has_id3 || has_id4, "At least one block should exist");
+        assert!(
+            has_id1 || has_id2 || has_id3 || has_id4,
+            "At least one block should exist"
+        );
         assert!(has_id4, "Block 4 should exist");
     }
 
@@ -2155,6 +2161,9 @@ mod tests {
 
         let removed = pool.cleanup_expired();
         assert_eq!(removed, 0, "Should not remove block with external ref");
-        assert!(pool.get_block(block_id).is_some(), "Block should still exist");
+        assert!(
+            pool.get_block(block_id).is_some(),
+            "Block should still exist"
+        );
     }
 }

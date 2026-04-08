@@ -22,7 +22,6 @@
 #![allow(dead_code)]
 //! - IQ 系列: 智能量化
 
-
 // ============================================================================
 // 标准库和外部依赖导入
 // ============================================================================
@@ -356,12 +355,12 @@ impl GgufTensorType {
             Self::I16 => 2,
             Self::I32 => 4,
             Self::I64 => 8,
-            Self::Q4_0 => 18,  // 2 (scale) + 16 (32 * 4bit / 8)
-            Self::Q4_1 => 20,  // 2 (scale) + 2 (min) + 16 (32 * 4bit / 8)
-            Self::Q4_2 => 18,  // 已废弃: 2 (scale) + 16 (32 * 4bit / 8)
-            Self::Q4_3 => 20,  // 已废弃: 2 (scale) + 2 (min) + 16 (32 * 4bit / 8)
-            Self::Q8_0 => 34,  // 2 (scale) + 32 (32 * 8bit)
-            Self::Q8_1 => 36,  // 2 (scale) + 32 (32 * 8bit) + 2 (sum)
+            Self::Q4_0 => 18, // 2 (scale) + 16 (32 * 4bit / 8)
+            Self::Q4_1 => 20, // 2 (scale) + 2 (min) + 16 (32 * 4bit / 8)
+            Self::Q4_2 => 18, // 已废弃: 2 (scale) + 16 (32 * 4bit / 8)
+            Self::Q4_3 => 20, // 已废弃: 2 (scale) + 2 (min) + 16 (32 * 4bit / 8)
+            Self::Q8_0 => 34, // 2 (scale) + 32 (32 * 8bit)
+            Self::Q8_1 => 36, // 2 (scale) + 32 (32 * 8bit) + 2 (sum)
             Self::Q2K => 68,
             Self::Q3K => 162,
             Self::Q4K => 144,
@@ -604,7 +603,7 @@ impl GgufFile {
         let file = File::open(path)?;
         // 使用内存映射提高大文件读取效率
         let mmap = unsafe { Mmap::map(&file)? };
-        
+
         Self::parse(mmap)
     }
 
@@ -625,10 +624,10 @@ impl GgufFile {
     /// 返回迭代器，避免分配 HashMap
     pub fn iter_vision_tensors(&self) -> impl Iterator<Item = (&String, &GgufTensor)> {
         self.tensors.iter().filter(|(name, _)| {
-            name.starts_with("vpm.") || 
-            name.starts_with("vision_model.") ||
-            name.starts_with("vision_encoder.") ||
-            name.starts_with("visual.")
+            name.starts_with("vpm.")
+                || name.starts_with("vision_model.")
+                || name.starts_with("vision_encoder.")
+                || name.starts_with("visual.")
         })
     }
 
@@ -649,10 +648,10 @@ impl GgufFile {
     /// 返回迭代器，避免分配 HashMap
     pub fn iter_resampler_tensors(&self) -> impl Iterator<Item = (&String, &GgufTensor)> {
         self.tensors.iter().filter(|(name, _)| {
-            name.starts_with("resampler.") ||
-            name.starts_with("mm_projector.") ||
-            name.starts_with("vision_proj.") ||
-            name.starts_with("multi_modal_projector.")
+            name.starts_with("resampler.")
+                || name.starts_with("mm_projector.")
+                || name.starts_with("vision_proj.")
+                || name.starts_with("multi_modal_projector.")
         })
     }
 
@@ -673,13 +672,13 @@ impl GgufFile {
     /// 返回迭代器，避免分配 HashMap
     pub fn iter_llm_tensors(&self) -> impl Iterator<Item = (&String, &GgufTensor)> {
         self.tensors.iter().filter(|(name, _)| {
-            name.starts_with("llm.") || 
-            name.starts_with("model.") ||
-            name.starts_with("language_model.") ||
-            (!name.starts_with("vpm.") && 
-             !name.starts_with("vision_model.") &&
-             !name.starts_with("resampler.") &&
-             !name.starts_with("mm_projector."))
+            name.starts_with("llm.")
+                || name.starts_with("model.")
+                || name.starts_with("language_model.")
+                || (!name.starts_with("vpm.")
+                    && !name.starts_with("vision_model.")
+                    && !name.starts_with("resampler.")
+                    && !name.starts_with("mm_projector."))
         })
     }
 
@@ -689,10 +688,10 @@ impl GgufFile {
     /// 如果文件包含视觉编码器权重则返回 true
     pub fn has_vision_tensors(&self) -> bool {
         self.tensors.keys().any(|name| {
-            name.starts_with("vpm.") || 
-            name.starts_with("vision_model.") ||
-            name.starts_with("vision_encoder.") ||
-            name.starts_with("visual.")
+            name.starts_with("vpm.")
+                || name.starts_with("vision_model.")
+                || name.starts_with("vision_encoder.")
+                || name.starts_with("visual.")
         })
     }
 
@@ -702,9 +701,9 @@ impl GgufFile {
     /// 如果文件包含多模态投影层权重则返回 true
     pub fn has_resampler_tensors(&self) -> bool {
         self.tensors.keys().any(|name| {
-            name.starts_with("resampler.") ||
-            name.starts_with("mm_projector.") ||
-            name.starts_with("vision_proj.")
+            name.starts_with("resampler.")
+                || name.starts_with("mm_projector.")
+                || name.starts_with("vision_proj.")
         })
     }
 
@@ -713,12 +712,13 @@ impl GgufFile {
     /// # Returns
     /// 音频编码器张量名称到张量信息的映射
     pub fn get_audio_encoder_tensors(&self) -> HashMap<String, &GgufTensor> {
-        self.tensors.iter()
+        self.tensors
+            .iter()
             .filter(|(name, _)| {
-                name.starts_with("audio_encoder.") ||
-                name.starts_with("encoder.audio.") ||
-                name.starts_with("whisper.") ||
-                name.starts_with("audio_model.")
+                name.starts_with("audio_encoder.")
+                    || name.starts_with("encoder.audio.")
+                    || name.starts_with("whisper.")
+                    || name.starts_with("audio_model.")
             })
             .map(|(k, v)| (k.clone(), v))
             .collect()
@@ -729,12 +729,13 @@ impl GgufFile {
     /// # Returns
     /// TTS 张量名称到张量信息的映射
     pub fn get_tts_tensors(&self) -> HashMap<String, &GgufTensor> {
-        self.tensors.iter()
+        self.tensors
+            .iter()
             .filter(|(name, _)| {
-                name.starts_with("tts.") ||
-                name.starts_with("flow.") ||
-                name.starts_with("vocoder.") ||
-                name.starts_with("speech_decoder.")
+                name.starts_with("tts.")
+                    || name.starts_with("flow.")
+                    || name.starts_with("vocoder.")
+                    || name.starts_with("speech_decoder.")
             })
             .map(|(k, v)| (k.clone(), v))
             .collect()
@@ -746,10 +747,10 @@ impl GgufFile {
     /// 如果文件包含音频编码器权重则返回 true
     pub fn has_audio_encoder_tensors(&self) -> bool {
         self.tensors.keys().any(|name| {
-            name.starts_with("audio_encoder.") ||
-            name.starts_with("encoder.audio.") ||
-            name.starts_with("whisper.") ||
-            name.starts_with("audio_model.")
+            name.starts_with("audio_encoder.")
+                || name.starts_with("encoder.audio.")
+                || name.starts_with("whisper.")
+                || name.starts_with("audio_model.")
         })
     }
 
@@ -759,10 +760,10 @@ impl GgufFile {
     /// 如果文件包含语音合成权重则返回 true
     pub fn has_tts_tensors(&self) -> bool {
         self.tensors.keys().any(|name| {
-            name.starts_with("tts.") ||
-            name.starts_with("flow.") ||
-            name.starts_with("vocoder.") ||
-            name.starts_with("speech_decoder.")
+            name.starts_with("tts.")
+                || name.starts_with("flow.")
+                || name.starts_with("vocoder.")
+                || name.starts_with("speech_decoder.")
         })
     }
 
@@ -772,11 +773,13 @@ impl GgufFile {
     /// 如果文件包含语言模型权重则返回 true
     pub fn has_llm_tensors(&self) -> bool {
         self.tensors.keys().any(|name| {
-            name.starts_with("model.") ||
-            name.starts_with("llm.") ||
-            name.starts_with("language_model.") ||
-            name.starts_with("transformer.") ||
-            (name.starts_with("tok_embeddings.") && !name.starts_with("vision_") && !name.starts_with("audio_"))
+            name.starts_with("model.")
+                || name.starts_with("llm.")
+                || name.starts_with("language_model.")
+                || name.starts_with("transformer.")
+                || (name.starts_with("tok_embeddings.")
+                    && !name.starts_with("vision_")
+                    && !name.starts_with("audio_"))
         })
     }
 
@@ -791,23 +794,33 @@ impl GgufFile {
             return None;
         }
 
-        let sample_rate = self.metadata.get_u32("audio.sample_rate")
+        let sample_rate = self
+            .metadata
+            .get_u32("audio.sample_rate")
             .or_else(|| self.metadata.get_u32("whisper.sample_rate"))
             .unwrap_or(16000) as usize;
 
-        let num_mel_bins = self.metadata.get_u32("audio.num_mel_bins")
+        let num_mel_bins = self
+            .metadata
+            .get_u32("audio.num_mel_bins")
             .or_else(|| self.metadata.get_u32("whisper.num_mel_bins"))
             .unwrap_or(80) as usize;
 
-        let hidden_size = self.metadata.get_u32("audio.hidden_size")
+        let hidden_size = self
+            .metadata
+            .get_u32("audio.hidden_size")
             .or_else(|| self.metadata.get_u32("whisper.hidden_size"))
             .unwrap_or(1024) as usize;
 
-        let num_layers = self.metadata.get_u32("audio.num_layers")
+        let num_layers = self
+            .metadata
+            .get_u32("audio.num_layers")
             .or_else(|| self.metadata.get_u32("whisper.num_layers"))
             .unwrap_or(24) as usize;
 
-        let num_heads = self.metadata.get_u32("audio.num_heads")
+        let num_heads = self
+            .metadata
+            .get_u32("audio.num_heads")
             .or_else(|| self.metadata.get_u32("whisper.num_heads"))
             .unwrap_or(16) as usize;
 
@@ -831,27 +844,39 @@ impl GgufFile {
             return None;
         }
 
-        let image_size = self.metadata.get_u32("vision.image_size")
+        let image_size = self
+            .metadata
+            .get_u32("vision.image_size")
             .or_else(|| self.metadata.get_u32("minicpm.vision.image_size"))
             .unwrap_or(448) as usize;
 
-        let patch_size = self.metadata.get_u32("vision.patch_size")
+        let patch_size = self
+            .metadata
+            .get_u32("vision.patch_size")
             .or_else(|| self.metadata.get_u32("minicpm.vision.patch_size"))
             .unwrap_or(14) as usize;
 
-        let hidden_size = self.metadata.get_u32("vision.hidden_size")
+        let hidden_size = self
+            .metadata
+            .get_u32("vision.hidden_size")
             .or_else(|| self.metadata.get_u32("minicpm.vision.hidden_size"))
             .unwrap_or(1152) as usize;
 
-        let num_layers = self.metadata.get_u32("vision.num_layers")
+        let num_layers = self
+            .metadata
+            .get_u32("vision.num_layers")
             .or_else(|| self.metadata.get_u32("minicpm.vision.num_layers"))
             .unwrap_or(27) as usize;
 
-        let num_heads = self.metadata.get_u32("vision.num_heads")
+        let num_heads = self
+            .metadata
+            .get_u32("vision.num_heads")
             .or_else(|| self.metadata.get_u32("minicpm.vision.num_heads"))
             .unwrap_or(16) as usize;
 
-        let intermediate_size = self.metadata.get_u32("vision.intermediate_size")
+        let intermediate_size = self
+            .metadata
+            .get_u32("vision.intermediate_size")
             .or_else(|| self.metadata.get_u32("minicpm.vision.intermediate_size"))
             .unwrap_or(4304) as usize;
 
@@ -882,7 +907,10 @@ impl GgufFile {
 
         // 检查文件大小是否超过 usize 上限（32位系统兼容性）
         if mmap.len() > usize::MAX {
-            return Err(anyhow!("File too large to map on this platform ({} bytes)", mmap.len()));
+            return Err(anyhow!(
+                "File too large to map on this platform ({} bytes)",
+                mmap.len()
+            ));
         }
 
         let mut offset: usize = 0;
@@ -890,9 +918,13 @@ impl GgufFile {
         // 解析魔数（小端序）
         let magic = u32::from_le_bytes(mmap[offset..offset + 4].try_into()?);
         offset += 4;
-        
+
         if magic != GGUF_MAGIC {
-            return Err(anyhow!("Invalid GGUF magic number: expected {:#x}, got {:#x}", GGUF_MAGIC, magic));
+            return Err(anyhow!(
+                "Invalid GGUF magic number: expected {:#x}, got {:#x}",
+                GGUF_MAGIC,
+                magic
+            ));
         }
 
         // 解析版本号
@@ -943,10 +975,10 @@ impl GgufFile {
         for _ in 0..count {
             // 解析键名
             let key = Self::parse_string(mmap, &mut offset)?;
-            
+
             // 解析值
             let value = Self::parse_value(mmap, &mut offset)?;
-            
+
             kv.insert(key, value);
         }
 
@@ -966,24 +998,28 @@ impl GgufFile {
         if *offset + 8 > mmap.len() {
             return Err(anyhow!("Unexpected EOF while reading string length"));
         }
-        
+
         let len = u64::from_le_bytes(mmap[*offset..*offset + 8].try_into()?) as usize;
         *offset += 8;
-        
+
         // 限制最大字符串长度（防止 DoS）
         const MAX_STRING_LEN: usize = 1024 * 1024; // 1MB
         if len > MAX_STRING_LEN {
-            return Err(anyhow!("String too long: {} bytes (max {})", len, MAX_STRING_LEN));
+            return Err(anyhow!(
+                "String too long: {} bytes (max {})",
+                len,
+                MAX_STRING_LEN
+            ));
         }
-        
+
         // 边界检查
         if *offset + len > mmap.len() {
             return Err(anyhow!("Unexpected EOF while reading string data"));
         }
-        
+
         let bytes = &mmap[*offset..*offset + len];
         *offset += len;
-        
+
         String::from_utf8(bytes.to_vec()).map_err(|e| anyhow!("Invalid UTF-8 string: {}", e))
     }
 
@@ -1050,7 +1086,7 @@ impl GgufFile {
             GgufValueType::Array => {
                 let element_type = mmap[*offset];
                 *offset += 1;
-                
+
                 let count = u64::from_le_bytes(mmap[*offset..*offset + 8].try_into()?) as usize;
                 *offset += 8;
 
@@ -1059,7 +1095,7 @@ impl GgufFile {
                     // 数组元素不带类型前缀
                     arr.push(Self::parse_value_of_type(mmap, offset, element_type)?);
                 }
-                
+
                 Ok(GgufValue::Array(arr))
             }
             GgufValueType::UInt64 => {
@@ -1153,9 +1189,9 @@ impl GgufFile {
                 *offset += 8;
                 Ok(GgufValue::Float64(v))
             }
-            GgufValueType::Array => {
-                Err(anyhow!("Nested arrays are not supported by GGUF specification"))
-            }
+            GgufValueType::Array => Err(anyhow!(
+                "Nested arrays are not supported by GGUF specification"
+            )),
         }
     }
 
@@ -1168,13 +1204,17 @@ impl GgufFile {
     ///
     /// # Returns
     /// 张量映射和新的偏移
-    fn parse_tensor_info(mmap: &[u8], mut offset: usize, count: u64) -> Result<(HashMap<String, GgufTensor>, usize)> {
+    fn parse_tensor_info(
+        mmap: &[u8],
+        mut offset: usize,
+        count: u64,
+    ) -> Result<(HashMap<String, GgufTensor>, usize)> {
         let mut tensors = HashMap::new();
 
         for _ in 0..count {
             // 解析张量名称
             let name = Self::parse_string(mmap, &mut offset)?;
-            
+
             // 解析维度数量
             let n_dims = u32::from_le_bytes(mmap[offset..offset + 4].try_into()?) as usize;
             offset += 4;
@@ -1182,9 +1222,13 @@ impl GgufFile {
             // GGUF 规范通常维度数 <= 4，设置上限防止恶意文件
             const MAX_DIMS: usize = 8;
             if n_dims > MAX_DIMS {
-                return Err(anyhow!("Too many dimensions: {} (max {})", n_dims, MAX_DIMS));
+                return Err(anyhow!(
+                    "Too many dimensions: {} (max {})",
+                    n_dims,
+                    MAX_DIMS
+                ));
             }
-            
+
             // 解析各维度大小
             let mut dims = Vec::with_capacity(n_dims);
             for _ in 0..n_dims {
@@ -1192,14 +1236,14 @@ impl GgufFile {
                 offset += 8;
                 dims.push(dim);
             }
-            
+
             // 解析张量类型
             let tensor_type_byte = mmap[offset];
             offset += 1;
-            
+
             let tensor_type = GgufTensorType::from_u8(tensor_type_byte)
                 .ok_or_else(|| anyhow!("Unknown tensor type: {}", tensor_type_byte))?;
-            
+
             // 解析数据偏移
             let tensor_offset = u64::from_le_bytes(mmap[offset..offset + 8].try_into()?);
             offset += 8;
@@ -1235,7 +1279,7 @@ impl GgufFile {
         // tensor.offset 是绝对偏移（GGUF 规范）
         let start = tensor.offset as usize;
         let end = start + tensor.data_size();
-        
+
         if end <= self.mmap.len() {
             Some(&self.mmap[start..end])
         } else {
@@ -1255,7 +1299,7 @@ impl GgufFile {
     ///
     /// # Note
     /// `tensor.offset` 是从文件起始处的绝对偏移量（GGUF 规范）
-    /// 
+    ///
     /// # Safety
     /// 内存映射通常满足对齐要求，但某些平台可能需要额外处理
     pub fn get_tensor_data_by_ref(&self, tensor: &GgufTensor) -> Result<Vec<f32>> {
@@ -1280,8 +1324,11 @@ impl GgufFile {
                 );
                 let f32_slice: &[f32] = cast_slice(data);
                 if f32_slice.len() != num_elements {
-                    return Err(anyhow!("F32 tensor size mismatch: expected {}, got {}", 
-                        num_elements, f32_slice.len()));
+                    return Err(anyhow!(
+                        "F32 tensor size mismatch: expected {}, got {}",
+                        num_elements,
+                        f32_slice.len()
+                    ));
                 }
                 Ok(f32_slice.to_vec())
             }
@@ -1294,8 +1341,11 @@ impl GgufFile {
                 );
                 let f16_slice: &[half::f16] = cast_slice(data);
                 if f16_slice.len() != num_elements {
-                    return Err(anyhow!("F16 tensor size mismatch: expected {}, got {}", 
-                        num_elements, f16_slice.len()));
+                    return Err(anyhow!(
+                        "F16 tensor size mismatch: expected {}, got {}",
+                        num_elements,
+                        f16_slice.len()
+                    ));
                 }
                 Ok(f16_slice.iter().map(|&f| f.to_f32()).collect())
             }
@@ -1314,9 +1364,11 @@ impl GgufFile {
     /// 模型配置
     pub fn get_model_config(&self) -> Result<ModelConfig> {
         // 首先读取架构名称，决定键名前缀
-        let architecture = self.metadata.get_string("general.architecture")
+        let architecture = self
+            .metadata
+            .get_string("general.architecture")
             .unwrap_or("llama");
-        
+
         // 根据架构选择键名前缀（支持多种模型架构）
         let prefix = match architecture {
             "minicpm" => "minicpm",
@@ -1325,54 +1377,81 @@ impl GgufFile {
             "phi" | "phi3" => "phi",
             "llama" | _ => "llama",
         };
-        
-        let vocab_size = self.metadata.get_u64("general.vocab_size")
+
+        let vocab_size = self
+            .metadata
+            .get_u64("general.vocab_size")
             .unwrap_or(DEFAULT_VOCAB_SIZE as u64) as usize;
-        
+
         // 优先使用架构对应的前缀，然后尝试其他常见前缀
-        let hidden_size = self.metadata.get_u32(&format!("{}.embedding_length", prefix))
+        let hidden_size = self
+            .metadata
+            .get_u32(&format!("{}.embedding_length", prefix))
             .or_else(|| self.metadata.get_u32("llama.embedding_length"))
             .or_else(|| self.metadata.get_u32("qwen2.embedding_length"))
             .or_else(|| self.metadata.get_u32("gemma.embedding_length"))
             .unwrap_or(DEFAULT_HIDDEN_SIZE as u32) as usize;
-        
-        let intermediate_size = self.metadata.get_u32(&format!("{}.feed_forward_length", prefix))
+
+        let intermediate_size = self
+            .metadata
+            .get_u32(&format!("{}.feed_forward_length", prefix))
             .or_else(|| self.metadata.get_u32("llama.feed_forward_length"))
             .or_else(|| self.metadata.get_u32("qwen2.feed_forward_length"))
             .or_else(|| self.metadata.get_u32("gemma.feed_forward_length"))
             .unwrap_or(DEFAULT_INTERMEDIATE_SIZE as u32) as usize;
-        
-        let num_hidden_layers = self.metadata.get_u32(&format!("{}.block_count", prefix))
+
+        let num_hidden_layers = self
+            .metadata
+            .get_u32(&format!("{}.block_count", prefix))
             .or_else(|| self.metadata.get_u32("llama.block_count"))
             .or_else(|| self.metadata.get_u32("qwen2.block_count"))
             .or_else(|| self.metadata.get_u32("gemma.block_count"))
             .unwrap_or(DEFAULT_NUM_HIDDEN_LAYERS as u32) as usize;
-        
-        let num_attention_heads = self.metadata.get_u32(&format!("{}.attention.head_count", prefix))
-            .or_else(|| self.metadata.get_u32("llama.attention.head_count"))
-            .or_else(|| self.metadata.get_u32("qwen2.attention.head_count"))
-            .or_else(|| self.metadata.get_u32("gemma.attention.head_count"))
-            .unwrap_or(DEFAULT_NUM_ATTENTION_HEADS as u32) as usize;
-        
-        let num_key_value_heads = self.metadata.get_u32(&format!("{}.attention.head_count_kv", prefix))
+
+        let num_attention_heads =
+            self.metadata
+                .get_u32(&format!("{}.attention.head_count", prefix))
+                .or_else(|| self.metadata.get_u32("llama.attention.head_count"))
+                .or_else(|| self.metadata.get_u32("qwen2.attention.head_count"))
+                .or_else(|| self.metadata.get_u32("gemma.attention.head_count"))
+                .unwrap_or(DEFAULT_NUM_ATTENTION_HEADS as u32) as usize;
+
+        let num_key_value_heads = self
+            .metadata
+            .get_u32(&format!("{}.attention.head_count_kv", prefix))
             .or_else(|| self.metadata.get_u32("llama.attention.head_count_kv"))
             .or_else(|| self.metadata.get_u32("qwen2.attention.head_count_kv"))
             .or_else(|| self.metadata.get_u32("gemma.attention.head_count_kv"))
             .unwrap_or(num_attention_heads as u32) as usize;
-        
-        let max_position_embeddings = self.metadata.get_u32(&format!("{}.context_length", prefix))
-            .or_else(|| self.metadata.get_u32("llama.context_length"))
-            .or_else(|| self.metadata.get_u32("qwen2.context_length"))
-            .or_else(|| self.metadata.get_u32("gemma.context_length"))
-            .unwrap_or(DEFAULT_MAX_POSITION_EMBEDDINGS as u32) as usize;
-        
-        let rms_norm_eps = self.metadata.get_f32(&format!("{}.attention.layer_norm_rms_epsilon", prefix))
-            .or_else(|| self.metadata.get_f32("llama.attention.layer_norm_rms_epsilon"))
-            .or_else(|| self.metadata.get_f32("qwen2.attention.layer_norm_rms_epsilon"))
-            .or_else(|| self.metadata.get_f32("gemma.attention.layer_norm_rms_epsilon"))
+
+        let max_position_embeddings =
+            self.metadata
+                .get_u32(&format!("{}.context_length", prefix))
+                .or_else(|| self.metadata.get_u32("llama.context_length"))
+                .or_else(|| self.metadata.get_u32("qwen2.context_length"))
+                .or_else(|| self.metadata.get_u32("gemma.context_length"))
+                .unwrap_or(DEFAULT_MAX_POSITION_EMBEDDINGS as u32) as usize;
+
+        let rms_norm_eps = self
+            .metadata
+            .get_f32(&format!("{}.attention.layer_norm_rms_epsilon", prefix))
+            .or_else(|| {
+                self.metadata
+                    .get_f32("llama.attention.layer_norm_rms_epsilon")
+            })
+            .or_else(|| {
+                self.metadata
+                    .get_f32("qwen2.attention.layer_norm_rms_epsilon")
+            })
+            .or_else(|| {
+                self.metadata
+                    .get_f32("gemma.attention.layer_norm_rms_epsilon")
+            })
             .unwrap_or(DEFAULT_RMS_NORM_EPS);
-        
-        let rope_theta = self.metadata.get_f32(&format!("{}.rope.freq_base", prefix))
+
+        let rope_theta = self
+            .metadata
+            .get_f32(&format!("{}.rope.freq_base", prefix))
             .or_else(|| self.metadata.get_f32("llama.rope.freq_base"))
             .or_else(|| self.metadata.get_f32("qwen2.rope.freq_base"))
             .or_else(|| self.metadata.get_f32("gemma.rope.freq_base"))
@@ -1399,7 +1478,9 @@ impl GgufFile {
     /// # Returns
     /// 反序列化后的 f32 向量
     pub fn get_tensor_data_by_name(&self, name: &str) -> Result<Vec<f32>> {
-        let tensor = self.tensors.get(name)
+        let tensor = self
+            .tensors
+            .get(name)
             .ok_or_else(|| anyhow!("Tensor not found: {}", name))?;
         self.get_tensor_data_by_ref(tensor)
     }
@@ -1415,14 +1496,11 @@ impl GgufFile {
             return None;
         }
 
-        let sample_rate = self.metadata.get_u32("tts.sample_rate")
-            .unwrap_or(24000) as usize;
+        let sample_rate = self.metadata.get_u32("tts.sample_rate").unwrap_or(24000) as usize;
 
-        let hidden_size = self.metadata.get_u32("tts.hidden_size")
-            .unwrap_or(1024) as usize;
+        let hidden_size = self.metadata.get_u32("tts.hidden_size").unwrap_or(1024) as usize;
 
-        let num_flow_layers = self.metadata.get_u32("tts.num_flow_layers")
-            .unwrap_or(12) as usize;
+        let num_flow_layers = self.metadata.get_u32("tts.num_flow_layers").unwrap_or(12) as usize;
 
         Some(TTSConfigGGUF {
             sample_rate,
@@ -1491,9 +1569,18 @@ mod tests {
 
     #[test]
     fn test_value_type_try_from() {
-        assert!(matches!(GgufValueType::try_from(0u32), Ok(GgufValueType::UInt8)));
-        assert!(matches!(GgufValueType::try_from(6u32), Ok(GgufValueType::Float32)));
-        assert!(matches!(GgufValueType::try_from(8u32), Ok(GgufValueType::String)));
+        assert!(matches!(
+            GgufValueType::try_from(0u32),
+            Ok(GgufValueType::UInt8)
+        ));
+        assert!(matches!(
+            GgufValueType::try_from(6u32),
+            Ok(GgufValueType::Float32)
+        ));
+        assert!(matches!(
+            GgufValueType::try_from(8u32),
+            Ok(GgufValueType::String)
+        ));
         assert!(GgufValueType::try_from(100u32).is_err());
     }
 
@@ -1612,8 +1699,8 @@ mod tests {
         assert_eq!(GgufTensorType::from_u8(29), Some(GgufTensorType::BF16));
 
         // 测试无效值
-        assert_eq!(GgufTensorType::from_u8(6), None);  // 保留值
-        assert_eq!(GgufTensorType::from_u8(9), None);  // 未定义
+        assert_eq!(GgufTensorType::from_u8(6), None); // 保留值
+        assert_eq!(GgufTensorType::from_u8(9), None); // 未定义
         assert_eq!(GgufTensorType::from_u8(100), None);
     }
 
@@ -1656,12 +1743,24 @@ mod tests {
     #[test]
     fn test_tensor_type_try_from_u8() {
         use std::convert::TryFrom;
-        
-        assert!(matches!(GgufTensorType::try_from(0u8), Ok(GgufTensorType::F32)));
-        assert!(matches!(GgufTensorType::try_from(1u8), Ok(GgufTensorType::F16)));
-        assert!(matches!(GgufTensorType::try_from(2u8), Ok(GgufTensorType::Q4_0)));
-        assert!(matches!(GgufTensorType::try_from(7u8), Ok(GgufTensorType::Q8_0)));
-        assert!(GgufTensorType::try_from(6u8).is_err());  // 保留值
+
+        assert!(matches!(
+            GgufTensorType::try_from(0u8),
+            Ok(GgufTensorType::F32)
+        ));
+        assert!(matches!(
+            GgufTensorType::try_from(1u8),
+            Ok(GgufTensorType::F16)
+        ));
+        assert!(matches!(
+            GgufTensorType::try_from(2u8),
+            Ok(GgufTensorType::Q4_0)
+        ));
+        assert!(matches!(
+            GgufTensorType::try_from(7u8),
+            Ok(GgufTensorType::Q8_0)
+        ));
+        assert!(GgufTensorType::try_from(6u8).is_err()); // 保留值
         assert!(GgufTensorType::try_from(100u8).is_err()); // 无效值
     }
 }
@@ -1728,7 +1827,7 @@ mod integration_tests {
         buf.push(0);
         // 偏移量 (从文件头开始计算，需要对齐)
         let tensor_offset = buf.len() as u64 + 8; // +8 for offset field
-        // 对齐到 32 字节
+                                                  // 对齐到 32 字节
         let aligned_offset = (tensor_offset + 31) / 32 * 32;
         buf.extend_from_slice(&aligned_offset.to_le_bytes());
 
@@ -1750,7 +1849,9 @@ mod integration_tests {
 
         // 写入临时文件
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         // 解析文件
@@ -1763,7 +1864,10 @@ mod integration_tests {
         assert_eq!(gguf.header.metadata_kv_count, 3);
 
         // 验证元数据
-        assert_eq!(gguf.metadata.get_string("general.architecture"), Some("llama"));
+        assert_eq!(
+            gguf.metadata.get_string("general.architecture"),
+            Some("llama")
+        );
         assert_eq!(gguf.metadata.get_u32("llama.embedding_length"), Some(4096));
         assert_eq!(gguf.metadata.get_u32("llama.block_count"), Some(32));
 
@@ -1779,13 +1883,16 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
 
         // 获取张量数据
-        let data = gguf.get_tensor_data("model.token_embd.weight")
+        let data = gguf
+            .get_tensor_data("model.token_embd.weight")
             .expect("Failed to get tensor data");
 
         // 验证数据大小 (4096 * 4 bytes)
@@ -1802,7 +1909,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -1825,12 +1934,17 @@ mod integration_tests {
         buf.extend_from_slice(&0u64.to_le_bytes());
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&buf).expect("Failed to write temp file");
+        temp_file
+            .write_all(&buf)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let result = GgufFile::open(temp_file.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid GGUF magic"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid GGUF magic"));
     }
 
     #[test]
@@ -1838,7 +1952,9 @@ mod integration_tests {
         let buf = vec![0u8; 10]; // 太小
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&buf).expect("Failed to write temp file");
+        temp_file
+            .write_all(&buf)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let result = GgufFile::open(temp_file.path());
@@ -1851,7 +1967,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -1876,7 +1994,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -1896,25 +2016,30 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
 
         // 验证名称、维度、类型等
-        let tensor = gguf.tensors.get("model.token_embd.weight")
+        let tensor = gguf
+            .tensors
+            .get("model.token_embd.weight")
             .expect("Tensor should exist");
-        
+
         assert_eq!(tensor.name, "model.token_embd.weight");
         assert_eq!(tensor.dims, vec![4096]);
         assert_eq!(tensor.tensor_type, GgufTensorType::F32);
-        
+
         // 验证张量计算方法
         assert_eq!(tensor.num_elements(), 4096);
         assert_eq!(tensor.data_size(), 4096 * 4); // F32 = 4 bytes per element
-        
+
         // 测试get_tensor_data方法
-        let data = gguf.get_tensor_data("model.token_embd.weight")
+        let data = gguf
+            .get_tensor_data("model.token_embd.weight")
             .expect("Should get tensor data");
         assert!(!data.is_empty());
         assert_eq!(data.len(), 16384); // 4096 * 4 bytes
@@ -1925,12 +2050,15 @@ mod integration_tests {
         // 无效文件错误处理 - 不存在的路径
         let result = GgufFile::open("/nonexistent/file.gguf");
         assert!(result.is_err(), "Should fail for nonexistent file");
-        
+
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.to_lowercase().contains("no such file") || 
-               err_msg.to_lowercase().contains("not found") ||
-               err_msg.to_lowercase().contains("os error"),
-               "Error should indicate file not found: {}", err_msg);
+        assert!(
+            err_msg.to_lowercase().contains("no such file")
+                || err_msg.to_lowercase().contains("not found")
+                || err_msg.to_lowercase().contains("os error"),
+            "Error should indicate file not found: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1944,13 +2072,16 @@ mod integration_tests {
 
         let result = GgufFile::open(&truncated_path);
         assert!(result.is_err(), "Should fail for truncated file");
-        
+
         let err_msg = result.unwrap_err().to_string();
         // 应该报告文件太小或解析错误
-        assert!(err_msg.to_lowercase().contains("too small") ||
-               err_msg.to_lowercase().contains("unexpected eof") ||
-               err_msg.contains("Invalid GGUF magic"),
-               "Error should indicate truncation issue: {}", err_msg);
+        assert!(
+            err_msg.to_lowercase().contains("too small")
+                || err_msg.to_lowercase().contains("unexpected eof")
+                || err_msg.contains("Invalid GGUF magic"),
+            "Error should indicate truncation issue: {}",
+            err_msg
+        );
 
         std::fs::remove_file(truncated_path).ok();
     }
@@ -1960,20 +2091,25 @@ mod integration_tests {
         // 无效魔数测试
         let mut buf = Vec::new();
         buf.extend_from_slice(&0x12345678u32.to_le_bytes()); // 错误的魔数
-        buf.extend_from_slice(&3u32.to_le_bytes());           // 版本号
-        buf.extend_from_slice(&0u64.to_le_bytes());            // 张量数量
-        buf.extend_from_slice(&0u64.to_le_bytes());            // 元数据数量
+        buf.extend_from_slice(&3u32.to_le_bytes()); // 版本号
+        buf.extend_from_slice(&0u64.to_le_bytes()); // 张量数量
+        buf.extend_from_slice(&0u64.to_le_bytes()); // 元数据数量
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&buf).expect("Failed to write temp file");
+        temp_file
+            .write_all(&buf)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let result = GgufFile::open(temp_file.path());
         assert!(result.is_err(), "Should fail for invalid magic number");
-        
+
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Invalid GGUF magic"),
-            "Error should mention invalid magic: {}", err_msg);
+        assert!(
+            err_msg.contains("Invalid GGUF magic"),
+            "Error should mention invalid magic: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1982,7 +2118,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -2007,7 +2145,7 @@ mod integration_tests {
     fn test_gguf_value_type_variants() {
         // 值类型枚举变体测试
         use GgufValue::*;
-        
+
         // 创建各种类型的值
         let values = vec![
             UInt8(42),
@@ -2024,7 +2162,7 @@ mod integration_tests {
             Int64(-987654321),
             Float64(2.71828),
         ];
-        
+
         // 所有值都应该能创建和克隆
         for value in &values {
             let _clone = value.clone();
@@ -2057,16 +2195,28 @@ mod integration_tests {
         ];
 
         for (tt, expected_block_size, expected_bytes) in types_to_test {
-            assert_eq!(tt.block_size(), expected_block_size,
-                "Block size mismatch for {:?}", tt);
-            assert_eq!(tt.bytes_per_block(), expected_bytes,
-                "Bytes per block mismatch for {:?}", tt);
-            
+            assert_eq!(
+                tt.block_size(),
+                expected_block_size,
+                "Block size mismatch for {:?}",
+                tt
+            );
+            assert_eq!(
+                tt.bytes_per_block(),
+                expected_bytes,
+                "Bytes per block mismatch for {:?}",
+                tt
+            );
+
             // element_size应该是bytes_per_block / block_size
             if expected_block_size > 0 {
                 let expected_element_size = expected_bytes / expected_block_size;
-                assert_eq!(tt.element_size(), expected_element_size,
-                    "Element size mismatch for {:?}", tt);
+                assert_eq!(
+                    tt.element_size(),
+                    expected_element_size,
+                    "Element size mismatch for {:?}",
+                    tt
+                );
             }
         }
     }
@@ -2077,7 +2227,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");

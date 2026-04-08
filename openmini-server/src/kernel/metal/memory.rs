@@ -16,22 +16,26 @@ impl MetalBuffer {
     pub fn alloc(device: &metal::Device, size: usize) -> Result<Self> {
         #[cfg(feature = "metal")]
         {
-            let buffer = device.new_buffer(size as u64, metal::MTLResourceOptions::StorageModeShared);
-            Ok(Self { buffer: Some(buffer), size })
+            let buffer =
+                device.new_buffer(size as u64, metal::MTLResourceOptions::StorageModeShared);
+            Ok(Self {
+                buffer: Some(buffer),
+                size,
+            })
         }
-        
+
         #[cfg(not(feature = "metal"))]
         {
             let _ = device;
             Err(anyhow::anyhow!("Metal feature not enabled"))
         }
     }
-    
+
     /// 获取大小
     pub fn size(&self) -> usize {
         self.size
     }
-    
+
     /// 获取缓冲区引用
     #[cfg(feature = "metal")]
     pub fn as_buffer(&self) -> Option<&metal::Buffer> {
@@ -47,11 +51,12 @@ impl MetalLibrary {
     #[cfg(feature = "metal")]
     pub fn from_source(device: &metal::Device, source: &str) -> Result<Self> {
         let compile_options = metal::CompileOptions::new();
-        let _ = device.new_library_with_source(source, &compile_options)
+        let _ = device
+            .new_library_with_source(source, &compile_options)
             .map_err(|e| anyhow::anyhow!("Failed to compile Metal library: {}", e))?;
         Ok(Self)
     }
-    
+
     #[cfg(not(feature = "metal"))]
     pub fn from_source(_device: &(), _source: &str) -> Result<Self> {
         Err(anyhow::anyhow!("Metal feature not enabled"))
@@ -70,7 +75,7 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             match Device::system_default() {
                 Some(_device) => {
                     // 设备存在，测试通过
@@ -96,9 +101,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 分配小缓冲区
                 let buf1 = MetalBuffer::alloc(&device, 1024);
@@ -142,9 +147,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 let queue = device.new_command_queue();
                 let _cmd_buf = queue.new_command_buffer();
@@ -170,9 +175,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 let invalid_shader = "
                     // 无效的 metal shader 代码
@@ -180,20 +185,14 @@ mod tests {
                 ";
 
                 let result = MetalLibrary::from_source(&device, invalid_shader);
-                
+
                 // 应该编译失败
-                assert!(
-                    result.is_err(),
-                    "无效的 shader 代码应该编译失败"
-                );
+                assert!(result.is_err(), "无效的 shader 代码应该编译失败");
 
                 // 验证错误信息包含有用内容
                 if let Err(e) = result {
                     let error_msg = format!("{}", e);
-                    assert!(
-                        !error_msg.is_empty(),
-                        "错误消息不应为空"
-                    );
+                    assert!(!error_msg.is_empty(), "错误消息不应为空");
                 }
             } else {
                 assert!(true);
@@ -204,10 +203,7 @@ mod tests {
         {
             // 未启用 metal feature 时应返回错误
             let result = MetalLibrary::from_source(&(), "some shader code");
-            assert!(
-                result.is_err(),
-                "未启用 metal feature 应返回错误"
-            );
+            assert!(result.is_err(), "未启用 metal feature 应返回错误");
         }
     }
 
@@ -219,9 +215,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 let sizes = [256, 1024, 4096, 65536];
 
@@ -246,9 +242,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 let valid_shader = r#"
                     #include <metal_stdlib>
@@ -264,10 +260,7 @@ mod tests {
                 "#;
 
                 let result = MetalLibrary::from_source(&device, valid_shader);
-                assert!(
-                    result.is_ok(),
-                    "有效的 shader 代码应该编译成功"
-                );
+                assert!(result.is_ok(), "有效的 shader 代码应该编译成功");
             } else {
                 assert!(true);
             }
@@ -285,13 +278,13 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 let empty_shader = "";
                 let result = MetalLibrary::from_source(&device, empty_shader);
-                
+
                 // 空字符串可能成功（无kernel）或失败，取决于实现
                 let _ = result;
             } else {
@@ -311,23 +304,23 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 创建多个缓冲区
                 {
                     let buf1 = MetalBuffer::alloc(&device, 1024).unwrap();
                     let buf2 = MetalBuffer::alloc(&device, 2048).unwrap();
-                    
+
                     assert_eq!(buf1.size(), 1024);
                     assert_eq!(buf2.size(), 2048);
-                    
+
                     // 缓冲区在此作用域结束时自动释放
                     drop(buf1);
                     drop(buf2);
                 }
-                
+
                 // 验证可以继续分配新的缓冲区（资源已正确释放）
                 let buf3 = MetalBuffer::alloc(&device, 4096);
                 assert!(buf3.is_ok());
@@ -350,11 +343,11 @@ mod tests {
             // 尝试创建缓冲区应该失败
             // 注意：这里需要传入一个 dummy device 引用，但实际调用会返回错误
             // 由于类型不匹配，这个测试主要验证编译时的条件编译正确性
-            
+
             // 验证 MetalLibrary::from_source 返回错误
             let result = MetalLibrary::from_source(&(), "dummy");
             assert!(result.is_err());
-            
+
             let err_msg = format!("{}", result.unwrap_err());
             assert!(
                 err_msg.contains("Metal feature"),
@@ -378,22 +371,23 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 覆盖：不同大小的缓冲区应正确报告size
                 let sizes_to_test: Vec<usize> = vec![1, 16, 256, 4096, 8192];
-                
+
                 for &expected_size in &sizes_to_test {
                     let buf = MetalBuffer::alloc(&device, expected_size).unwrap();
                     assert_eq!(
-                        buf.size(), expected_size,
+                        buf.size(),
+                        expected_size,
                         "分配大小{}与报告大小不一致",
                         expected_size
                     );
                 }
-                
+
                 // 验证 size=0 边界情况（如果 Metal 允许）
                 let _zero_buf = MetalBuffer::alloc(&device, 0);
             } else {
@@ -413,9 +407,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 覆盖：正常分配后 as_buffer 应返回 Some
                 let buf = MetalBuffer::alloc(&device, 1024).unwrap();
@@ -445,9 +439,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 覆盖：包含多个kernel的复杂shader源码
                 let complex_shader = r#"
@@ -479,10 +473,7 @@ mod tests {
                 "#;
 
                 let result = MetalLibrary::from_source(&device, complex_shader);
-                assert!(
-                    result.is_ok(),
-                    "复杂多kernel shader 应编译成功"
-                );
+                assert!(result.is_ok(), "复杂多kernel shader 应编译成功");
 
                 // 验证返回的 library 实例
                 let _library = result.unwrap();
@@ -503,9 +494,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 覆盖：最小非零分配
                 let min_buf = MetalBuffer::alloc(&device, 1);
@@ -520,7 +511,7 @@ mod tests {
                 }
 
                 // 覆盖：较大但不极端的分配（<20KB限制内）
-                let large_buf = MetalBuffer::alloc(&device, 16384);  // 16KB
+                let large_buf = MetalBuffer::alloc(&device, 16384); // 16KB
                 assert!(large_buf.is_ok());
                 assert_eq!(large_buf.unwrap().size(), 16384);
             } else {
@@ -540,9 +531,9 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 各种无效输入的错误消息
                 let invalid_cases = vec![
@@ -553,12 +544,8 @@ mod tests {
 
                 for (desc, shader_code) in &invalid_cases {
                     let result = MetalLibrary::from_source(&device, shader_code);
-                    assert!(
-                        result.is_err(),
-                        "{} shader 应编译失败",
-                        desc
-                    );
-                    
+                    assert!(result.is_err(), "{} shader 应编译失败", desc);
+
                     if let Err(e) = result {
                         let msg = format!("{}", e);
                         assert!(!msg.is_empty(), "{}错误消息不应为空", desc);
@@ -585,20 +572,16 @@ mod tests {
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             use metal::Device;
-            
+
             let device = Device::system_default();
-            
+
             if let Some(device) = device {
                 // 覆盖：多次分配和释放循环，验证资源管理稳定
                 for iteration in 0..10 {
                     let size = (iteration + 1) * 100;
                     let buf = MetalBuffer::alloc(&device, size);
-                    assert!(
-                        buf.is_ok(),
-                        "第{}次分配(size={})应成功",
-                        iteration, size
-                    );
-                    
+                    assert!(buf.is_ok(), "第{}次分配(size={})应成功", iteration, size);
+
                     let buf = buf.unwrap();
                     assert_eq!(buf.size(), size);
 
@@ -638,11 +621,7 @@ mod tests {
                 for &size in &test_sizes {
                     match MetalBuffer::alloc(&device, size) {
                         Ok(buf) => {
-                            assert_eq!(
-                                buf.size(), size,
-                                "分配大小{}与报告大小不一致",
-                                size
-                            );
+                            assert_eq!(buf.size(), size, "分配大小{}与报告大小不一致", size);
                         }
                         Err(e) => {
                             // 某些边界大小可能失败（如0），这也是有效路径
@@ -672,11 +651,8 @@ mod tests {
 
             if let Some(device) = device {
                 // 空白字符组成的shader源码
-                let whitespace_shaders = vec![
-                    "   ".to_string(),
-                    "\n\t ".to_string(),
-                    "\n\n\n".to_string(),
-                ];
+                let whitespace_shaders =
+                    vec!["   ".to_string(), "\n\t ".to_string(), "\n\n\n".to_string()];
 
                 for shader_code in &whitespace_shaders {
                     let result = MetalLibrary::from_source(&device, shader_code);
@@ -744,16 +720,16 @@ mod tests {
             // 创建一个dummy设备引用（实际类型不匹配，但用于测试错误消息）
             // 注意：这里主要验证未启用feature时的错误处理
             let _dummy_device = ();
-            
+
             // 由于类型不匹配，我们无法直接调用alloc
             // 但可以验证其他错误路径
             let result = MetalLibrary::from_source(&(), "test");
             assert!(result.is_err());
-            
+
             let err_msg = format!("{}", result.unwrap_err());
             assert!(
                 err_msg.contains("Metal"),
-                "错误消息应提及Metal功能: {}", 
+                "错误消息应提及Metal功能: {}",
                 err_msg
             );
         }
@@ -777,7 +753,7 @@ mod tests {
             if let Some(device) = device {
                 // 正常分配后as_buffer应该返回Some
                 let buf = MetalBuffer::alloc(&device, 1024).unwrap();
-                
+
                 match buf.as_buffer() {
                     Some(_buffer) => {
                         // 成功获取buffer引用 - 正常路径
@@ -822,7 +798,7 @@ mod tests {
                         eprintln!("Note: Metal shader compilation failed (may be expected on some configurations)");
                         return;
                     }
-                    
+
                     // library在此处被drop
                 }
 

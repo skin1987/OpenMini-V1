@@ -5,9 +5,9 @@
 
 #![allow(dead_code)]
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::collections::VecDeque;
 
 const MAX_MEMORY_GB: usize = 12;
 const GB: usize = 1024 * 1024 * 1024;
@@ -86,24 +86,24 @@ impl MemoryMonitor {
             history: RwLock::new(VecDeque::with_capacity(HISTORY_SIZE)),
         }
     }
-    
+
     /// 创建默认监控器(12GB 限制)
     pub fn default_monitor() -> Self {
         Self::new(MAX_MEMORY_GB * GB)
     }
-    
+
     pub fn allocate(&self, size: usize) -> Result<(), String> {
         loop {
             let current = self.current_usage.load(Ordering::Relaxed);
             let new_usage = current + size;
-            
+
             if new_usage > self.max_memory {
                 return Err(format!(
                     "Memory limit exceeded: {} + {} > {}",
                     current, size, self.max_memory
                 ));
             }
-            
+
             match self.current_usage.compare_exchange_weak(
                 current,
                 new_usage,
@@ -119,12 +119,12 @@ impl MemoryMonitor {
             }
         }
     }
-    
+
     pub fn deallocate(&self, size: usize) {
         loop {
             let current = self.current_usage.load(Ordering::Relaxed);
             let new_usage = current.saturating_sub(size);
-            
+
             match self.current_usage.compare_exchange_weak(
                 current,
                 new_usage,
@@ -139,7 +139,7 @@ impl MemoryMonitor {
             }
         }
     }
-    
+
     /// 更新峰值使用量
     fn update_peak(&self, usage: usize) {
         loop {
@@ -147,7 +147,7 @@ impl MemoryMonitor {
             if usage <= peak {
                 return;
             }
-            
+
             match self.peak_usage.compare_exchange_weak(
                 peak,
                 usage,
@@ -159,27 +159,28 @@ impl MemoryMonitor {
             }
         }
     }
-    
+
     /// 检查是否还有可用内存
     pub fn check_limit(&self) -> bool {
         self.current_usage.load(Ordering::Relaxed) < self.max_memory
     }
-    
+
     /// 获取当前使用量
     pub fn usage(&self) -> usize {
         self.current_usage.load(Ordering::Relaxed)
     }
-    
+
     /// 获取峰值使用量
     pub fn peak_usage(&self) -> usize {
         self.peak_usage.load(Ordering::Relaxed)
     }
-    
+
     /// 获取可用内存
     pub fn available(&self) -> usize {
-        self.max_memory.saturating_sub(self.current_usage.load(Ordering::Relaxed))
+        self.max_memory
+            .saturating_sub(self.current_usage.load(Ordering::Relaxed))
     }
-    
+
     /// 获取使用率百分比
     pub fn usage_percent(&self) -> f64 {
         if self.max_memory == 0 {
@@ -188,12 +189,12 @@ impl MemoryMonitor {
         let usage = self.current_usage.load(Ordering::Relaxed);
         (usage as f64 / self.max_memory as f64) * 100.0
     }
-    
+
     /// 获取最大内存限制
     pub fn max_memory(&self) -> usize {
         self.max_memory
     }
-    
+
     /// 获取最大内存限制(GB)
     pub fn max_memory_gb(&self) -> f64 {
         self.max_memory as f64 / GB as f64
@@ -203,7 +204,7 @@ impl MemoryMonitor {
         let percent = self.usage_percent();
         let critical = *self.critical_threshold.read().unwrap();
         let warning = *self.warning_threshold.read().unwrap();
-        
+
         if percent >= critical {
             MemoryPressure::Critical
         } else if percent >= warning {
@@ -215,12 +216,7 @@ impl MemoryMonitor {
 
     pub fn snapshot(&self) -> Snapshot {
         let pressure = self.check_pressure();
-        Snapshot::new(
-            self.usage(),
-            self.peak_usage(),
-            self.max_memory,
-            pressure,
-        )
+        Snapshot::new(self.usage(), self.peak_usage(), self.max_memory, pressure)
     }
 
     pub fn register_callback(&self, callback: AllocationCallback) {
@@ -231,7 +227,7 @@ impl MemoryMonitor {
     fn trigger_callbacks(&self, old_usage: usize, new_usage: usize) {
         let current_percent = self.usage_percent();
         let warning = *self.warning_threshold.read().unwrap();
-        
+
         if current_percent >= warning {
             let callbacks = self.callbacks.read().unwrap();
             for callback in callbacks.iter() {
@@ -257,13 +253,13 @@ impl MemoryMonitor {
         if history.len() < HISTORY_SIZE / 2 {
             return;
         }
-        
+
         let avg_percent: f64 = history.iter().sum::<f64>() / history.len() as f64;
         let max_percent = history.iter().cloned().fold(0.0_f64, f64::max);
-        
+
         let mut warning = self.warning_threshold.write().unwrap();
         let mut critical = self.critical_threshold.write().unwrap();
-        
+
         if avg_percent > 60.0 {
             *warning = (avg_percent + 10.0).min(85.0);
             *critical = (max_percent + 5.0).min(95.0);
@@ -313,11 +309,11 @@ mod tests {
     #[test]
     fn test_memory_monitor_allocate() {
         let monitor = MemoryMonitor::new(1024);
-        
+
         assert!(monitor.allocate(512).is_ok());
         assert_eq!(monitor.usage(), 512);
         assert_eq!(monitor.available(), 512);
-        
+
         assert!(monitor.allocate(512).is_ok());
         assert_eq!(monitor.usage(), 1024);
         assert_eq!(monitor.available(), 0);
@@ -326,9 +322,9 @@ mod tests {
     #[test]
     fn test_memory_monitor_limit_exceeded() {
         let monitor = MemoryMonitor::new(1024);
-        
+
         assert!(monitor.allocate(512).is_ok());
-        
+
         let result = monitor.allocate(1024);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Memory limit exceeded"));
@@ -337,10 +333,10 @@ mod tests {
     #[test]
     fn test_memory_monitor_deallocate() {
         let monitor = MemoryMonitor::new(1024);
-        
+
         monitor.allocate(512).unwrap();
         assert_eq!(monitor.usage(), 512);
-        
+
         monitor.deallocate(256);
         assert_eq!(monitor.usage(), 256);
     }
@@ -348,13 +344,13 @@ mod tests {
     #[test]
     fn test_memory_monitor_peak_usage() {
         let monitor = MemoryMonitor::new(1024);
-        
+
         monitor.allocate(512).unwrap();
         assert_eq!(monitor.peak_usage(), 512);
-        
+
         monitor.allocate(256).unwrap();
         assert_eq!(monitor.peak_usage(), 768);
-        
+
         monitor.deallocate(256);
         assert_eq!(monitor.peak_usage(), 768);
     }
@@ -362,7 +358,7 @@ mod tests {
     #[test]
     fn test_memory_monitor_usage_percent() {
         let monitor = MemoryMonitor::new(1000);
-        
+
         monitor.allocate(250).unwrap();
         assert!((monitor.usage_percent() - 25.0).abs() < 0.01);
     }
@@ -370,9 +366,9 @@ mod tests {
     #[test]
     fn test_memory_monitor_check_limit() {
         let monitor = MemoryMonitor::new(1024);
-        
+
         assert!(monitor.check_limit());
-        
+
         monitor.allocate(1024).unwrap();
         assert!(!monitor.check_limit());
     }
@@ -386,13 +382,13 @@ mod tests {
     #[test]
     fn test_memory_monitor_zero_max_memory() {
         let monitor = MemoryMonitor::new(0);
-        
+
         // 使用率应为 0.0，不会除零
         assert_eq!(monitor.usage_percent(), 0.0);
-        
+
         // 可用内存应为 0
         assert_eq!(monitor.available(), 0);
-        
+
         // 分配应失败
         let result = monitor.allocate(1);
         assert!(result.is_err());
@@ -427,9 +423,9 @@ mod tests {
         let monitor = MemoryMonitor::new(1024);
 
         monitor.allocate(512).unwrap();
-        
+
         let snapshot = monitor.snapshot();
-        
+
         assert_eq!(snapshot.current_usage, 512);
         assert_eq!(snapshot.peak_usage, 512);
         assert_eq!(snapshot.max_memory, 1024);
@@ -485,7 +481,7 @@ mod tests {
     #[test]
     fn test_memory_monitor_max_memory_gb() {
         let monitor = MemoryMonitor::new(2 * 1024 * 1024 * 1024); // 2GB
-        
+
         assert!((monitor.max_memory_gb() - 2.0).abs() < 0.001);
     }
 
@@ -514,8 +510,8 @@ mod tests {
         assert_eq!(snapshot.current_usage, 100);
         assert_eq!(snapshot.peak_usage, 200);
         assert_eq!(snapshot.max_memory, 0);
-        assert_eq!(snapshot.usage_percent, 0.0);  // 除零保护
-        assert_eq!(snapshot.available, 0);         // saturating_sub
+        assert_eq!(snapshot.usage_percent, 0.0); // 除零保护
+        assert_eq!(snapshot.available, 0); // saturating_sub
     }
 
     /// 测试：record_history 在 max_memory=0 时提前返回（不记录历史）
@@ -525,7 +521,7 @@ mod tests {
 
         // 尝试分配会失败，但我们可以直接测试 history 是否为空
         // max_memory=0 时 record_history 应该提前返回
-        monitor.deallocate(100);  // 这会调用 record_history
+        monitor.deallocate(100); // 这会调用 record_history
 
         let history = monitor.history.read().unwrap();
         assert!(history.is_empty(), "max_memory=0时不应记录历史");
@@ -557,7 +553,7 @@ mod tests {
 
         // 释放超过当前使用量，不应出现负值（saturating_sub）
         monitor.deallocate(512);
-        assert_eq!(monitor.usage(), 0);  // 应饱和到0
+        assert_eq!(monitor.usage(), 0); // 应饱和到0
     }
 
     /// 测试：回调在低于 warning 阈值时不触发
@@ -610,7 +606,7 @@ mod tests {
         assert_eq!(snapshot_normal.pressure, MemoryPressure::Normal);
 
         // Critical 压力状态下的 snapshot
-        monitor.allocate(950).unwrap();  // 95%
+        monitor.allocate(950).unwrap(); // 95%
         let snapshot_critical = monitor.snapshot();
         assert_eq!(snapshot_critical.pressure, MemoryPressure::Critical);
     }

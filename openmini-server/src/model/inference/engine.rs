@@ -9,8 +9,8 @@
 
 use ndarray::{s, Array2};
 
-use super::model::ModelConfig;
 use super::dsa::DSATopKConfig;
+use super::model::ModelConfig;
 use crate::hardware::kv_cache::streaming::{StreamingAttention, StreamingAttentionConfig};
 
 // ============================================================================
@@ -88,7 +88,7 @@ impl KvCacheLayer {
     pub fn update(&mut self, k: Array2<f32>, v: Array2<f32>) {
         let rows = k.nrows();
         let cols = k.ncols();
-        
+
         // 验证维度一致性
         if let Some(existing_cols) = self.cols {
             assert_eq!(cols, existing_cols, "Column dimension mismatch");
@@ -97,28 +97,30 @@ impl KvCacheLayer {
             self.cols = Some(cols);
         }
         assert_eq!(v.nrows(), rows, "K and V row dimension mismatch");
-        
+
         // 尝试合并到最后一个块（合并后不超过 chunk_size）
         // 注：rows > 0，所以 last_rows + rows <= chunk_size 已隐含 last_rows < chunk_size
-        let should_merge = self.chunks_k.last()
+        let should_merge = self
+            .chunks_k
+            .last()
             .map_or(false, |last_k| last_k.nrows() + rows <= self.chunk_size);
-        
+
         if should_merge {
             // 使用 pop 获取最后一个块的所有权，合并后 push 回去
             if let (Some(last_k), Some(last_v)) = (self.chunks_k.pop(), self.chunks_v.pop()) {
                 let last_rows = last_k.nrows();
                 let total_new_rows = last_rows + rows;
-                
+
                 // 创建合并后的块
                 let mut merged_k = Array2::zeros((total_new_rows, cols));
                 let mut merged_v = Array2::zeros((total_new_rows, cols));
-                
+
                 // 复制原有数据和新数据
                 merged_k.slice_mut(s![..last_rows, ..]).assign(&last_k);
                 merged_k.slice_mut(s![last_rows.., ..]).assign(&k);
                 merged_v.slice_mut(s![..last_rows, ..]).assign(&last_v);
                 merged_v.slice_mut(s![last_rows.., ..]).assign(&v);
-                
+
                 // 放回合并后的块
                 self.chunks_k.push(merged_k);
                 self.chunks_v.push(merged_v);
@@ -132,7 +134,7 @@ impl KvCacheLayer {
             self.chunks_k.push(k);
             self.chunks_v.push(v);
         }
-        
+
         self.total_rows += rows;
     }
 
@@ -144,22 +146,26 @@ impl KvCacheLayer {
         if self.chunks_k.is_empty() {
             return None;
         }
-        
+
         let cols = self.cols?;
-        
+
         // 预分配内存
         let mut combined_k = Array2::zeros((self.total_rows, cols));
         let mut combined_v = Array2::zeros((self.total_rows, cols));
-        
+
         // 拼接所有块
         let mut offset = 0;
         for (k_chunk, v_chunk) in self.chunks_k.iter().zip(self.chunks_v.iter()) {
             let rows = k_chunk.nrows();
-            combined_k.slice_mut(s![offset..offset + rows, ..]).assign(k_chunk);
-            combined_v.slice_mut(s![offset..offset + rows, ..]).assign(v_chunk);
+            combined_k
+                .slice_mut(s![offset..offset + rows, ..])
+                .assign(k_chunk);
+            combined_v
+                .slice_mut(s![offset..offset + rows, ..])
+                .assign(v_chunk);
             offset += rows;
         }
-        
+
         Some((combined_k, combined_v))
     }
 
@@ -236,7 +242,7 @@ impl KvCacheLayer {
         if self.chunks_k.len() <= 1 {
             return;
         }
-        
+
         // 复用 get() 的拼接逻辑
         if let Some((k, v)) = self.get() {
             self.chunks_k = vec![k];
@@ -344,7 +350,7 @@ impl InferenceContext {
     /// 这通常发生在使用 `slice`、`select` 等操作得到的视图上。
     pub fn update_kv(&mut self, layer_idx: usize, k: Array2<f32>, v: Array2<f32>) {
         let seq_len = k.nrows();
-        
+
         if let Some(ref mut sa) = self.streaming_attentions[layer_idx] {
             let k_flat = k.as_slice().expect("K array must be contiguous (C-order)");
             let v_flat = v.as_slice().expect("V array must be contiguous (C-order)");
@@ -353,7 +359,7 @@ impl InferenceContext {
         } else {
             self.kv_caches[layer_idx].update(k, v);
         }
-        
+
         self.seq_len += seq_len;
     }
 
@@ -407,7 +413,9 @@ impl InferenceContext {
     }
 
     /// 获取 StreamingAttention 统计信息（汇总所有层）
-    pub fn get_streaming_stats(&self) -> Vec<Option<crate::hardware::kv_cache::streaming::StreamingAttentionStats>> {
+    pub fn get_streaming_stats(
+        &self,
+    ) -> Vec<Option<crate::hardware::kv_cache::streaming::StreamingAttentionStats>> {
         self.streaming_attentions
             .iter()
             .map(|sa| sa.as_ref().map(|s| s.stats()))
@@ -437,20 +445,20 @@ where
     S: ndarray::Data<Elem = f32>,
 {
     let mut result = x.to_owned();
-    
+
     for i in 0..result.nrows() {
         let mut row = result.row_mut(i);
-        
+
         // 第一次遍历：求 max（数值稳定性）
         let max = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        
+
         // 第二次遍历：计算 exp 并求和
         let mut sum = 0.0f32;
         for val in row.iter_mut() {
             *val = (*val - max).exp();
             sum += *val;
         }
-        
+
         // 第三次遍历：归一化（使用乘法逆，比除法快）
         // 添加 epsilon 保护，避免除零（极低概率场景）
         let inv_sum = 1.0 / (sum + 1e-12);
@@ -458,7 +466,7 @@ where
             *val *= inv_sum;
         }
     }
-    
+
     result
 }
 
@@ -479,7 +487,7 @@ pub fn build_multimodal_prompt(text_tokens: &[usize], num_image_tokens: usize) -
         tokens.push(super::model::IM_PATCH_TOKEN_ID);
     }
     tokens.push(super::model::IM_END_TOKEN_ID);
-    
+
     // 使用预编码的 token ID
     tokens.extend_from_slice(text_tokens);
 
@@ -500,11 +508,11 @@ mod tests {
         let mut layer = KvCacheLayer::new();
         assert!(layer.get().is_none());
         assert!(layer.is_empty());
-        
+
         let k = Array2::zeros((10, 64));
         let v = Array2::zeros((10, 64));
         layer.update(k, v);
-        
+
         assert!(layer.get().is_some());
         assert_eq!(layer.chunk_count(), 1);
         assert_eq!(layer.total_rows(), 10);
@@ -514,7 +522,7 @@ mod tests {
     fn test_inference_context() {
         let config = ModelConfig::default();
         let ctx = InferenceContext::new(&config);
-        
+
         assert_eq!(ctx.kv_caches.len(), config.num_hidden_layers);
         assert_eq!(ctx.seq_len, 0);
     }
@@ -523,7 +531,7 @@ mod tests {
     fn test_softmax_rows() {
         let x = ndarray::arr2(&[[1.0f32, 2.0, 3.0]]);
         let result = softmax_rows(&x);
-        
+
         let sum: f32 = result.row(0).sum();
         assert!((sum - 1.0).abs() < 1e-6);
     }
@@ -531,29 +539,29 @@ mod tests {
     #[test]
     fn test_kv_cache_update() {
         let mut cache = KvCacheLayer::new();
-        
+
         // 第一次更新
         let k1 = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v1 = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
         cache.update(k1, v1);
-        
+
         assert_eq!(cache.chunk_count(), 1);
         let (k, v) = cache.get().unwrap();
         assert_eq!(k.dim(), (2, 2));
         assert_eq!(v.dim(), (2, 2));
-        
+
         // 第二次更新（自动合并到第一个块，因为 2 < 512）
         let k2 = ndarray::arr2(&[[9.0, 10.0], [11.0, 12.0]]);
         let v2 = ndarray::arr2(&[[13.0, 14.0], [15.0, 16.0]]);
         cache.update(k2, v2);
-        
+
         // 验证自动合并：仍然只有 1 个块
         assert_eq!(cache.chunk_count(), 1);
         let (k, v) = cache.get().unwrap();
         // 验证行数正确追加
-        assert_eq!(k.dim(), (4, 2));  // 2 + 2 = 4
+        assert_eq!(k.dim(), (4, 2)); // 2 + 2 = 4
         assert_eq!(v.dim(), (4, 2));
-        
+
         // 验证数据正确
         assert!((k[[0, 0]] - 1.0).abs() < 1e-6);
         assert!((k[[1, 0]] - 3.0).abs() < 1e-6);
@@ -564,197 +572,207 @@ mod tests {
     #[test]
     fn test_kv_cache_multiple_updates() {
         let mut cache = KvCacheLayer::new();
-        
+
         // 多次更新
         for i in 0..5 {
             let k = ndarray::arr2(&[[i as f32, (i + 1) as f32]]);
             let v = ndarray::arr2(&[[i as f32, (i + 2) as f32]]);
             cache.update(k, v);
         }
-        
+
         // 验证自动合并：5 次更新，每次 1 行，默认 chunk_size=512
         // 所有数据应该合并到第一个块
         assert_eq!(cache.chunk_count(), 1);
         assert_eq!(cache.total_rows(), 5);
-        
+
         let (k, v) = cache.get().unwrap();
         // 验证最终行数
         assert_eq!(k.dim(), (5, 2));
         assert_eq!(v.dim(), (5, 2));
     }
-    
+
     #[test]
     fn test_kv_cache_auto_merge() {
         // 测试自动分块累积逻辑
         let mut cache = KvCacheLayer::with_chunk_size(10);
-        
+
         // 第一次更新：创建第一个块
         let k1 = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v1 = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
         cache.update(k1, v1);
         assert_eq!(cache.chunk_count(), 1);
-        
+
         // 第二次更新：合并到第一个块（因为 2 < 10）
         let k2 = ndarray::arr2(&[[9.0, 10.0]]);
         let v2 = ndarray::arr2(&[[11.0, 12.0]]);
         cache.update(k2, v2);
-        assert_eq!(cache.chunk_count(), 1);  // 仍然只有一个块
+        assert_eq!(cache.chunk_count(), 1); // 仍然只有一个块
         assert_eq!(cache.total_rows(), 3);
-        
+
         // 验证数据正确
         let (k, _v) = cache.get().unwrap();
         assert_eq!(k.dim(), (3, 2));
         assert!((k[[0, 0]] - 1.0).abs() < 1e-6);
         assert!((k[[2, 0]] - 9.0).abs() < 1e-6);
     }
-    
+
     #[test]
     fn test_kv_cache_chunk_boundary() {
         // 测试块边界行为
         let mut cache = KvCacheLayer::with_chunk_size(5);
-        
+
         // 第一次：5 行，刚好填满一个块
         let k1 = Array2::zeros((5, 4));
         let v1 = Array2::zeros((5, 4));
         cache.update(k1, v1);
         assert_eq!(cache.chunk_count(), 1);
-        
+
         // 第二次：3 行，应该创建新块（因为第一个块已满）
         let k2 = Array2::zeros((3, 4));
         let v2 = Array2::zeros((3, 4));
         cache.update(k2, v2);
         assert_eq!(cache.chunk_count(), 2);
-        
+
         // 第三次：2 行，应该合并到第二个块
         let k3 = Array2::zeros((2, 4));
         let v3 = Array2::zeros((2, 4));
         cache.update(k3, v3);
-        assert_eq!(cache.chunk_count(), 2);  // 仍然是 2 个块
+        assert_eq!(cache.chunk_count(), 2); // 仍然是 2 个块
         assert_eq!(cache.total_rows(), 10);
     }
-    
+
     #[test]
     fn test_kv_cache_defrag() {
         // 测试 defrag 功能
         // 使用较小的 chunk_size 强制创建多个块
         let mut cache = KvCacheLayer::with_chunk_size(10);
-        
+
         // 模拟多个小块（每次刚好填满一个块，不会触发自动合并）
         for i in 0..5 {
             let k = Array2::from_shape_fn((10, 4), |(r, c)| (i * 10 + r) as f32 + c as f32);
             let v = Array2::zeros((10, 4));
             cache.update(k, v);
         }
-        
+
         // 验证有 5 个块
         assert_eq!(cache.chunk_count(), 5);
-        
+
         // 执行 defrag
         cache.defrag();
-        
+
         // 验证合并为一个块
         assert_eq!(cache.chunk_count(), 1);
         assert_eq!(cache.total_rows(), 50);
-        
+
         // 验证数据完整性
         let (k, _v) = cache.get().unwrap();
         assert!((k[[0, 0]] - 0.0).abs() < 1e-6);
         assert!((k[[49, 0]] - 49.0).abs() < 1e-6);
     }
-    
+
     #[test]
     fn test_kv_cache_fragmentation_ratio() {
         let mut cache = KvCacheLayer::with_chunk_size(10);
-        
+
         // 理想情况：数据刚好填满块
         let k1 = Array2::zeros((10, 4));
         let v1 = Array2::zeros((10, 4));
         cache.update(k1, v1);
         assert!((cache.fragmentation_ratio() - 1.0).abs() < 0.01);
-        
+
         // 碎片化：添加刚好填满的块（不会触发自动合并）
         for _ in 0..5 {
             let k = Array2::zeros((10, 4));
             let v = Array2::zeros((10, 4));
             cache.update(k, v);
         }
-        
+
         // 6 个块，理想也是 6 个块，比率 = 1
         assert_eq!(cache.chunk_count(), 6);
         assert!((cache.fragmentation_ratio() - 1.0).abs() < 0.01);
     }
-    
+
     #[test]
     fn test_kv_cache_chunked_performance() {
         // 测试分块存储的正确性和自动合并
         let mut cache = KvCacheLayer::new();
-        
+
         // 模拟长序列：100 次更新，每次 100 tokens
         for batch in 0..100 {
-            let k = Array2::from_shape_fn((100, 64), |(i, j)| (batch * 100 + i) as f32 + j as f32 * 0.01);
-            let v = Array2::from_shape_fn((100, 64), |(i, j)| (batch * 100 + i) as f32 * 2.0 + j as f32 * 0.01);
+            let k = Array2::from_shape_fn((100, 64), |(i, j)| {
+                (batch * 100 + i) as f32 + j as f32 * 0.01
+            });
+            let v = Array2::from_shape_fn((100, 64), |(i, j)| {
+                (batch * 100 + i) as f32 * 2.0 + j as f32 * 0.01
+            });
             cache.update(k, v);
         }
-        
+
         // 验证总行数
         assert_eq!(cache.total_rows(), 10000);
-        
+
         // 验证块数量在合理范围内（自动合并后应该远小于 100）
         // 默认 chunk_size=512，每次更新 100 行，预期块数量约 17
-        assert!(cache.chunk_count() < 50, "Chunk count should be reduced by auto-merge");
-        
+        assert!(
+            cache.chunk_count() < 50,
+            "Chunk count should be reduced by auto-merge"
+        );
+
         // 验证拼接后的数据正确
         let (k, _v) = cache.get().unwrap();
         assert_eq!(k.dim(), (10000, 64));
-        
+
         // 验证第一个和最后一个元素
         assert!((k[[0, 0]] - 0.0).abs() < 1e-6);
         assert!((k[[9999, 0]] - 9999.0).abs() < 1e-6);
     }
-    
+
     #[test]
     fn test_kv_cache_get_chunk() {
         // 使用较小的 chunk_size 以便测试多个块
         let mut cache = KvCacheLayer::with_chunk_size(2);
-        
+
         // 添加 3 个块（每个 2 行）
         for i in 0..3 {
             let k = ndarray::arr2(&[[i as f32, (i + 1) as f32], [(i + 2) as f32, (i + 3) as f32]]);
-            let v = ndarray::arr2(&[[i as f32 * 2.0, (i + 1) as f32 * 2.0], [(i + 2) as f32 * 2.0, (i + 3) as f32 * 2.0]]);
+            let v = ndarray::arr2(&[
+                [i as f32 * 2.0, (i + 1) as f32 * 2.0],
+                [(i + 2) as f32 * 2.0, (i + 3) as f32 * 2.0],
+            ]);
             cache.update(k, v);
         }
-        
+
         // 验证：由于每次更新 2 行，刚好等于 chunk_size，所以创建了 3 个块
         assert_eq!(cache.chunk_count(), 3);
-        
+
         // 验证 get_chunk
         assert!(cache.get_chunk(0).is_some());
         assert!(cache.get_chunk(1).is_some());
         assert!(cache.get_chunk(2).is_some());
-        assert!(cache.get_chunk(3).is_none());  // 越界
-        
+        assert!(cache.get_chunk(3).is_none()); // 越界
+
         // 验证第一个块的数据
         let (k0, _v0) = cache.get_chunk(0).unwrap();
         assert_eq!(k0.dim(), (2, 2));
         assert!((k0[[0, 0]] - 0.0).abs() < 1e-6);
-        
+
         // 验证最后一个块的数据
         let (k2, _v2) = cache.get_chunk(2).unwrap();
         assert!((k2[[0, 0]] - 2.0).abs() < 1e-6);
     }
-    
+
     #[test]
     fn test_softmax_rows_with_view() {
         // 测试 softmax_rows 接受 ArrayView2
         let x = ndarray::arr2(&[[1.0f32, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-        
+
         // 使用 owned 数组
         let result1 = softmax_rows(&x);
-        
+
         // 使用 view
         let view = x.view();
         let result2 = softmax_rows(&view);
-        
+
         // 验证结果一致
         for i in 0..2 {
             let sum1: f32 = result1.row(i).sum();
@@ -768,56 +786,56 @@ mod tests {
     fn test_get_kv_with_streaming_attention() {
         let config = ModelConfig::default();
         let mut ctx = InferenceContext::new(&config);
-        
+
         // 初始状态：get_kv 应该返回 None（kv_caches 为空）
         assert!(ctx.get_kv(0).is_none());
-        
+
         // 禁用 StreamingAttention 时更新 kv_caches
         let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
         ctx.update_kv(0, k, v);
-        
+
         // get_kv 应该返回有效数据
         let (kv_k, _kv_v) = ctx.get_kv(0).unwrap();
         assert_eq!(kv_k.dim(), (2, 2));
-        
+
         // 验证 seq_len 已更新
         assert_eq!(ctx.seq_len, 2);
-        
+
         // 启用 StreamingAttention
         ctx.enable_streaming_attention();
-        
+
         // 启用后 get_kv 应该返回 None（因为该层现在使用 StreamingAttention）
         assert!(ctx.get_kv(0).is_none());
-        
+
         // streaming_attentions[0] 应该有数据
         assert!(ctx.streaming_attentions[0].is_some());
-        
+
         // 验证 seq_len 已重置为 0
         assert_eq!(ctx.seq_len, 0);
     }
-    
+
     #[test]
     fn test_enable_streaming_resets_seq_len() {
         let config = ModelConfig::default();
         let mut ctx = InferenceContext::new(&config);
-        
+
         // 写入多层数据
         for layer in 0..3 {
             let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
             let v = ndarray::arr2(&[[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]]);
             ctx.update_kv(layer, k, v);
         }
-        
+
         // 验证 seq_len 累积（每次 3 行，共 3 次 = 9）
         assert_eq!(ctx.seq_len, 9);
-        
+
         // 启用 StreamingAttention
         ctx.enable_streaming_attention();
-        
+
         // 验证 seq_len 重置为 0
         assert_eq!(ctx.seq_len, 0);
-        
+
         // 验证所有层都启用了 StreamingAttention
         for (i, sa) in ctx.streaming_attentions.iter().enumerate() {
             assert!(sa.is_some(), "Layer {} should have StreamingAttention", i);
@@ -828,16 +846,16 @@ mod tests {
     fn test_streaming_stats_returns_all_layers() {
         let config = ModelConfig::default();
         let mut ctx = InferenceContext::new(&config);
-        
+
         // 启用 StreamingAttention
         ctx.enable_streaming_attention();
-        
+
         // 获取统计信息
         let stats = ctx.get_streaming_stats();
-        
+
         // 验证返回的 Vec 长度与层数一致
         assert_eq!(stats.len(), config.num_hidden_layers);
-        
+
         // 所有层都应该有统计信息（因为都启用了）
         for (i, stat) in stats.iter().enumerate() {
             assert!(stat.is_some(), "Layer {} should have stats", i);
@@ -848,18 +866,18 @@ mod tests {
     fn test_clear_resets_all_state() {
         let config = ModelConfig::default();
         let mut ctx = InferenceContext::new(&config);
-        
+
         // 写入一些数据
         let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
         ctx.update_kv(0, k.clone(), v.clone());
         ctx.update_kv(1, k, v);
-        
+
         assert_eq!(ctx.seq_len, 4);
-        
+
         // 清空
         ctx.clear();
-        
+
         // 验证状态已重置
         assert_eq!(ctx.seq_len, 0);
         assert!(ctx.get_kv(0).is_none());
@@ -870,28 +888,28 @@ mod tests {
     fn test_traditional_vs_streaming_mode() {
         let config = ModelConfig::default();
         let head_dim = config.hidden_size / config.num_attention_heads;
-        
+
         // 传统模式
         let mut ctx_traditional = InferenceContext::new(&config);
         let k = Array2::zeros((2, head_dim));
         let v = Array2::zeros((2, head_dim));
         ctx_traditional.update_kv(0, k.clone(), v.clone());
-        
+
         // 验证传统模式数据存储正确
         let (kv_k, kv_v) = ctx_traditional.get_kv(0).unwrap();
         assert_eq!(kv_k.dim(), (2, head_dim));
         assert_eq!(kv_v.dim(), (2, head_dim));
-        
+
         // 流式模式 - 验证启用后状态正确
         let mut ctx_streaming = InferenceContext::new(&config);
         ctx_streaming.enable_streaming_attention();
-        
+
         // 验证 streaming_attentions 已启用（每层都有实例）
         assert!(ctx_streaming.streaming_attentions[0].is_some());
-        
+
         // 验证启用后 get_kv 返回 None（因为该层使用流式）
         assert!(ctx_streaming.get_kv(0).is_none());
-        
+
         // 验证 seq_len 初始为 0
         assert_eq!(ctx_streaming.seq_len, 0);
     }
@@ -1028,7 +1046,7 @@ mod tests {
         let k = Array2::zeros((5, 4));
         let v = Array2::zeros((5, 4));
         layer.update(k, v);
-        
+
         // 5行，理想块数=1，实际块数=1，比率=1.0
         assert!((layer.fragmentation_ratio() - 1.0).abs() < 0.01);
     }
@@ -1043,7 +1061,7 @@ mod tests {
         layer.update(k, v);
 
         assert_eq!(layer.chunk_count(), 1);
-        layer.defrag();  // 应该立即返回，不做任何事
+        layer.defrag(); // 应该立即返回，不做任何事
         assert_eq!(layer.chunk_count(), 1);
         assert_eq!(layer.total_rows(), 50);
     }
@@ -1112,7 +1130,7 @@ mod tests {
         assert!((sum_zero - 1.0).abs() < 1e-6);
         // 全零时应该是均匀分布
         for val in result_zero.row(0) {
-            assert!((*val - 1.0/3.0).abs() < 1e-6);
+            assert!((*val - 1.0 / 3.0).abs() < 1e-6);
         }
     }
 
@@ -1125,7 +1143,7 @@ mod tests {
         let prompt = build_multimodal_prompt(&text_tokens, num_image_tokens);
 
         // 验证结构: [IM_START] + [IM_PATCH]*4 + [IM_END] + text_tokens
-        assert_eq!(prompt.len(), 1 + 4 + 1 + 3);  // 9 tokens
+        assert_eq!(prompt.len(), 1 + 4 + 1 + 3); // 9 tokens
         assert_eq!(prompt[0], IM_START_TOKEN_ID);
         for i in 1..=4 {
             assert_eq!(prompt[i], IM_PATCH_TOKEN_ID);

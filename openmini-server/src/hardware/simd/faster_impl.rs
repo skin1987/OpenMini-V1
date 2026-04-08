@@ -169,7 +169,7 @@ mod x86_impl {
         if a.is_empty() {
             return f32::NEG_INFINITY;
         }
-        
+
         let len = a.len();
         let mut i = 0usize;
 
@@ -200,7 +200,7 @@ mod x86_impl {
         if a.is_empty() {
             return f32::INFINITY;
         }
-        
+
         let len = a.len();
         let mut i = 0usize;
 
@@ -291,9 +291,9 @@ mod x86_impl {
         let chunks = len / 8;
         for _ in 0..chunks {
             let vx = _mm256_loadu_ps(a.as_ptr().add(i));
-            
+
             let vneg_x = _mm256_sub_ps(_mm256_set1_ps(0.0), vx);
-            
+
             let mut exp_vals = [0.0f32; 8];
             let mut x_vals = [0.0f32; 8];
             _mm256_storeu_ps(x_vals.as_mut_ptr(), vneg_x);
@@ -301,10 +301,10 @@ mod x86_impl {
                 exp_vals[j] = x_vals[j].exp();
             }
             let vexp = _mm256_loadu_ps(exp_vals.as_ptr());
-            
+
             let vdenom = _mm256_add_ps(vone, vexp);
             let vsilu = _mm256_div_ps(vx, vdenom);
-            
+
             _mm256_storeu_ps(result.as_mut_ptr().add(i), vsilu);
             i += 8;
         }
@@ -322,16 +322,16 @@ mod x86_impl {
         let vhalf = _mm256_set1_ps(0.5);
         let vsixth = _mm256_set1_ps(1.0 / 6.0);
         let v24th = _mm256_set1_ps(1.0 / 24.0);
-        
+
         let x2 = _mm256_mul_ps(x, x);
         let x3 = _mm256_mul_ps(x2, x);
         let x4 = _mm256_mul_ps(x3, x);
-        
+
         let mut result = _mm256_add_ps(vone, x);
         result = _mm256_add_ps(result, _mm256_mul_ps(x2, vhalf));
         result = _mm256_add_ps(result, _mm256_mul_ps(x3, vsixth));
         result = _mm256_add_ps(result, _mm256_mul_ps(x4, v24th));
-        
+
         result
     }
 
@@ -341,13 +341,13 @@ mod x86_impl {
         if len == 0 {
             return vec![];
         }
-        
+
         let max_val = avx2_max(a);
         let vmax = _mm256_set1_ps(max_val);
-        
+
         let mut exp_vals = vec![0.0f32; len];
         let mut i = 0usize;
-        
+
         let chunks = len / 8;
         for _ in 0..chunks {
             let va = _mm256_loadu_ps(a.as_ptr().add(i));
@@ -356,14 +356,14 @@ mod x86_impl {
             _mm256_storeu_ps(exp_vals.as_mut_ptr().add(i), vexp);
             i += 8;
         }
-        
+
         for j in i..len {
             exp_vals[j] = (a[j] - max_val).exp();
         }
-        
+
         let sum_exp = avx2_sum(&exp_vals);
         let inv_sum = 1.0 / sum_exp;
-        
+
         avx2_mul_scalar(&exp_vals, inv_sum)
     }
 
@@ -378,23 +378,23 @@ mod x86_impl {
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         let zero = _mm256_set1_ps(0.0f32);
-        
+
         for i in 0..m {
             let input_row = &input[i * k..(i + 1) * k];
             let output_row = &mut output[i * n..(i + 1) * n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_loadu_ps(bias.as_ptr().add(j));
-                    
+
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                         vsum = _mm256_fmadd_ps(vinput, vweight, vsum);
                     }
-                    
+
                     let vrelu = _mm256_max_ps(vsum, zero);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vrelu);
                 } else {
@@ -408,7 +408,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -423,24 +423,24 @@ mod x86_impl {
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         let zero = _mm256_set1_ps(0.0f32);
-        
+
         for i in 0..m {
             let input_row = &input[i * k..(i + 1) * k];
             let output_row = &mut output[i * n..(i + 1) * n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_loadu_ps(bias.as_ptr().add(j));
-                    
+
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                         let vprod = _mm256_mul_ps(vinput, vweight);
                         vsum = _mm256_add_ps(vsum, vprod);
                     }
-                    
+
                     let vrelu = _mm256_max_ps(vsum, zero);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vrelu);
                 } else {
@@ -454,7 +454,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -468,23 +468,23 @@ mod x86_impl {
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         let vone = _mm256_set1_ps(1.0);
-        
+
         for i in 0..m {
             let input_row = &input[i * k..(i + 1) * k];
             let output_row = &mut output[i * n..(i + 1) * n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
-                    
+
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                         vsum = _mm256_fmadd_ps(vinput, vweight, vsum);
                     }
-                    
+
                     let vneg = _mm256_sub_ps(_mm256_set1_ps(0.0), vsum);
                     let mut exp_vals = [0.0f32; 8];
                     _mm256_storeu_ps(exp_vals.as_mut_ptr(), vneg);
@@ -494,7 +494,7 @@ mod x86_impl {
                     let vexp = _mm256_loadu_ps(exp_vals.as_ptr());
                     let vdenom = _mm256_add_ps(vone, vexp);
                     let vsilu = _mm256_div_ps(vsum, vdenom);
-                    
+
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vsilu);
                 } else {
                     for jj in j..j + remaining {
@@ -507,7 +507,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -521,24 +521,24 @@ mod x86_impl {
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
         let vone = _mm256_set1_ps(1.0);
-        
+
         for i in 0..m {
             let input_row = &input[i * k..(i + 1) * k];
             let output_row = &mut output[i * n..(i + 1) * n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
-                    
+
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                         let vprod = _mm256_mul_ps(vinput, vweight);
                         vsum = _mm256_add_ps(vsum, vprod);
                     }
-                    
+
                     let vneg = _mm256_sub_ps(_mm256_set1_ps(0.0), vsum);
                     let mut exp_vals = [0.0f32; 8];
                     _mm256_storeu_ps(exp_vals.as_mut_ptr(), vneg);
@@ -548,7 +548,7 @@ mod x86_impl {
                     let vexp = _mm256_loadu_ps(exp_vals.as_ptr());
                     let vdenom = _mm256_add_ps(vone, vexp);
                     let vsilu = _mm256_div_ps(vsum, vdenom);
-                    
+
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vsilu);
                 } else {
                     for jj in j..j + remaining {
@@ -561,7 +561,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -575,24 +575,24 @@ mod x86_impl {
         n: usize,
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
-        
+
         for i in 0..m {
             let input_row = &input[i * k..(i + 1) * k];
             let residual_row = &residual[i * n..(i + 1) * n];
             let output_row = &mut output[i * n..(i + 1) * n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
-                    
+
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                         vsum = _mm256_fmadd_ps(vinput, vweight, vsum);
                     }
-                    
+
                     let vresidual = _mm256_loadu_ps(residual_row.as_ptr().add(j));
                     let vresult = _mm256_add_ps(vsum, vresidual);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vresult);
@@ -607,7 +607,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -621,25 +621,25 @@ mod x86_impl {
         n: usize,
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * n];
-        
+
         for i in 0..m {
             let input_row = &input[i * k..(i + 1) * k];
             let residual_row = &residual[i * n..(i + 1) * n];
             let output_row = &mut output[i * n..(i + 1) * n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
-                    
+
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                         let vprod = _mm256_mul_ps(vinput, vweight);
                         vsum = _mm256_add_ps(vsum, vprod);
                     }
-                    
+
                     let vresidual = _mm256_loadu_ps(residual_row.as_ptr().add(j));
                     let vresult = _mm256_add_ps(vsum, vresidual);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vresult);
@@ -654,7 +654,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -671,25 +671,25 @@ mod x86_impl {
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * head_dim];
         let vscale = _mm256_set1_ps(scale);
-        
+
         for i in 0..m {
             let query_row = &query[i * k..(i + 1) * k];
             let output_row = &mut output[i * head_dim..(i + 1) * head_dim];
-            
+
             let mut scores = vec![0.0f32; n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vscore = _mm256_set1_ps(0.0f32);
-                    
+
                     for p in 0..k {
                         let vquery = _mm256_set1_ps(query_row[p]);
                         let vkey = _mm256_loadu_ps(key.as_ptr().add(p * n + j));
                         vscore = _mm256_fmadd_ps(vquery, vkey, vscore);
                     }
-                    
+
                     vscore = _mm256_mul_ps(vscore, vscale);
                     _mm256_storeu_ps(scores.as_mut_ptr().add(j), vscore);
                 } else {
@@ -702,14 +702,14 @@ mod x86_impl {
                     }
                 }
             }
-            
+
             let max_score = avx2_max(&scores);
             let vmax = _mm256_set1_ps(max_score);
-            
+
             let mut exp_scores = vec![0.0f32; n];
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let vscore = _mm256_loadu_ps(scores.as_ptr().add(j));
                     let vshifted = _mm256_sub_ps(vscore, vmax);
@@ -721,24 +721,24 @@ mod x86_impl {
                     }
                 }
             }
-            
+
             let sum_exp = avx2_sum(&exp_scores);
             let inv_sum = 1.0 / sum_exp;
-            
+
             let attn_weights = avx2_mul_scalar(&exp_scores, inv_sum);
-            
+
             for d in (0..head_dim).step_by(8) {
                 let remaining = (head_dim - d).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
-                    
+
                     for j in 0..n {
                         let vattn = _mm256_set1_ps(attn_weights[j]);
                         let vvalue = _mm256_loadu_ps(value.as_ptr().add(j * head_dim + d));
                         vsum = _mm256_fmadd_ps(vattn, vvalue, vsum);
                     }
-                    
+
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(d), vsum);
                 } else {
                     for dd in d..d + remaining {
@@ -751,7 +751,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 
@@ -768,26 +768,26 @@ mod x86_impl {
     ) -> Vec<f32> {
         let mut output = vec![0.0f32; m * head_dim];
         let vscale = _mm256_set1_ps(scale);
-        
+
         for i in 0..m {
             let query_row = &query[i * k..(i + 1) * k];
             let output_row = &mut output[i * head_dim..(i + 1) * head_dim];
-            
+
             let mut scores = vec![0.0f32; n];
-            
+
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let mut vscore = _mm256_set1_ps(0.0f32);
-                    
+
                     for p in 0..k {
                         let vquery = _mm256_set1_ps(query_row[p]);
                         let vkey = _mm256_loadu_ps(key.as_ptr().add(p * n + j));
                         let vprod = _mm256_mul_ps(vquery, vkey);
                         vscore = _mm256_add_ps(vscore, vprod);
                     }
-                    
+
                     vscore = _mm256_mul_ps(vscore, vscale);
                     _mm256_storeu_ps(scores.as_mut_ptr().add(j), vscore);
                 } else {
@@ -800,14 +800,14 @@ mod x86_impl {
                     }
                 }
             }
-            
+
             let max_score = avx2_max(&scores);
             let vmax = _mm256_set1_ps(max_score);
-            
+
             let mut exp_scores = vec![0.0f32; n];
             for j in (0..n).step_by(8) {
                 let remaining = (n - j).min(8);
-                
+
                 if remaining == 8 {
                     let vscore = _mm256_loadu_ps(scores.as_ptr().add(j));
                     let vshifted = _mm256_sub_ps(vscore, vmax);
@@ -819,25 +819,25 @@ mod x86_impl {
                     }
                 }
             }
-            
+
             let sum_exp = avx2_sum(&exp_scores);
             let inv_sum = 1.0 / sum_exp;
-            
+
             let attn_weights = avx2_mul_scalar(&exp_scores, inv_sum);
-            
+
             for d in (0..head_dim).step_by(8) {
                 let remaining = (head_dim - d).min(8);
-                
+
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
-                    
+
                     for j in 0..n {
                         let vattn = _mm256_set1_ps(attn_weights[j]);
                         let vvalue = _mm256_loadu_ps(value.as_ptr().add(j * head_dim + d));
                         let vprod = _mm256_mul_ps(vattn, vvalue);
                         vsum = _mm256_add_ps(vsum, vprod);
                     }
-                    
+
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(d), vsum);
                 } else {
                     for dd in d..d + remaining {
@@ -850,7 +850,7 @@ mod x86_impl {
                 }
             }
         }
-        
+
         output
     }
 }
@@ -978,10 +978,12 @@ impl SimdOps for PackedSimdOps {
                 return unsafe { x86_impl::avx2_fma_fused_gemm_relu(input, weight, bias, m, k, n) };
             }
             if is_x86_feature_detected!("avx2") {
-                return unsafe { x86_impl::avx2_no_fma_fused_gemm_relu(input, weight, bias, m, k, n) };
+                return unsafe {
+                    x86_impl::avx2_no_fma_fused_gemm_relu(input, weight, bias, m, k, n)
+                };
             }
         }
-        
+
         let mut output = vec![0.0f32; m * n];
         for i in 0..m {
             for j in 0..n {
@@ -1012,7 +1014,7 @@ impl SimdOps for PackedSimdOps {
                 return unsafe { x86_impl::avx2_no_fma_fused_gemm_silu(input, weight, m, k, n) };
             }
         }
-        
+
         let mut output = vec![0.0f32; m * n];
         for i in 0..m {
             for j in 0..n {
@@ -1038,13 +1040,17 @@ impl SimdOps for PackedSimdOps {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-                return unsafe { x86_impl::avx2_fma_fused_gemm_add(input, weight, residual, m, k, n) };
+                return unsafe {
+                    x86_impl::avx2_fma_fused_gemm_add(input, weight, residual, m, k, n)
+                };
             }
             if is_x86_feature_detected!("avx2") {
-                return unsafe { x86_impl::avx2_no_fma_fused_gemm_add(input, weight, residual, m, k, n) };
+                return unsafe {
+                    x86_impl::avx2_no_fma_fused_gemm_add(input, weight, residual, m, k, n)
+                };
             }
         }
-        
+
         let mut output = vec![0.0f32; m * n];
         for i in 0..m {
             for j in 0..n {
@@ -1070,25 +1076,33 @@ impl SimdOps for PackedSimdOps {
     ) -> Vec<f32> {
         let value_len = value.len();
         let head_dim = if n > 0 { value_len / n } else { 0 };
-        
+
         if head_dim == 0 || n == 0 || m == 0 || k == 0 {
             return vec![0.0f32; m * head_dim];
         }
-        
+
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-                return unsafe { x86_impl::avx2_fma_fused_gemm_softmax(query, key, value, scale, m, k, n, head_dim) };
+                return unsafe {
+                    x86_impl::avx2_fma_fused_gemm_softmax(
+                        query, key, value, scale, m, k, n, head_dim,
+                    )
+                };
             }
             if is_x86_feature_detected!("avx2") {
-                return unsafe { x86_impl::avx2_no_fma_fused_gemm_softmax(query, key, value, scale, m, k, n, head_dim) };
+                return unsafe {
+                    x86_impl::avx2_no_fma_fused_gemm_softmax(
+                        query, key, value, scale, m, k, n, head_dim,
+                    )
+                };
             }
         }
-        
+
         let mut output = vec![0.0f32; m * head_dim];
         for i in 0..m {
             let mut scores = vec![0.0f32; n];
-            
+
             for j in 0..n {
                 let mut score = 0.0f32;
                 for p in 0..k {
@@ -1277,7 +1291,7 @@ mod tests {
 
         let result = ops.fused_gemm_add(&input, &weight, &residual, 2, 2, 4);
         assert_eq!(result.len(), 8);
-        
+
         assert!(result.iter().all(|&x| x >= 1.0));
     }
 
@@ -1314,7 +1328,7 @@ mod tests {
         let result = ops.fused_gemm_softmax(&query, &key, &value, 1.0, m, k, n);
 
         assert_eq!(result.len(), 2);
-        
+
         assert!(result[0] > 0.0 && result[1] > 0.0);
     }
 
@@ -1341,7 +1355,7 @@ mod tests {
         let bias: Vec<f32> = vec![0.1; n];
 
         let result = ops.fused_gemm_relu(&input, &weight, &bias, m, k, n);
-        
+
         assert_eq!(result.len(), m * n);
         assert!(result.iter().all(|&x| x >= 0.0));
     }
@@ -1352,7 +1366,7 @@ mod tests {
     fn test_packed_simd_reduction_sum() {
         // 覆盖分支: 向量化归约操作 - 求和
         let ops = PackedSimdOps::new();
-        
+
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let sum = ops.sum(&data);
         assert!((sum - 15.0).abs() < 1e-5);
@@ -1389,7 +1403,8 @@ mod tests {
         for i in 0..7 {
             assert!(
                 (aligned_result[i] - unaligned_result[i]).abs() < 1e-5,
-                "Mismatch at index {} between aligned and unaligned", i
+                "Mismatch at index {} between aligned and unaligned",
+                i
             );
         }
 
@@ -1494,7 +1509,7 @@ mod tests {
     fn test_packed_pattern_consistency_across_sizes() {
         // 覆盖分支: 不同大小输入的模式一致性
         let ops = PackedSimdOps::new();
-        
+
         for size in [1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65] {
             let a: Vec<f32> = (0..size).map(|i| (i + 1) as f32).collect();
             let b: Vec<f32> = (0..size).map(|i| (size - i) as f32 * 0.5).collect();
@@ -1506,7 +1521,11 @@ mod tests {
                 let expected = a[i] * b[i];
                 assert!(
                     (result[i] - expected).abs() < 1e-5 * expected.abs().max(1.0) + 1e-5,
-                    "Size {} index {}: expected {}, got {}", size, i, expected, result[i]
+                    "Size {} index {}: expected {}, got {}",
+                    size,
+                    i,
+                    expected,
+                    result[i]
                 );
             }
         }

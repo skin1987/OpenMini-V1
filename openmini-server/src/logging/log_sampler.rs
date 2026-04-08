@@ -262,13 +262,13 @@ impl CountSampler {
 /// }
 /// ```
 pub struct AdaptiveSampler {
-    base_probability: f64,      // 基础采样率
-    max_probability: f64,       // 最大采样率
-    min_probability: f64,       // 最小采样率
-    window_size: u64,           // 统计窗口大小
-    success_count: AtomicU64,   // 成功计数
-    error_count: AtomicU64,     // 错误计数
-    counter: AtomicU64,         // 总调用计数
+    base_probability: f64,    // 基础采样率
+    max_probability: f64,     // 最大采样率
+    min_probability: f64,     // 最小采样率
+    window_size: u64,         // 统计窗口大小
+    success_count: AtomicU64, // 成功计数
+    error_count: AtomicU64,   // 错误计数
+    counter: AtomicU64,       // 总调用计数
 }
 
 impl AdaptiveSampler {
@@ -467,7 +467,11 @@ mod tests {
 
         // 应该接近50%，允许±10%的误差
         let ratio = passed as f64 / total as f64;
-        assert!(ratio > 0.4 && ratio < 0.6, "Ratio was {}, expected ~0.5", ratio);
+        assert!(
+            ratio > 0.4 && ratio < 0.6,
+            "Ratio was {}, expected ~0.5",
+            ratio
+        );
     }
 
     #[test]
@@ -483,7 +487,11 @@ mod tests {
         }
 
         let ratio = passed as f64 / total as f64;
-        assert!(ratio > 0.05 && ratio < 0.15, "Ratio was {}, expected ~0.1", ratio);
+        assert!(
+            ratio > 0.05 && ratio < 0.15,
+            "Ratio was {}, expected ~0.1",
+            ratio
+        );
     }
 
     #[test]
@@ -583,7 +591,11 @@ mod tests {
         }
 
         let rate = sampler.current_error_rate();
-        assert!((rate - 0.1).abs() < 0.01, "Error rate was {}, expected ~0.1", rate);
+        assert!(
+            (rate - 0.1).abs() < 0.01,
+            "Error rate was {}, expected ~0.1",
+            rate
+        );
     }
 
     // ==================== 集成测试 ====================
@@ -623,8 +635,8 @@ mod tests {
             }
         }
 
-        assert_eq!(a_count, 6);  // 12/2 = 6
-        assert_eq!(b_count, 4);  // 12/3 = 4
+        assert_eq!(a_count, 6); // 12/2 = 6
+        assert_eq!(b_count, 4); // 12/3 = 4
     }
 
     #[test]
@@ -644,13 +656,16 @@ mod tests {
     fn test_time_window_sampler_timing_precision() {
         // 测试时间窗口采样器的精确时间控制
         let mut sampler = TimeWindowSampler::new(std::time::Duration::from_millis(100)); // 100ms间隔
-        
+
         // 第一次应该采样
         assert!(sampler.should_log(), "First call should always pass");
-        
+
         // 短时间内第二次应该跳过
-        assert!(!sampler.should_log(), "Second immediate call should be blocked");
-        
+        assert!(
+            !sampler.should_log(),
+            "Second immediate call should be blocked"
+        );
+
         // 等待超过间隔后应该再次通过（需要实际等待，这里只测试快速连续调用）
         for _ in 0..10 {
             assert!(!sampler.should_log(), "Rapid calls should be blocked");
@@ -661,10 +676,10 @@ mod tests {
     fn test_time_window_sampler_very_short_interval() {
         // 测试非常短的时间间隔
         let mut sampler = TimeWindowSampler::new(std::time::Duration::from_nanos(1)); // 1纳秒
-        
+
         // 由于初始化时last_log被设置为过去很长时间，第一次总是通过
         assert!(sampler.should_log());
-        
+
         // 即使是1纳秒间隔，紧接着的调用也可能因为系统时钟精度而被阻塞
         // 但我们至少验证它不会panic
         let _ = sampler.should_log();
@@ -674,9 +689,9 @@ mod tests {
     fn test_time_window_sampler_very_long_interval() {
         // 测试非常长的时间间隔（1小时）
         let mut sampler = TimeWindowSampler::new(std::time::Duration::from_secs(3600));
-        
+
         assert!(sampler.should_log()); // 首次通过
-        
+
         // 之后所有调用都被阻塞（在我们的测试时间范围内）
         for _ in 0..100 {
             assert!(!sampler.should_log());
@@ -689,16 +704,16 @@ mod tests {
     fn test_probability_sampler_rate_accuracy() {
         // 更精确地测试概率采样率
         let sampler = ProbabilitySampler::new(0.5); // 50%采样率
-        
+
         let mut sampled = 0;
         let total = 10000; // 使用更大的样本以获得更准确的结果
-        
+
         for _ in 0..total {
             if sampler.should_log() {
                 sampled += 1;
             }
         }
-        
+
         let rate = sampled as f64 / total as f64;
         // 允许±5%的误差（对于大样本）
         assert!(
@@ -715,22 +730,30 @@ mod tests {
         let sampler_low = ProbabilitySampler::new(0.01);
         let low_count = (0..10000).filter(|_| sampler_low.should_log()).count();
         let low_rate = low_count as f64 / 10000.0;
-        assert!(low_rate > 0.0 && low_rate < 0.02, "Low rate was {}", low_rate);
+        assert!(
+            low_rate > 0.0 && low_rate < 0.02,
+            "Low rate was {}",
+            low_rate
+        );
 
         // 0.99 (99%)
         let sampler_high = ProbabilitySampler::new(0.99);
         let high_count = (0..10000).filter(|_| sampler_high.should_log()).count();
         let high_rate = high_count as f64 / 10000.0;
-        assert!(high_rate > 0.97 && high_rate <= 1.0, "High rate was {}", high_rate);
+        assert!(
+            high_rate > 0.97 && high_rate <= 1.0,
+            "High rate was {}",
+            high_rate
+        );
     }
 
     #[test]
     fn test_probability_sampler_total_checks_tracking() {
         // 测试计数器正确跟踪总调用次数
         let sampler = ProbabilitySampler::new(0.5);
-        
+
         assert_eq!(sampler.total_checks(), 0);
-        
+
         for i in 1..=50 {
             sampler.should_log();
             assert_eq!(sampler.total_checks(), i, "Counter should track calls");
@@ -757,23 +780,23 @@ mod tests {
     fn test_count_sampler_exact_interval_behavior() {
         // 精确测试计数采样器的间隔行为
         let mut sampler = CountSampler::every_n(5); // 每5次采样1次
-        
+
         // 前4次不应该采样
         for i in 1..=4 {
             assert!(!sampler.should_log(), "Call {} should not pass", i);
         }
-        
+
         // 第5次应该采样
         assert!(sampler.should_log(), "Call 5 should pass");
-        
+
         // 第6-9次不应该采样
         for i in 6..=9 {
             assert!(!sampler.should_log(), "Call {} should not pass", i);
         }
-        
+
         // 第10次应该再次采样
         assert!(sampler.should_log(), "Call 10 should pass");
-        
+
         // 第11次不应该采样
         assert!(!sampler.should_log(), "Call 11 should not pass");
     }
@@ -782,9 +805,13 @@ mod tests {
     fn test_count_sampler_with_interval_one() {
         // interval=1 意味着每次都采样
         let mut sampler = CountSampler::every_n(1);
-        
+
         for i in 1..=20 {
-            assert!(sampler.should_log(), "With interval=1, call {} should pass", i);
+            assert!(
+                sampler.should_log(),
+                "With interval=1, call {} should pass",
+                i
+            );
         }
     }
 
@@ -792,12 +819,16 @@ mod tests {
     fn test_count_sampler_large_interval() {
         // 大间隔测试
         let mut sampler = CountSampler::every_n(100);
-        
+
         // 前99次都不应该采样
         for i in 1..=99 {
-            assert!(!sampler.should_log(), "Call {} should not pass with interval=100", i);
+            assert!(
+                !sampler.should_log(),
+                "Call {} should not pass with interval=100",
+                i
+            );
         }
-        
+
         // 第100次应该采样
         assert!(sampler.should_log(), "Call 100 should pass");
     }
@@ -806,11 +837,11 @@ mod tests {
     fn test_count_sampler_current_count_tracking() {
         // 测试当前计数的跟踪
         let mut sampler = CountSampler::every_n(7);
-        
+
         for expected in 1..=15 {
             sampler.should_log();
             assert_eq!(
-                sampler.current_count(), 
+                sampler.current_count(),
                 expected,
                 "Current count should match number of calls"
             );
@@ -828,12 +859,10 @@ mod tests {
         for _ in 0..100 {
             sampler.record_success();
         }
-        
+
         // 调用should_log多次来触发窗口重置和采样决策
-        let normal_samples = (0..100)
-            .filter(|_| sampler.should_log())
-            .count();
-        
+        let normal_samples = (0..100).filter(|_| sampler.should_log()).count();
+
         // 由于窗口机制，可能只有少数几次真正检查了采样率
         // 但正常情况下采样次数应该较少
         // （具体数量取决于实现细节）
@@ -847,9 +876,7 @@ mod tests {
         }
 
         // 再次调用should_log
-        let high_error_samples = (0..100)
-            .filter(|_| sampler.should_log())
-            .count();
+        let high_error_samples = (0..100).filter(|_| sampler.should_log()).count();
 
         // 高错误率时的采样行为可能不同
         // 我们主要验证它不会panic且能正常工作
@@ -895,14 +922,21 @@ mod tests {
 
         // 错误率应该是 25/(25+75) = 0.25
         let rate = sampler.current_error_rate();
-        assert!(rate > 0.0 && rate <= 0.5, "Error rate was {}, expected in (0, 0.5]", rate);
+        assert!(
+            rate > 0.0 && rate <= 0.5,
+            "Error rate was {}, expected in (0, 0.5]",
+            rate
+        );
 
         // 重置后重新开始（通过should_log触发窗口重置）
         let _ = sampler.should_log();
 
         // 重置后错误率应该回到0或很低
         let reset_rate = sampler.current_error_rate();
-        assert!(reset_rate < 0.01 || reset_rate >= 0.0, "Reset rate should be near 0");
+        assert!(
+            reset_rate < 0.01 || reset_rate >= 0.0,
+            "Reset rate should be near 0"
+        );
     }
 
     #[test]
@@ -916,9 +950,13 @@ mod tests {
                 let s = Arc::clone(&sampler);
                 thread::spawn(move || {
                     if i % 2 == 0 {
-                        for _ in 0..100 { s.record_success(); }
+                        for _ in 0..100 {
+                            s.record_success();
+                        }
                     } else {
-                        for _ in 0..50 { s.record_error(); }
+                        for _ in 0..50 {
+                            s.record_error();
+                        }
                     }
                 })
             })
@@ -929,15 +967,23 @@ mod tests {
         }
 
         // 验证最终状态一致
-        let total_ops = sampler.success_count.load(std::sync::atomic::Ordering::Relaxed) +
-                       sampler.error_count.load(std::sync::atomic::Ordering::Relaxed);
-        
+        let total_ops = sampler
+            .success_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+            + sampler
+                .error_count
+                .load(std::sync::atomic::Ordering::Relaxed);
+
         // 4个线程: 2个成功线程*100 + 2个错误线程*50 = 300
         assert_eq!(total_ops, 300, "Total operations should be 300");
 
         // 验证error_rate在合理范围内
         let rate = sampler.current_error_rate();
         // 100个错误 / 300总数 ≈ 33.3%
-        assert!((rate - 0.333).abs() < 0.01, "Error rate was {}, expected ~0.333", rate);
+        assert!(
+            (rate - 0.333).abs() < 0.01,
+            "Error rate was {}, expected ~0.333",
+            rate
+        );
     }
 }

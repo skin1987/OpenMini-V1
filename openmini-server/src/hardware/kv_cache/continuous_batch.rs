@@ -237,13 +237,13 @@ impl BatchScheduler {
     /// 调度一步
     pub fn schedule(&mut self) -> Vec<RequestId> {
         self.check_completed();
-        
+
         let mut scheduled = Vec::new();
-        
+
         while self.can_schedule() && !self.waiting_queue.is_empty() {
             if let Some(mut request) = self.waiting_queue.pop_front() {
                 let required_blocks = request.required_blocks(self.kv_cache.config().block_size);
-                
+
                 if self.try_allocate(required_blocks) {
                     request.state = RequestState::Running;
                     request.start_time = Some(Instant::now());
@@ -252,7 +252,7 @@ impl BatchScheduler {
                     scheduled.push(id);
                 } else {
                     let blocks_freed = self.preempt_for_blocks(required_blocks);
-                    
+
                     if blocks_freed >= required_blocks || self.try_allocate(required_blocks) {
                         request.state = RequestState::Running;
                         request.start_time = Some(Instant::now());
@@ -267,7 +267,7 @@ impl BatchScheduler {
                 }
             }
         }
-        
+
         scheduled
     }
 
@@ -287,13 +287,15 @@ impl BatchScheduler {
     fn preempt_for_blocks(&mut self, required_blocks: usize) -> usize {
         let mut to_preempt: Vec<RequestId> = Vec::new();
         let mut blocks_freed = 0;
-        
-        let mut candidates: Vec<_> = self.running_requests.iter()
+
+        let mut candidates: Vec<_> = self
+            .running_requests
+            .iter()
             .filter(|(_, req)| req.priority == RequestPriority::Low)
             .collect();
-        
+
         candidates.sort_by_key(|(_, req)| req.priority);
-        
+
         for (id, request) in candidates {
             if blocks_freed >= required_blocks {
                 break;
@@ -302,7 +304,7 @@ impl BatchScheduler {
             blocks_freed += request_blocks;
             to_preempt.push(*id);
         }
-        
+
         for id in to_preempt {
             if let Some(mut request) = self.running_requests.remove(&id) {
                 request.state = RequestState::Waiting;
@@ -312,27 +314,30 @@ impl BatchScheduler {
                 self.total_preemptions.fetch_add(1, Ordering::SeqCst);
             }
         }
-        
+
         blocks_freed
     }
 
     /// 检查已完成的请求
     fn check_completed(&mut self) {
-        let completed: Vec<RequestId> = self.running_requests
+        let completed: Vec<RequestId> = self
+            .running_requests
             .iter()
             .filter(|(_, req)| req.is_finished())
             .map(|(id, _)| *id)
             .collect();
-        
+
         for id in completed {
             if let Some(request) = self.running_requests.remove(&id) {
-                let time_to_first_token = request.first_token_time
+                let time_to_first_token = request
+                    .first_token_time
                     .map(|ft| ft.duration_since(request.start_time.unwrap()));
-                
-                let total_time = request.start_time
+
+                let total_time = request
+                    .start_time
                     .map(|st| st.elapsed())
                     .unwrap_or_else(|| request.wait_time());
-                
+
                 let result = GenerationResult {
                     request_id: id,
                     tokens: request.generated_tokens.clone(),
@@ -360,7 +365,8 @@ impl BatchScheduler {
 
     /// 获取请求
     pub fn get_request(&self, id: RequestId) -> Option<&GenerationRequest> {
-        self.running_requests.get(&id)
+        self.running_requests
+            .get(&id)
             .or_else(|| self.waiting_queue.iter().find(|r| r.id == id))
     }
 
@@ -390,13 +396,15 @@ impl BatchScheduler {
     /// 标记请求完成
     pub fn finish_request(&mut self, request_id: RequestId) -> Option<GenerationResult> {
         if let Some(request) = self.running_requests.remove(&request_id) {
-            let time_to_first_token = request.first_token_time
+            let time_to_first_token = request
+                .first_token_time
                 .map(|ft| ft.duration_since(request.start_time.unwrap()));
-            
-            let total_time = request.start_time
+
+            let total_time = request
+                .start_time
                 .map(|st| st.elapsed())
                 .unwrap_or_else(|| request.wait_time());
-            
+
             let result = GenerationResult {
                 request_id,
                 tokens: request.generated_tokens.clone(),
@@ -469,12 +477,12 @@ impl BatchScheduler {
     /// 重置调度器
     pub fn reset(&mut self) {
         self.waiting_queue.clear();
-        
+
         for id in self.running_requests.keys().cloned().collect::<Vec<_>>() {
             self.kv_cache.free_request(&id);
         }
         self.running_requests.clear();
-        
+
         self.completed_requests.clear();
     }
 }
@@ -510,32 +518,32 @@ mod tests {
     #[test]
     fn test_add_request() {
         let mut scheduler = create_test_scheduler();
-        
+
         let request = GenerationRequest::new(1, vec![1, 2, 3, 4, 5], 100);
         scheduler.add_request(request);
-        
+
         assert_eq!(scheduler.waiting_count(), 1);
     }
 
     #[test]
     fn test_schedule() {
         let mut scheduler = create_test_scheduler();
-        
+
         let request = GenerationRequest::new(1, vec![1, 2, 3, 4, 5], 100);
         scheduler.add_request(request);
-        
+
         let scheduled = scheduler.schedule();
-        
+
         assert!(!scheduled.is_empty() || scheduler.waiting_count() > 0);
     }
 
     #[test]
     fn test_cancel_request() {
         let mut scheduler = create_test_scheduler();
-        
+
         let request = GenerationRequest::new(1, vec![1, 2, 3, 4, 5], 100);
         scheduler.add_request(request);
-        
+
         assert!(scheduler.cancel_request(1));
         assert_eq!(scheduler.waiting_count(), 0);
     }
@@ -543,11 +551,11 @@ mod tests {
     #[test]
     fn test_finish_request() {
         let mut scheduler = create_test_scheduler();
-        
+
         let request = GenerationRequest::new(1, vec![1, 2, 3, 4, 5], 100);
         scheduler.add_request(request);
         scheduler.schedule();
-        
+
         if scheduler.running_count() > 0 {
             let result = scheduler.finish_request(1);
             assert!(result.is_some());
@@ -558,14 +566,14 @@ mod tests {
     #[test]
     fn test_add_generated_token() {
         let mut scheduler = create_test_scheduler();
-        
+
         let mut request = GenerationRequest::new(1, vec![1, 2, 3, 4, 5], 100);
         request.state = RequestState::Running;
         request.start_time = Some(Instant::now());
         scheduler.running_requests.insert(1, request);
-        
+
         scheduler.add_generated_token(1, 42);
-        
+
         let req = scheduler.get_request(1).unwrap();
         assert_eq!(req.generated_tokens, vec![42]);
         assert!(req.first_token_time.is_some());
@@ -574,10 +582,10 @@ mod tests {
     #[test]
     fn test_stats() {
         let mut scheduler = create_test_scheduler();
-        
+
         scheduler.add_request(GenerationRequest::new(1, vec![1, 2, 3], 100));
         scheduler.add_request(GenerationRequest::new(2, vec![4, 5, 6], 100));
-        
+
         let stats = scheduler.stats();
         assert_eq!(stats.waiting, 2);
         assert_eq!(stats.running, 0);
@@ -585,18 +593,18 @@ mod tests {
 
     #[test]
     fn test_request_priority() {
-        let request = GenerationRequest::new(1, vec![1, 2, 3], 100)
-            .with_priority(RequestPriority::High);
-        
+        let request =
+            GenerationRequest::new(1, vec![1, 2, 3], 100).with_priority(RequestPriority::High);
+
         assert_eq!(request.priority, RequestPriority::High);
     }
 
     #[test]
     fn test_request_is_finished() {
         let mut request = GenerationRequest::new(1, vec![1, 2, 3], 5);
-        
+
         assert!(!request.is_finished());
-        
+
         request.generated_tokens = vec![10, 11, 12, 13, 14];
         assert!(request.is_finished());
     }
@@ -604,21 +612,21 @@ mod tests {
     #[test]
     fn test_preempted_request_rescheduled() {
         let mut scheduler = create_test_scheduler();
-        
-        let low_priority = GenerationRequest::new(1, vec![1, 2, 3], 100)
-            .with_priority(RequestPriority::Low);
+
+        let low_priority =
+            GenerationRequest::new(1, vec![1, 2, 3], 100).with_priority(RequestPriority::Low);
         scheduler.add_request(low_priority);
-        
+
         let scheduled = scheduler.schedule();
         assert!(scheduled.contains(&1));
         assert_eq!(scheduler.running_count(), 1);
-        
-        let high_priority = GenerationRequest::new(2, vec![4, 5, 6], 100)
-            .with_priority(RequestPriority::High);
+
+        let high_priority =
+            GenerationRequest::new(2, vec![4, 5, 6], 100).with_priority(RequestPriority::High);
         scheduler.add_request(high_priority);
-        
+
         scheduler.schedule();
-        
+
         let stats = scheduler.stats();
         assert!(stats.total_preemptions > 0 || scheduler.running_count() == 2);
     }
@@ -626,14 +634,14 @@ mod tests {
     #[test]
     fn test_time_to_first_token() {
         let mut scheduler = create_test_scheduler();
-        
+
         let mut request = GenerationRequest::new(1, vec![1, 2, 3], 100);
         request.state = RequestState::Running;
         request.start_time = Some(Instant::now());
         scheduler.running_requests.insert(1, request);
-        
+
         scheduler.add_generated_token(1, 42);
-        
+
         let req = scheduler.get_request(1).unwrap();
         assert!(req.first_token_time.is_some());
     }
@@ -660,7 +668,7 @@ mod tests {
     /// 测试 required_blocks 边界条件：空token列表（覆盖第134-137行 div_ceil）
     #[test]
     fn test_required_blocks_empty_tokens() {
-        let request = GenerationRequest::new(1, vec![], 100);  // 无输入token
+        let request = GenerationRequest::new(1, vec![], 100); // 无输入token
 
         // 覆盖：total_tokens=0 时 required_blocks 应返回0
         let blocks = request.required_blocks(16);
@@ -710,8 +718,7 @@ mod tests {
         let mut scheduler = create_test_scheduler();
 
         // 添加到等待队列
-        let req = GenerationRequest::new(1, vec![1, 2], 50)
-            .with_priority(RequestPriority::Low);
+        let req = GenerationRequest::new(1, vec![1, 2], 50).with_priority(RequestPriority::Low);
         scheduler.add_request(req);
 
         // 通过 get_request_mut 修改

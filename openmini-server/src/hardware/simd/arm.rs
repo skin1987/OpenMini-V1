@@ -28,15 +28,17 @@ use std::arch::aarch64::*;
 pub struct NeonOps;
 
 impl SimdOps for NeonOps {
-    fn name(&self) -> &'static str { "NEON" }
+    fn name(&self) -> &'static str {
+        "NEON"
+    }
 
     fn add(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             for i in 0..chunks {
                 let offset = i * 4;
@@ -46,21 +48,21 @@ impl SimdOps for NeonOps {
                 vst1q_f32(result.as_mut_ptr().add(offset), vsum);
             }
         }
-        
+
         for i in (len - remainder)..len {
             result[i] = a[i] + b[i];
         }
-        
+
         result
     }
-    
+
     fn mul(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             for i in 0..chunks {
                 let offset = i * 4;
@@ -70,24 +72,24 @@ impl SimdOps for NeonOps {
                 vst1q_f32(result.as_mut_ptr().add(offset), vprod);
             }
         }
-        
+
         for i in (len - remainder)..len {
             result[i] = a[i] * b[i];
         }
-        
+
         result
     }
-    
+
     fn mul_scalar(&self, a: &[f32], scalar: f32) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             let vs = vdupq_n_f32(scalar);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let va = vld1q_f32(a.as_ptr().add(offset));
@@ -95,21 +97,21 @@ impl SimdOps for NeonOps {
                 vst1q_f32(result.as_mut_ptr().add(offset), vprod);
             }
         }
-        
+
         for i in (len - remainder)..len {
             result[i] = a[i] * scalar;
         }
-        
+
         result
     }
-    
+
     fn sub(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             for i in 0..chunks {
                 let offset = i * 4;
@@ -119,21 +121,21 @@ impl SimdOps for NeonOps {
                 vst1q_f32(result.as_mut_ptr().add(offset), vdiff);
             }
         }
-        
+
         for i in (len - remainder)..len {
             result[i] = a[i] - b[i];
         }
-        
+
         result
     }
-    
+
     fn div(&self, a: &[f32], b: &[f32]) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             for i in 0..chunks {
                 let offset = i * 4;
@@ -143,24 +145,24 @@ impl SimdOps for NeonOps {
                 vst1q_f32(result.as_mut_ptr().add(offset), vdiv);
             }
         }
-        
+
         for i in (len - remainder)..len {
             result[i] = a[i] / b[i];
         }
-        
+
         result
     }
-    
+
     fn dot(&self, a: &[f32], b: &[f32]) -> f32 {
         let len = a.len();
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         let mut sum = 0.0f32;
-        
+
         unsafe {
             let mut vsum = vdupq_n_f32(0.0);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let va = vld1q_f32(a.as_ptr().add(offset));
@@ -168,128 +170,128 @@ impl SimdOps for NeonOps {
                 let vprod = vmulq_f32(va, vb);
                 vsum = vaddq_f32(vsum, vprod);
             }
-            
+
             // 使用水平求和指令
             sum = vaddvq_f32(vsum);
         }
-        
+
         for i in (len - remainder)..len {
             sum += a[i] * b[i];
         }
-        
+
         sum
     }
-    
+
     fn sum(&self, a: &[f32]) -> f32 {
         let len = a.len();
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         let mut sum = 0.0f32;
-        
+
         unsafe {
             let mut vsum = vdupq_n_f32(0.0);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let va = vld1q_f32(a.as_ptr().add(offset));
                 vsum = vaddq_f32(vsum, va);
             }
-            
+
             // 使用水平求和指令
             sum = vaddvq_f32(vsum);
         }
-        
+
         for i in (len - remainder)..len {
             sum += a[i];
         }
-        
+
         sum
     }
-    
+
     /// 使用 NEON 水平最大值指令
     fn max(&self, a: &[f32]) -> f32 {
         if a.is_empty() {
             return f32::NEG_INFINITY;
         }
-        
+
         let len = a.len();
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         let mut max_val = f32::NEG_INFINITY;
-        
+
         unsafe {
             let mut vmax = vdupq_n_f32(f32::NEG_INFINITY);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let va = vld1q_f32(a.as_ptr().add(offset));
                 vmax = vmaxq_f32(vmax, va);
             }
-            
+
             // 使用水平最大值指令
             max_val = vmaxvq_f32(vmax);
         }
-        
+
         // 处理剩余元素
         for i in (len - remainder)..len {
             max_val = max_val.max(a[i]);
         }
-        
+
         max_val
     }
-    
+
     /// 使用 NEON 水平最小值指令
     fn min(&self, a: &[f32]) -> f32 {
         if a.is_empty() {
             return f32::INFINITY;
         }
-        
+
         let len = a.len();
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         let mut min_val = f32::INFINITY;
-        
+
         unsafe {
             let mut vmin = vdupq_n_f32(f32::INFINITY);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let va = vld1q_f32(a.as_ptr().add(offset));
                 vmin = vminq_f32(vmin, va);
             }
-            
+
             // 使用水平最小值指令
             min_val = vminvq_f32(vmin);
         }
-        
+
         // 处理剩余元素
         for i in (len - remainder)..len {
             min_val = min_val.min(a[i]);
         }
-        
+
         min_val
     }
-    
+
     fn softmax(&self, a: &[f32]) -> Vec<f32> {
         let max_val = self.max(a);
         let exp_vals: Vec<f32> = a.iter().map(|&x| (x - max_val).exp()).collect();
         let sum_exp = self.sum(&exp_vals);
         self.mul_scalar(&exp_vals, 1.0 / sum_exp)
     }
-    
+
     fn relu(&self, a: &[f32]) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             let vzero = vdupq_n_f32(0.0);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let va = vld1q_f32(a.as_ptr().add(offset));
@@ -297,33 +299,33 @@ impl SimdOps for NeonOps {
                 vst1q_f32(result.as_mut_ptr().add(offset), vmax);
             }
         }
-        
+
         for i in (len - remainder)..len {
             result[i] = if a[i] > 0.0 { a[i] } else { 0.0 };
         }
-        
+
         result
     }
-    
+
     /// 使用向量化的 SiLU 实现
     /// SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
     fn silu(&self, a: &[f32]) -> Vec<f32> {
         let len = a.len();
         let mut result = vec![0.0f32; len];
-        
+
         let chunks = len / 4;
         let remainder = len % 4;
-        
+
         unsafe {
             let vone = vdupq_n_f32(1.0);
-            
+
             for i in 0..chunks {
                 let offset = i * 4;
                 let vx = vld1q_f32(a.as_ptr().add(offset));
-                
+
                 // 计算 -x
                 let vneg_x = vnegq_f32(vx);
-                
+
                 // 计算指数近似 exp(-x)
                 // 使用多项式近似: exp(x) ≈ 1 + x + x²/2 + x³/6 + x⁴/24
                 // 对于更好的精度，使用标准库的 exp
@@ -334,22 +336,22 @@ impl SimdOps for NeonOps {
                     exp_vals[j] = x_vals[j].exp();
                 }
                 let vexp = vld1q_f32(exp_vals.as_ptr());
-                
+
                 // 计算 1 + exp(-x)
                 let vdenom = vaddq_f32(vone, vexp);
-                
+
                 // 计算 x / (1 + exp(-x))
                 let vsilu = vdivq_f32(vx, vdenom);
-                
+
                 vst1q_f32(result.as_mut_ptr().add(offset), vsilu);
             }
         }
-        
+
         // 处理剩余元素
         for i in (len - remainder)..len {
             result[i] = a[i] / (1.0 + (-a[i]).exp());
         }
-        
+
         result
     }
 }
@@ -357,127 +359,127 @@ impl SimdOps for NeonOps {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_neon_add() {
         let ops = NeonOps;
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let b = vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-        
+
         let result = ops.add(&a, &b);
         assert_eq!(result, vec![3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]);
     }
-    
+
     #[test]
     fn test_neon_sub() {
         let ops = NeonOps;
         let a = vec![5.0, 6.0, 7.0, 8.0, 9.0];
         let b = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        
+
         let result = ops.sub(&a, &b);
         assert_eq!(result, vec![4.0, 4.0, 4.0, 4.0, 4.0]);
     }
-    
+
     #[test]
     fn test_neon_mul() {
         let ops = NeonOps;
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![2.0, 3.0, 4.0, 5.0];
-        
+
         let result = ops.mul(&a, &b);
         assert_eq!(result, vec![2.0, 6.0, 12.0, 20.0]);
     }
-    
+
     #[test]
     fn test_neon_div() {
         let ops = NeonOps;
         let a = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         let b = vec![2.0, 4.0, 5.0, 8.0, 10.0];
-        
+
         let result = ops.div(&a, &b);
         assert_eq!(result, vec![5.0, 5.0, 6.0, 5.0, 5.0]);
     }
-    
+
     #[test]
     fn test_neon_mul_scalar() {
         let ops = NeonOps;
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        
+
         let result = ops.mul_scalar(&a, 2.0);
         assert_eq!(result, vec![2.0, 4.0, 6.0, 8.0, 10.0]);
     }
-    
+
     #[test]
     fn test_neon_dot() {
         let ops = NeonOps;
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![2.0, 3.0, 4.0, 5.0];
-        
+
         let result = ops.dot(&a, &b);
         assert!((result - 40.0).abs() < 1e-5);
     }
-    
+
     #[test]
     fn test_neon_sum() {
         let ops = NeonOps;
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        
+
         let result = ops.sum(&a);
         assert!((result - 15.0).abs() < 1e-5);
     }
-    
+
     #[test]
     fn test_neon_max() {
         let ops = NeonOps;
         let a = vec![1.0, 5.0, 3.0, 8.0, 2.0, 9.0, 4.0, 7.0, 6.0];
-        
+
         let result = ops.max(&a);
         assert!((result - 9.0).abs() < 1e-5);
     }
-    
+
     #[test]
     fn test_neon_min() {
         let ops = NeonOps;
         let a = vec![5.0, 3.0, 8.0, 1.0, 4.0, 2.0, 9.0, 6.0, 7.0];
-        
+
         let result = ops.min(&a);
         assert!((result - 1.0).abs() < 1e-5);
     }
-    
+
     #[test]
     fn test_neon_max_empty() {
         let ops = NeonOps;
         let a: Vec<f32> = vec![];
-        
+
         let result = ops.max(&a);
         assert_eq!(result, f32::NEG_INFINITY);
     }
-    
+
     #[test]
     fn test_neon_min_empty() {
         let ops = NeonOps;
         let a: Vec<f32> = vec![];
-        
+
         let result = ops.min(&a);
         assert_eq!(result, f32::INFINITY);
     }
-    
+
     #[test]
     fn test_neon_relu() {
         let ops = NeonOps;
         let a = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
-        
+
         let result = ops.relu(&a);
         assert_eq!(result, vec![0.0, 0.0, 0.0, 1.0, 2.0]);
     }
-    
+
     #[test]
     fn test_neon_silu() {
         let ops = NeonOps;
         let a = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
-        
+
         let result = ops.silu(&a);
-        
+
         // SiLU(-2) ≈ -0.238
         // SiLU(-1) ≈ -0.269
         // SiLU(0) = 0
@@ -489,44 +491,44 @@ mod tests {
         assert!((result[3] - 0.731).abs() < 0.01);
         assert!((result[4] - 1.762).abs() < 0.01);
     }
-    
+
     #[test]
     fn test_neon_softmax() {
         let ops = NeonOps;
         let a = vec![1.0, 2.0, 3.0, 4.0];
-        
+
         let result = ops.softmax(&a);
-        
+
         // 验证概率和为 1
         let sum: f32 = result.iter().sum();
         assert!((sum - 1.0).abs() < 1e-5);
-        
+
         // 验证所有值为正
         assert!(result.iter().all(|&x| x > 0.0));
-        
+
         // 验证递增顺序
         for i in 1..result.len() {
             assert!(result[i] > result[i - 1]);
         }
     }
-    
+
     #[test]
     fn test_neon_remainder_handling() {
         let ops = NeonOps;
-        
+
         // 测试非 4 的倍数长度
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]; // 7 个元素
         let b = vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
-        
+
         let result = ops.add(&a, &b);
         assert_eq!(result, vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
-        
+
         let sum = ops.sum(&a);
         assert!((sum - 28.0).abs() < 1e-5);
-        
+
         let max = ops.max(&a);
         assert!((max - 7.0).abs() < 1e-5);
-        
+
         let min = ops.min(&a);
         assert!((min - 1.0).abs() < 1e-5);
     }
@@ -540,8 +542,7 @@ mod tests {
 
         // 正常范围值
         let values: Vec<f32> = vec![
-            0.0, 1.0, -1.0, 3.14159, 2.71828,
-            100.0, -100.0, 0.001, -0.001,
+            0.0, 1.0, -1.0, 3.14159, 2.71828, 100.0, -100.0, 0.001, -0.001,
         ];
 
         for &val in &values {
@@ -680,9 +681,7 @@ mod tests {
 
         // 较大的数据块以测试内存访问模式
         let large_size = 1024;
-        let a: Vec<f32> = (0..large_size)
-            .map(|i| ((i % 17) as f32) * 0.123)
-            .collect();
+        let a: Vec<f32> = (0..large_size).map(|i| ((i % 17) as f32) * 0.123).collect();
         let b: Vec<f32> = (0..large_size)
             .map(|i| ((large_size - i) as f32) * 0.456)
             .collect();

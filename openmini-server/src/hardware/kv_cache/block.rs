@@ -73,7 +73,6 @@ impl Block {
 
     /// 减少引用计数
     pub fn dec_ref(&self) -> usize {
-        
         self.ref_count.fetch_sub(1, Ordering::SeqCst) - 1
     }
 
@@ -203,7 +202,7 @@ mod tests {
     fn test_block_allocation() {
         let mut block = Block::new(1, 1024);
         block.allocate(Some(42));
-        
+
         assert_eq!(block.state, BlockState::Allocated);
         assert_eq!(block.ref_count(), 1);
         assert_eq!(block.owner_id, Some(42));
@@ -214,7 +213,7 @@ mod tests {
     fn test_block_ref_count() {
         let mut block = Block::new(2, 2048);
         block.allocate(None);
-        
+
         assert_eq!(block.ref_count(), 1);
         assert_eq!(block.inc_ref(), 2);
         assert_eq!(block.inc_ref(), 3);
@@ -227,7 +226,7 @@ mod tests {
         let mut block = Block::new(3, 3072);
         block.allocate(Some(100));
         block.free();
-        
+
         assert_eq!(block.state, BlockState::Free);
         assert_eq!(block.ref_count(), 0);
         assert!(block.is_free());
@@ -236,7 +235,7 @@ mod tests {
     #[test]
     fn test_kvcache_config() {
         let config = KVCacheConfig::default();
-        
+
         assert_eq!(config.block_size, DEFAULT_BLOCK_SIZE);
         assert!(config.block_memory_size() > 0);
         assert!(config.total_memory_size() > 0);
@@ -245,7 +244,7 @@ mod tests {
     #[test]
     fn test_kvcache_config_with_memory() {
         let config = KVCacheConfig::default().with_max_memory(1024);
-        
+
         assert!(config.max_blocks > 0);
         assert!(config.max_blocks <= MAX_BLOCKS);
     }
@@ -281,11 +280,7 @@ mod tests {
     /// 覆盖分支：BlockState枚举的完整覆盖
     #[test]
     fn test_block_state_variants() {
-        let states = vec![
-            BlockState::Free,
-            BlockState::Allocated,
-            BlockState::Swapped,
-        ];
+        let states = vec![BlockState::Free, BlockState::Allocated, BlockState::Swapped];
 
         for state in &states {
             // 验证Debug trait实现
@@ -429,7 +424,7 @@ mod tests {
             ..Default::default()
         };
         zero_config.with_max_memory(0); // 0 MB
-        // 应该不会panic，max_blocks可能是0或某个最小值
+                                        // 应该不会panic，max_blocks可能是0或某个最小值
     }
 
     /// 测试BlockId类型别名
@@ -438,7 +433,7 @@ mod tests {
     fn test_block_id_type() {
         let id: BlockId = 100;
         assert_eq!(id, 100);
-        
+
         // 测试大ID值（接近MAX_BLOCKS）
         let large_id: BlockId = MAX_BLOCKS - 1;
         assert_eq!(large_id, MAX_BLOCKS - 1);
@@ -480,22 +475,22 @@ mod tests {
     #[test]
     fn test_block_allocate_free_cycle() {
         let mut block = Block::new(7, 1024);
-        
+
         // 第一次分配
         block.allocate(Some(1));
         assert_eq!(block.ref_count(), 1);
         assert!(!block.is_free());
-        
+
         // 释放
         block.free();
         assert_eq!(block.ref_count(), 0);
         assert!(block.is_free());
-        
+
         // 第二次分配（不同owner）
         block.allocate(Some(2));
         assert_eq!(block.ref_count(), 1);
         assert_eq!(block.owner_id, Some(2));
-        
+
         // 再次释放
         block.free();
         assert!(block.is_free());
@@ -507,17 +502,17 @@ mod tests {
     fn test_block_swapped_state_behavior() {
         let mut block = Block::new(8, 2048);
         block.allocate(Some(10));
-        
+
         // 换出
         block.swap_out();
         assert_eq!(block.state, BlockState::Swapped);
-        
+
         // Swapped状态下ref_count应该保持不变
         assert_eq!(block.ref_count(), 1);
-        
+
         // Swapped状态下owner_id应该保持不变
         assert_eq!(block.owner_id, Some(10));
-        
+
         // 换入后恢复Allocated状态
         block.swap_in();
         assert_eq!(block.state, BlockState::Allocated);

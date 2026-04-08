@@ -54,14 +54,14 @@ impl BlockManager {
         let max_blocks = config.max_blocks;
         let mut blocks = Vec::with_capacity(max_blocks);
         let mut free_blocks = VecDeque::with_capacity(max_blocks);
-        
+
         let block_memory = config.block_memory_size();
-        
+
         for i in 0..max_blocks {
             blocks.push(Block::new(i, i * block_memory));
             free_blocks.push_back(i);
         }
-        
+
         Self {
             blocks,
             free_blocks,
@@ -84,7 +84,11 @@ impl BlockManager {
     }
 
     /// 分配指定数量的块
-    pub fn allocate(&mut self, num_blocks: usize, owner_id: Option<u64>) -> Result<Vec<BlockId>, String> {
+    pub fn allocate(
+        &mut self,
+        num_blocks: usize,
+        owner_id: Option<u64>,
+    ) -> Result<Vec<BlockId>, String> {
         if self.free_blocks.len() < num_blocks {
             return Err(format!(
                 "Not enough free blocks: requested {}, available {}",
@@ -92,9 +96,9 @@ impl BlockManager {
                 self.free_blocks.len()
             ));
         }
-        
+
         let mut allocated = Vec::with_capacity(num_blocks);
-        
+
         for _ in 0..num_blocks {
             if let Some(block_id) = self.free_blocks.pop_front() {
                 self.blocks[block_id].allocate(owner_id);
@@ -102,11 +106,14 @@ impl BlockManager {
                 self.num_allocated.fetch_add(1, Ordering::SeqCst);
             }
         }
-        
+
         if let Some(id) = owner_id {
-            self.request_blocks.entry(id).or_default().extend(allocated.iter().cloned());
+            self.request_blocks
+                .entry(id)
+                .or_default()
+                .extend(allocated.iter().cloned());
         }
-        
+
         Ok(allocated)
     }
 
@@ -139,9 +146,13 @@ impl BlockManager {
 
     /// 复制块（Copy-on-Write）
     /// 返回新分配的块ID列表
-    pub fn fork(&mut self, block_ids: &[BlockId], owner_id: Option<u64>) -> Result<Vec<BlockId>, String> {
+    pub fn fork(
+        &mut self,
+        block_ids: &[BlockId],
+        owner_id: Option<u64>,
+    ) -> Result<Vec<BlockId>, String> {
         let num_blocks = block_ids.len();
-        
+
         if self.free_blocks.len() < num_blocks {
             return Err(format!(
                 "Not enough free blocks for fork: requested {}, available {}",
@@ -149,14 +160,14 @@ impl BlockManager {
                 self.free_blocks.len()
             ));
         }
-        
+
         let mut new_blocks = Vec::with_capacity(num_blocks);
-        
+
         for &block_id in block_ids {
             if block_id >= self.blocks.len() {
                 return Err(format!("Invalid block id: {}", block_id));
             }
-            
+
             if let Some(new_block_id) = self.free_blocks.pop_front() {
                 let src_offset = self.blocks[block_id].physical_offset;
                 self.blocks[new_block_id].allocate(owner_id);
@@ -165,15 +176,18 @@ impl BlockManager {
                 self.num_allocated.fetch_add(1, Ordering::SeqCst);
             }
         }
-        
+
         for &block_id in block_ids {
             self.blocks[block_id].inc_ref();
         }
-        
+
         if let Some(id) = owner_id {
-            self.request_blocks.entry(id).or_default().extend(new_blocks.iter().cloned());
+            self.request_blocks
+                .entry(id)
+                .or_default()
+                .extend(new_blocks.iter().cloned());
         }
-        
+
         Ok(new_blocks)
     }
 
@@ -297,7 +311,7 @@ mod tests {
     fn test_allocate_one() {
         let mut manager = create_test_manager();
         let block_id = manager.allocate_one(None).unwrap();
-        
+
         assert_eq!(manager.allocated_blocks(), 1);
         assert_eq!(manager.available_blocks(), 99);
         assert!(!manager.get_block(block_id).unwrap().is_free());
@@ -307,7 +321,7 @@ mod tests {
     fn test_allocate_multiple() {
         let mut manager = create_test_manager();
         let blocks = manager.allocate(10, None).unwrap();
-        
+
         assert_eq!(blocks.len(), 10);
         assert_eq!(manager.allocated_blocks(), 10);
         assert_eq!(manager.available_blocks(), 90);
@@ -317,9 +331,9 @@ mod tests {
     fn test_free() {
         let mut manager = create_test_manager();
         let blocks = manager.allocate(5, None).unwrap();
-        
+
         manager.free(&blocks);
-        
+
         assert_eq!(manager.allocated_blocks(), 0);
         assert_eq!(manager.available_blocks(), 100);
     }
@@ -328,7 +342,7 @@ mod tests {
     fn test_allocate_insufficient() {
         let mut manager = create_test_manager();
         let result = manager.allocate(200, None);
-        
+
         assert!(result.is_err());
     }
 
@@ -336,12 +350,12 @@ mod tests {
     fn test_fork() {
         let mut manager = create_test_manager();
         let original = manager.allocate(3, None).unwrap();
-        
+
         let forked = manager.fork(&original, None).unwrap();
-        
+
         assert_eq!(forked.len(), 3);
         assert_eq!(manager.allocated_blocks(), 6);
-        
+
         for &block_id in &original {
             assert_eq!(manager.get_block(block_id).unwrap().ref_count(), 2);
         }
@@ -351,12 +365,12 @@ mod tests {
     fn test_ref_count() {
         let mut manager = create_test_manager();
         let block_id = manager.allocate_one(None).unwrap();
-        
+
         assert_eq!(manager.get_block(block_id).unwrap().ref_count(), 1);
-        
+
         manager.inc_ref(block_id);
         assert_eq!(manager.get_block(block_id).unwrap().ref_count(), 2);
-        
+
         manager.dec_ref(block_id);
         assert_eq!(manager.get_block(block_id).unwrap().ref_count(), 1);
     }
@@ -364,12 +378,12 @@ mod tests {
     #[test]
     fn test_utilization() {
         let mut manager = create_test_manager();
-        
+
         assert!((manager.utilization() - 0.0).abs() < 0.001);
-        
+
         manager.allocate(50, None).unwrap();
         assert!((manager.utilization() - 0.5).abs() < 0.001);
-        
+
         manager.allocate(50, None).unwrap();
         assert!((manager.utilization() - 1.0).abs() < 0.001);
     }
@@ -378,14 +392,14 @@ mod tests {
     fn test_request_tracking() {
         let mut manager = create_test_manager();
         let request_id = manager.new_request_id();
-        
+
         let _blocks = manager.allocate(5, Some(request_id)).unwrap();
-        
+
         assert!(manager.get_request_blocks(request_id).is_some());
         assert_eq!(manager.get_request_blocks(request_id).unwrap().len(), 5);
-        
+
         manager.free_request(request_id);
-        
+
         assert!(manager.get_request_blocks(request_id).is_none());
         assert_eq!(manager.allocated_blocks(), 0);
     }
@@ -484,7 +498,7 @@ mod tests {
     fn test_block_manager_utilization_zero_blocks() {
         // 测试零块时的使用率
         let manager = BlockManager::with_capacity(0, 16);
-        
+
         assert!((manager.utilization() - 0.0).abs() < 0.001);
         assert_eq!(manager.total_blocks(), 0);
         assert_eq!(manager.available_blocks(), 0);

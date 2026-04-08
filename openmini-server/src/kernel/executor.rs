@@ -26,17 +26,11 @@ impl KernelExecutor {
     pub fn new(backend: KernelBackend) -> Self {
         Self { backend }
     }
-    
+
     /// 矩阵乘法
-    pub fn matmul(
-        &self,
-        a: &ArrayView2<f32>,
-        b: &ArrayView2<f32>,
-    ) -> Result<Array2<f32>> {
+    pub fn matmul(&self, a: &ArrayView2<f32>, b: &ArrayView2<f32>) -> Result<Array2<f32>> {
         match self.backend {
-            KernelBackend::Cpu => {
-                crate::kernel::ops::matmul(a, b)
-            }
+            KernelBackend::Cpu => crate::kernel::ops::matmul(a, b),
             KernelBackend::Cuda => {
                 #[cfg(feature = "cuda")]
                 {
@@ -44,16 +38,16 @@ impl KernelExecutor {
                     let m = a.nrows();
                     let k = a.ncols();
                     let n = b.ncols();
-                    
+
                     let a_flat: Vec<f32> = a.iter().cloned().collect();
                     let b_flat: Vec<f32> = b.iter().cloned().collect();
                     let mut c_flat = vec![0.0f32; m * n];
-                    
+
                     // 这里需要实际的CUDA kernel调用
                     // 暂时使用CPU实现
                     crate::kernel::ops::matmul(a, b)
                 }
-                
+
                 #[cfg(not(feature = "cuda"))]
                 {
                     crate::kernel::ops::matmul(a, b)
@@ -65,7 +59,7 @@ impl KernelExecutor {
                     // Metal实现
                     crate::kernel::ops::matmul(a, b)
                 }
-                
+
                 #[cfg(not(feature = "metal"))]
                 {
                     crate::kernel::ops::matmul(a, b)
@@ -73,13 +67,11 @@ impl KernelExecutor {
             }
         }
     }
-    
+
     /// Softmax
     pub fn softmax(&self, x: &ArrayView1<f32>) -> Array1<f32> {
         match self.backend {
-            KernelBackend::Cpu => {
-                crate::kernel::ops::softmax(x)
-            }
+            KernelBackend::Cpu => crate::kernel::ops::softmax(x),
             KernelBackend::Cuda => {
                 #[cfg(feature = "cuda")]
                 {
@@ -90,18 +82,16 @@ impl KernelExecutor {
                     );
                     crate::kernel::ops::softmax(x)
                 }
-                
+
                 #[cfg(not(feature = "cuda"))]
                 {
                     crate::kernel::ops::softmax(x)
                 }
             }
-            KernelBackend::Metal => {
-                crate::kernel::ops::softmax(x)
-            }
+            KernelBackend::Metal => crate::kernel::ops::softmax(x),
         }
     }
-    
+
     /// LayerNorm
     pub fn layer_norm(
         &self,
@@ -112,7 +102,7 @@ impl KernelExecutor {
     ) -> Result<Array1<f32>> {
         crate::kernel::ops::layer_norm(x, weight, bias, eps)
     }
-    
+
     /// RMSNorm
     pub fn rms_norm(
         &self,
@@ -122,17 +112,17 @@ impl KernelExecutor {
     ) -> Result<Array1<f32>> {
         crate::kernel::ops::rms_norm(x, weight, eps)
     }
-    
+
     /// GELU
     pub fn gelu(&self, x: &ArrayView1<f32>) -> Array1<f32> {
         crate::kernel::ops::gelu(x)
     }
-    
+
     /// SiLU
     pub fn silu(&self, x: &ArrayView1<f32>) -> Array1<f32> {
         crate::kernel::ops::silu(x)
     }
-    
+
     /// 获取后端
     pub fn backend(&self) -> KernelBackend {
         self.backend
@@ -185,10 +175,10 @@ mod tests {
     fn test_auto_select_backend() {
         let backend = auto_select_backend();
         println!("Selected backend: {:?}", backend);
-        
+
         // 验证返回的后端是有效的枚举值
         match backend {
-            KernelBackend::Cpu | KernelBackend::Cuda | KernelBackend::Metal => {},
+            KernelBackend::Cpu | KernelBackend::Cuda | KernelBackend::Metal => {}
         }
     }
 
@@ -260,12 +250,12 @@ mod tests {
     fn test_kernel_matmul_basic() {
         // 测试基本矩阵乘法
         let executor = KernelExecutor::new(KernelBackend::Cpu);
-        
+
         let a = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let b = arr2(&[[5.0, 6.0], [7.0, 8.0]]);
-        
+
         let result = executor.matmul(&a.view(), &b.view()).unwrap();
-        
+
         // 手动计算: [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]]
         // = [[19, 22], [43, 50]]
         assert!((result[[0, 0]] - 19.0).abs() < 1e-5);
@@ -278,13 +268,15 @@ mod tests {
     fn test_kernel_layer_norm() {
         // 测试 LayerNorm
         let executor = KernelExecutor::new(KernelBackend::Cpu);
-        
+
         let x = arr1(&[1.0, 2.0, 3.0, 4.0]);
         let weight = arr1(&[1.0, 1.0, 1.0, 1.0]);
         let bias = arr1(&[0.0, 0.0, 0.0, 0.0]);
-        
-        let result = executor.layer_norm(&x.view(), &weight.view(), &bias.view(), 1e-5).unwrap();
-        
+
+        let result = executor
+            .layer_norm(&x.view(), &weight.view(), &bias.view(), 1e-5)
+            .unwrap();
+
         assert_eq!(result.len(), 4);
         // LayerNorm 后的均值应该接近 0
         let mean: f32 = result.iter().sum::<f32>() / result.len() as f32;
@@ -295,12 +287,12 @@ mod tests {
     fn test_kernel_rms_norm() {
         // 测试 RMSNorm
         let executor = KernelExecutor::new(KernelBackend::Cpu);
-        
+
         let x = arr1(&[1.0, 2.0, 3.0, 4.0]);
         let weight = arr1(&[1.0, 1.0, 1.0, 1.0]);
-        
+
         let result = executor.rms_norm(&x.view(), &weight.view(), 1e-5).unwrap();
-        
+
         assert_eq!(result.len(), 4);
         // RMSNorm 的结果应该与输入成比例（当 weight=1 时）
         for (_i, &val) in result.iter().enumerate() {
@@ -312,10 +304,10 @@ mod tests {
     fn test_kernel_gelu() {
         // 测试 GELU 激活函数
         let executor = KernelExecutor::new(KernelBackend::Cpu);
-        
+
         let x = arr1(&[-1.0, 0.0, 1.0, 2.0]);
         let result = executor.gelu(&x.view());
-        
+
         assert_eq!(result.len(), 4);
         // GELU(0) ≈ 0
         assert!((result[1] - 0.0).abs() < 1e-5);
@@ -328,10 +320,10 @@ mod tests {
     fn test_kernel_silu() {
         // 测试 SiLU (Swish) 激活函数: x * sigmoid(x)
         let executor = KernelExecutor::new(KernelBackend::Cpu);
-        
+
         let x = arr1(&[-2.0, -1.0, 0.0, 1.0, 2.0]);
         let result = executor.silu(&x.view());
-        
+
         assert_eq!(result.len(), 5);
         // SiLU(0) = 0 * sigmoid(0) = 0
         assert!((result[2] - 0.0).abs() < 1e-5);
@@ -352,7 +344,7 @@ mod tests {
         for backend in backends {
             let debug = format!("{:?}", backend);
             assert!(!debug.is_empty());
-            
+
             // 验证包含后端名称信息
             match backend {
                 KernelBackend::Cpu => assert!(debug.contains("Cpu")),

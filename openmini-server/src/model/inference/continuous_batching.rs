@@ -13,11 +13,11 @@
 
 #![allow(dead_code)]
 
+use anyhow::Result;
+use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::RwLock;
-use anyhow::Result;
 
 /// 请求状态
 #[derive(Debug, Clone, PartialEq)]
@@ -78,31 +78,31 @@ impl GenerationRequest {
             top_p: 0.9,
         }
     }
-    
+
     /// 设置优先级
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.priority = priority;
         self
     }
-    
+
     /// 设置温度
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
-    
+
     /// 获取总token数
     pub fn total_tokens(&self) -> usize {
         self.input_tokens.len() + self.generated_tokens.len()
     }
-    
+
     /// 是否完成
     pub fn is_finished(&self) -> bool {
         self.generated_tokens.len() >= self.max_length
             || self.status == RequestStatus::Completed
             || self.status == RequestStatus::Cancelled
     }
-    
+
     /// 获取等待时间
     pub fn wait_time(&self) -> Duration {
         match self.started_at {
@@ -110,7 +110,7 @@ impl GenerationRequest {
             None => Instant::now().duration_since(self.created_at),
         }
     }
-    
+
     /// 获取处理时间
     pub fn processing_time(&self) -> Option<Duration> {
         match (self.started_at, self.completed_at) {
@@ -218,24 +218,24 @@ impl ContinuousBatchingScheduler {
             next_request_id: Arc::new(RwLock::new(0)),
         }
     }
-    
+
     /// 添加新请求
     pub fn add_request(&self, mut request: GenerationRequest) -> Result<u64> {
         let mut next_id = self.next_request_id.write();
         request.id = *next_id;
         *next_id += 1;
-        
+
         let id = request.id;
-        
+
         // 添加到等待队列
         self.waiting_queue.write().push_back(request);
-        
+
         // 更新统计
         self.stats.write().total_requests += 1;
-        
+
         Ok(id)
     }
-    
+
     /// 取消请求
     pub fn cancel_request(&self, request_id: u64) -> Result<()> {
         // 从等待队列移除
@@ -247,7 +247,7 @@ impl ContinuousBatchingScheduler {
                 return Ok(());
             }
         }
-        
+
         // 从运行队列移除
         {
             let mut running = self.running_requests.write();
@@ -258,15 +258,15 @@ impl ContinuousBatchingScheduler {
                 self.stats.write().cancelled_requests += 1;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// 调度下一批请求
     pub fn schedule_batch(&self) -> Result<Vec<GenerationRequest>> {
         let mut batch = Vec::new();
         let mut queue = self.waiting_queue.write();
-        
+
         // 根据调度策略排序
         match self.config.scheduling_strategy {
             SchedulingStrategy::FIFO => {
@@ -289,7 +289,7 @@ impl ContinuousBatchingScheduler {
                 // 已经在队列中，无需特殊处理
             }
         }
-        
+
         // 选择请求加入批次
         let now = Instant::now();
         let max_wait = Duration::from_millis(self.config.max_wait_time_ms);
@@ -312,134 +312,137 @@ impl ContinuousBatchingScheduler {
                 }
             }
         }
-        
+
         // 将批次中的请求移到运行队列
         for request in &batch {
-            self.running_requests.write().insert(request.id, request.clone());
+            self.running_requests
+                .write()
+                .insert(request.id, request.clone());
         }
-        
+
         // 更新统计
         if !batch.is_empty() {
             let mut stats = self.stats.write();
             let total = stats.total_requests as f32;
-            stats.avg_batch_size = 
+            stats.avg_batch_size =
                 (stats.avg_batch_size * (total - 1.0) + batch.len() as f32) / total;
         }
-        
+
         Ok(batch)
     }
-    
+
     /// 更新请求状态（添加生成的token）
     pub fn update_request(&self, request_id: u64, new_token: u32) -> Result<()> {
         let mut running = self.running_requests.write();
-        
+
         if let Some(request) = running.get_mut(&request_id) {
             request.generated_tokens.push(new_token);
-            
+
             // 检查是否完成
             if request.is_finished() {
                 if let Some(mut request) = running.remove(&request_id) {
                     request.status = RequestStatus::Completed;
                     request.completed_at = Some(Instant::now());
-                    
+
                     // 更新统计
                     let mut stats = self.stats.write();
                     stats.completed_requests += 1;
                     if let Some(processing_time) = request.processing_time() {
                         let total = stats.completed_requests as f64;
-                        stats.avg_processing_time_ms = 
-                            (stats.avg_processing_time_ms * (total - 1.0) 
-                                + processing_time.as_millis() as f64) / total;
+                        stats.avg_processing_time_ms = (stats.avg_processing_time_ms
+                            * (total - 1.0)
+                            + processing_time.as_millis() as f64)
+                            / total;
                     }
                     if let Some(wait_time) = Some(request.wait_time()) {
                         let total = stats.completed_requests as f64;
-                        stats.avg_wait_time_ms = 
-                            (stats.avg_wait_time_ms * (total - 1.0) 
-                                + wait_time.as_millis() as f64) / total;
+                        stats.avg_wait_time_ms = (stats.avg_wait_time_ms * (total - 1.0)
+                            + wait_time.as_millis() as f64)
+                            / total;
                     }
-                    
+
                     // 移到完成队列
                     self.completed_requests.write().insert(request_id, request);
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// 抢占请求（释放内存）
     pub fn preempt_requests(&self, memory_usage: f32) -> Result<Vec<u64>> {
         if !self.config.enable_preemption || memory_usage < self.config.preemption_threshold {
             return Ok(Vec::new());
         }
-        
+
         let mut preempted = Vec::new();
         let mut running = self.running_requests.write();
-        
+
         // 按优先级排序，抢占低优先级的请求
         let mut requests: Vec<_> = running.iter().map(|(id, _)| *id).collect();
         requests.sort();
-        
+
         // 计算需要释放的内存
         let target_memory = self.config.preemption_threshold * 0.8;
         let mut current_memory = memory_usage;
-        
+
         for id in requests {
             if current_memory <= target_memory {
                 break;
             }
-            
+
             // 暂停请求
             if let Some(mut request) = running.remove(&id) {
                 request.status = RequestStatus::Paused;
-                
+
                 // 放回等待队列
                 self.waiting_queue.write().push_back(request);
-                
+
                 preempted.push(id);
-                
+
                 // 估算释放的内存（简化）
                 current_memory -= 0.1; // 假设每个请求占用10%内存
             }
         }
-        
+
         Ok(preempted)
     }
-    
+
     /// 获取运行中的请求数量
     pub fn running_count(&self) -> usize {
         self.running_requests.read().len()
     }
-    
+
     /// 获取等待中的请求数量
     pub fn waiting_count(&self) -> usize {
         self.waiting_queue.read().len()
     }
-    
+
     /// 获取统计信息
     pub fn stats(&self) -> BatchingStats {
         self.stats.read().clone()
     }
-    
+
     /// 获取请求状态
     pub fn get_request_status(&self, request_id: u64) -> Option<RequestStatus> {
         // 检查运行队列
         if let Some(request) = self.running_requests.read().get(&request_id) {
             return Some(request.status.clone());
         }
-        
+
         // 检查完成队列
         if let Some(request) = self.completed_requests.read().get(&request_id) {
             return Some(request.status.clone());
         }
-        
+
         // 检查等待队列
         for request in self.waiting_queue.read().iter() {
             if request.id == request_id {
                 return Some(request.status.clone());
             }
         }
-        
+
         None
     }
 }
@@ -447,7 +450,7 @@ impl ContinuousBatchingScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_generation_request_creation() {
         let request = GenerationRequest::new(1, vec![1, 2, 3], 100);
@@ -455,19 +458,19 @@ mod tests {
         assert_eq!(request.input_tokens.len(), 3);
         assert_eq!(request.status, RequestStatus::Waiting);
     }
-    
+
     #[test]
     fn test_scheduler_add_request() {
         let config = ContinuousBatchingConfig::default();
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
         let result = scheduler.add_request(request);
-        
+
         assert!(result.is_ok());
         assert_eq!(scheduler.waiting_count(), 1);
     }
-    
+
     #[test]
     fn test_scheduler_schedule_batch() {
         let config = ContinuousBatchingConfig {
@@ -475,19 +478,19 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加多个请求
         for i in 0..5 {
             let request = GenerationRequest::new(i, vec![1, 2, 3], 100);
             scheduler.add_request(request).unwrap();
         }
-        
+
         // 调度批次
         let _batch = scheduler.schedule_batch().unwrap();
         assert!(_batch.len() > 0);
         assert!(_batch.len() <= 32);
     }
-    
+
     #[test]
     fn test_scheduler_update_request() {
         let config = ContinuousBatchingConfig {
@@ -495,33 +498,33 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
         let id = scheduler.add_request(request).unwrap();
-        
+
         // 调度批次
         let _batch = scheduler.schedule_batch().unwrap();
         assert!(!_batch.is_empty());
-        
+
         // 更新请求
         let result = scheduler.update_request(id, 4);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_scheduler_cancel_request() {
         let config = ContinuousBatchingConfig::default();
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
         let id = scheduler.add_request(request).unwrap();
-        
+
         // 取消请求
         let result = scheduler.cancel_request(id);
         assert!(result.is_ok());
         assert_eq!(scheduler.waiting_count(), 0);
     }
-    
+
     #[test]
     fn test_priority_scheduling() {
         let config = ContinuousBatchingConfig {
@@ -530,32 +533,32 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加不同优先级的请求
         let low = GenerationRequest::new(0, vec![1, 2, 3], 100).with_priority(1);
         let high = GenerationRequest::new(0, vec![4, 5, 6], 100).with_priority(10);
-        
+
         scheduler.add_request(low).unwrap();
         scheduler.add_request(high).unwrap();
-        
+
         // 调度批次
         let batch = scheduler.schedule_batch().unwrap();
-        
+
         // 高优先级请求应该先被调度
         assert!(batch.len() > 0);
     }
-    
+
     #[test]
     fn test_request_completion() {
         let request = GenerationRequest::new(1, vec![1, 2, 3], 5);
         assert!(!request.is_finished());
-        
+
         // 添加生成的token
         let mut request = request;
         request.generated_tokens = vec![4, 5, 6, 7, 8];
         assert!(request.is_finished());
     }
-    
+
     #[test]
     fn test_stats() {
         let config = ContinuousBatchingConfig {
@@ -563,7 +566,7 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加并处理请求
         let request = GenerationRequest::new(0, vec![1, 2, 3], 5);
         let id = scheduler.add_request(request).unwrap();
@@ -574,7 +577,7 @@ mod tests {
         for _ in 0..5 {
             scheduler.update_request(id, 4).unwrap();
         }
-        
+
         let stats = scheduler.stats();
         assert_eq!(stats.total_requests, 1);
         assert_eq!(stats.completed_requests, 1);
@@ -591,7 +594,7 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         let batch = scheduler.schedule_batch().unwrap();
         assert!(batch.is_empty());
     }
@@ -605,19 +608,19 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加并完成一个请求
         let request = GenerationRequest::new(0, vec![1], 3); // max_length=3
         let id = scheduler.add_request(request).unwrap();
-        
+
         let batch = scheduler.schedule_batch().unwrap();
         assert!(!batch.is_empty());
-        
+
         // 生成3个token达到max_length完成请求
         for _ in 0..3 {
             scheduler.update_request(id, 100).unwrap();
         }
-        
+
         // 再次调度应该返回空批次
         let empty_batch = scheduler.schedule_batch().unwrap();
         assert!(empty_batch.is_empty());
@@ -658,24 +661,24 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加2个请求
         let req1 = GenerationRequest::new(0, vec![1], 2);
         let req2 = GenerationRequest::new(0, vec![2], 2);
         let id1 = scheduler.add_request(req1).unwrap();
         let _id2 = scheduler.add_request(req2).unwrap();
-        
+
         let stats = scheduler.stats();
         assert_eq!(stats.total_requests, 2);
-        
+
         // 调度批次
         let _batch1 = scheduler.schedule_batch().unwrap();
-        
+
         // 完成第一个请求
         for _ in 0..2 {
             scheduler.update_request(id1, 100).unwrap();
         }
-        
+
         let stats = scheduler.stats();
         assert_eq!(stats.completed_requests, 1);
         assert_eq!(stats.total_requests, 2);
@@ -684,7 +687,7 @@ mod tests {
     #[test]
     fn test_different_scheduling_strategies() {
         // 测试不同的调度策略都能正常工作
-        
+
         for strategy in &[
             SchedulingStrategy::FIFO,
             SchedulingStrategy::ShortestJobFirst,
@@ -697,18 +700,22 @@ mod tests {
                 max_batch_size: 4,
                 ..Default::default()
             };
-            
+
             let scheduler = ContinuousBatchingScheduler::new(config);
-            
+
             // 添加4个不同长度的请求
             for i in 1..=4 {
                 let request = GenerationRequest::new(0, vec![1; i], 10);
                 scheduler.add_request(request).unwrap();
             }
-            
+
             let batch = scheduler.schedule_batch();
             assert!(batch.is_ok(), "Strategy {:?} failed", strategy);
-            assert!(!batch.unwrap().is_empty(), "Strategy {:?} returned empty batch", strategy);
+            assert!(
+                !batch.unwrap().is_empty(),
+                "Strategy {:?} returned empty batch",
+                strategy
+            );
         }
     }
 
@@ -722,18 +729,18 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加不同优先级的请求（后添加的高优先级应该在前面）
         let low = GenerationRequest::new(0, vec![1, 2, 3], 100).with_priority(1);
         let mid = GenerationRequest::new(0, vec![4, 5, 6], 100).with_priority(5);
         let high = GenerationRequest::new(0, vec![7, 8, 9], 100).with_priority(10);
-        
+
         scheduler.add_request(low).unwrap();
         scheduler.add_request(mid).unwrap();
         scheduler.add_request(high).unwrap();
-        
+
         let batch = scheduler.schedule_batch().unwrap();
-        
+
         // 高优先级请求应该先被调度（索引更小）
         assert_eq!(batch.len(), 3);
         assert!(batch[0].priority >= batch[1].priority);
@@ -750,18 +757,18 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加不同输入长度的请求
-        let long = GenerationRequest::new(0, vec![1; 100], 100);  // 长输入
-        let short = GenerationRequest::new(0, vec![1], 100);       // 短输入
-        let medium = GenerationRequest::new(0, vec![1; 50], 100);   // 中等输入
-        
+        let long = GenerationRequest::new(0, vec![1; 100], 100); // 长输入
+        let short = GenerationRequest::new(0, vec![1], 100); // 短输入
+        let medium = GenerationRequest::new(0, vec![1; 50], 100); // 中等输入
+
         scheduler.add_request(long).unwrap();
         scheduler.add_request(short).unwrap();
         scheduler.add_request(medium).unwrap();
-        
+
         let batch = scheduler.schedule_batch().unwrap();
-        
+
         // 短输入的请求应该先被调度
         assert_eq!(batch.len(), 3);
         assert!(batch[0].input_tokens.len() <= batch[1].input_tokens.len());
@@ -779,30 +786,32 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加并调度多个请求
         for _i in 0..5 {
             let request = GenerationRequest::new(0, vec![1; 100], 1000);
             scheduler.add_request(request).unwrap();
         }
-        
+
         let batch = scheduler.schedule_batch().unwrap();
         assert!(!batch.is_empty()); // 确保有运行中的请求
-        
+
         // 模拟高内存使用率触发抢占
         let preempted = scheduler.preempt_requests(0.95).unwrap();
-        
+
         // 由于内存使用率超过阈值，应该有请求被抢占
         // （具体数量取决于实现逻辑）
         let _ = preempted;
-        
+
         // 抢占后这些请求应该回到等待队列或暂停状态
         let waiting_count = scheduler.waiting_count();
         let running_count = scheduler.running_count();
-        
+
         // 验证状态变化（至少有一些请求从running移出）
-        assert!(waiting_count > 0 || running_count < batch.len(), 
-                "Preemption should move requests out of running state");
+        assert!(
+            waiting_count > 0 || running_count < batch.len(),
+            "Preemption should move requests out of running state"
+        );
     }
 
     #[test]
@@ -816,15 +825,18 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加并调度请求
         let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
         scheduler.add_request(request).unwrap();
         scheduler.schedule_batch().unwrap();
-        
+
         // 低内存使用率不应触发抢占
         let preempted = scheduler.preempt_requests(0.5).unwrap();
-        assert!(preempted.is_empty(), "Should not preempt when memory is below threshold");
+        assert!(
+            preempted.is_empty(),
+            "Should not preempt when memory is below threshold"
+        );
     }
 
     #[test]
@@ -836,15 +848,18 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加并调度请求
         let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
         scheduler.add_request(request).unwrap();
         scheduler.schedule_batch().unwrap();
-        
+
         // 即使高内存使用率也不应抢占（因为禁用了）
         let preempted = scheduler.preempt_requests(0.99).unwrap();
-        assert!(preempted.is_empty(), "Should not preempt when preemption is disabled");
+        assert!(
+            preempted.is_empty(),
+            "Should not preempt when preemption is disabled"
+        );
     }
 
     #[test]
@@ -852,37 +867,40 @@ mod tests {
         // 多线程并发访问的安全性测试
         use std::sync::{Arc, Barrier};
         use std::thread;
-        
-        let scheduler = Arc::new(ContinuousBatchingScheduler::new(
-            ContinuousBatchingConfig {
-                max_batch_size: 32,
-                ..Default::default()
-            }
-        ));
+
+        let scheduler = Arc::new(ContinuousBatchingScheduler::new(ContinuousBatchingConfig {
+            max_batch_size: 32,
+            ..Default::default()
+        }));
         let barrier = Arc::new(Barrier::new(4));
-        
-        let handles: Vec<_> = (0..4).map(|_i| {
-            let s = Arc::clone(&scheduler);
-            let b = Arc::clone(&barrier);
-            thread::spawn(move || {
-                b.wait(); // 所有线程同时开始
-                for j in 0..10 {
-                    let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
-                    let _ = s.add_request(request);
-                    
-                    if j % 3 == 0 {
-                        let _ = s.schedule_batch();
+
+        let handles: Vec<_> = (0..4)
+            .map(|_i| {
+                let s = Arc::clone(&scheduler);
+                let b = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    b.wait(); // 所有线程同时开始
+                    for j in 0..10 {
+                        let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
+                        let _ = s.add_request(request);
+
+                        if j % 3 == 0 {
+                            let _ = s.schedule_batch();
+                        }
                     }
-                }
+                })
             })
-        }).collect();
-        
-        for h in handles { 
-            h.join().expect("Thread should not panic"); 
+            .collect();
+
+        for h in handles {
+            h.join().expect("Thread should not panic");
         }
-        
+
         let stats = scheduler.stats();
-        assert_eq!(stats.total_requests, 40, "All 40 requests should be recorded");
+        assert_eq!(
+            stats.total_requests, 40,
+            "All 40 requests should be recorded"
+        );
     }
 
     #[test]
@@ -893,26 +911,26 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         let request = GenerationRequest::new(0, vec![1, 2, 3], 5);
         let id = scheduler.add_request(request).unwrap();
-        
+
         // 刚创建时还没有started_at，wait_time应该是从created_at到现在
         let status_before = scheduler.get_request_status(id);
         assert_eq!(status_before, Some(RequestStatus::Waiting));
-        
+
         // 调度后应该变成Running
         let batch = scheduler.schedule_batch().unwrap();
         assert!(!batch.is_empty());
-        
+
         let status_after_schedule = scheduler.get_request_status(id);
         assert_eq!(status_after_schedule, Some(RequestStatus::Running));
-        
+
         // 完成请求后应该变成Completed
         for _ in 0..5 {
             scheduler.update_request(id, 100).unwrap();
         }
-        
+
         let status_completed = scheduler.get_request_status(id);
         assert_eq!(status_completed, Some(RequestStatus::Completed));
     }
@@ -925,20 +943,20 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         let request = GenerationRequest::new(0, vec![1, 2, 3], 100);
         let id = scheduler.add_request(request).unwrap();
-        
+
         // 调度使其进入运行状态
         scheduler.schedule_batch().unwrap();
         assert_eq!(scheduler.running_count(), 1);
-        
+
         // 取消运行中的请求
         scheduler.cancel_request(id).unwrap();
-        
+
         // 应该不再在运行队列中
         assert_eq!(scheduler.running_count(), 0);
-        
+
         // 状态应该是Cancelled
         let status = scheduler.get_request_status(id);
         assert_eq!(status, Some(RequestStatus::Cancelled));
@@ -953,41 +971,44 @@ mod tests {
             ..Default::default()
         };
         let scheduler = ContinuousBatchingScheduler::new(config);
-        
+
         // 添加超过max_batch_size数量的请求
         for i in 0..10 {
             let request = GenerationRequest::new(i as u64, vec![1, 2, 3], 100);
             scheduler.add_request(request).unwrap();
         }
-        
+
         let batch = scheduler.schedule_batch().unwrap();
-        assert!(batch.len() <= 3, "Batch size should not exceed max_batch_size");
+        assert!(
+            batch.len() <= 3,
+            "Batch size should not exceed max_batch_size"
+        );
     }
 
     #[test]
     fn test_is_finished_with_different_statuses() {
         // 测试is_finished在不同状态下的行为
-        
+
         // Waiting状态 - 未完成
         let req_waiting = GenerationRequest::new(1, vec![1, 2, 3], 100);
         assert!(!req_waiting.is_finished());
-        
+
         // Running状态且未达到max_length - 未完成
         let mut req_running = GenerationRequest::new(2, vec![1, 2, 3], 100);
         req_running.status = RequestStatus::Running;
         req_running.generated_tokens = vec![4, 5];
         assert!(!req_running.is_finished());
-        
+
         // 达到max_length - 完成
         let mut req_completed_by_length = GenerationRequest::new(3, vec![1, 2, 3], 5);
         req_completed_by_length.generated_tokens = vec![4, 5, 6, 7, 8];
         assert!(req_completed_by_length.is_finished());
-        
+
         // Completed状态 - 完成
         let mut req_status_completed = GenerationRequest::new(4, vec![1, 2, 3], 100);
         req_status_completed.status = RequestStatus::Completed;
         assert!(req_status_completed.is_finished());
-        
+
         // Cancelled状态 - 完成
         let mut req_cancelled = GenerationRequest::new(5, vec![1, 2, 3], 100);
         req_cancelled.status = RequestStatus::Cancelled;
@@ -1000,7 +1021,7 @@ mod tests {
         let request = GenerationRequest::new(42, vec![1, 2, 3, 4, 5], 200)
             .with_priority(15)
             .with_temperature(0.7);
-        
+
         assert_eq!(request.id, 42);
         assert_eq!(request.priority, 15);
         assert!((request.temperature - 0.7).abs() < 0.001);
@@ -1013,17 +1034,17 @@ mod tests {
     fn test_total_tokens_calculation() {
         // 测试总token数计算
         let request = GenerationRequest::new(
-            1, 
-            vec![1, 2, 3, 4, 5],  // 5个输入tokens
-            100
+            1,
+            vec![1, 2, 3, 4, 5], // 5个输入tokens
+            100,
         );
-        
+
         // 初始状态：只有输入tokens
         assert_eq!(request.total_tokens(), 5);
-        
+
         // 生成一些tokens后
         let mut request = request;
-        request.generated_tokens = vec![6, 7, 8];  // 生成了3个tokens
-        assert_eq!(request.total_tokens(), 8);  // 5 + 3 = 8
+        request.generated_tokens = vec![6, 7, 8]; // 生成了3个tokens
+        assert_eq!(request.total_tokens(), 8); // 5 + 3 = 8
     }
 }

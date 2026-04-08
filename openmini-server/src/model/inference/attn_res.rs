@@ -17,9 +17,9 @@
 
 #![allow(dead_code)]
 
-use ndarray::{Array1, Array2, Axis};
-use super::error::InferenceResult;
 use super::error::InferenceError;
+use super::error::InferenceResult;
+use ndarray::{Array1, Array2, Axis};
 
 /// Block AttnRes 配置
 #[derive(Debug, Clone)]
@@ -49,11 +49,17 @@ impl AttnResConfig {
         // - L <= 32:  8 块（每块 ~4 层）← 论文推荐甜蜜点
         // - L <= 64:  8 块（每块 ~8 层）
         // - L > 64:   16 块（每块 ~8 层）
-        let num_blocks = if num_layers <= 8 { 2 }
-            else if num_layers <= 16 { 4 }
-            else if num_layers <= 32 { 8 }
-            else if num_layers <= 64 { 8 }
-            else { 16 };
+        let num_blocks = if num_layers <= 8 {
+            2
+        } else if num_layers <= 16 {
+            4
+        } else if num_layers <= 32 {
+            8
+        } else if num_layers <= 64 {
+            8
+        } else {
+            16
+        };
 
         let block_size = (num_layers + num_blocks - 1) / num_blocks;
 
@@ -70,7 +76,15 @@ impl AttnResConfig {
 
     /// 禁用 AttnRes（回退到标准残差）
     pub fn disabled() -> Self {
-        Self { enabled: false, num_blocks: 0, block_size: 0, total_layers: 0, hidden_size: 0, rms_eps: 1e-6, init_scale: 0.0 }
+        Self {
+            enabled: false,
+            num_blocks: 0,
+            block_size: 0,
+            total_layers: 0,
+            hidden_size: 0,
+            rms_eps: 1e-6,
+            init_scale: 0.0,
+        }
     }
 }
 
@@ -125,12 +139,17 @@ impl BlockSummary {
 
     /// 更新当前 Block 摘要（在 Block 最后一层调用）
     /// 使用 mean-pooling 将 (seq, hidden) → (1, hidden) 作为摘要
-    pub fn update_summary(&mut self, layer_output: &Array2<f32>, layer_idx: usize) -> InferenceResult<()> {
+    pub fn update_summary(
+        &mut self,
+        layer_output: &Array2<f32>,
+        layer_idx: usize,
+    ) -> InferenceResult<()> {
         let block_idx = self.current_block_index(layer_idx);
         if block_idx < self.summaries.len() {
             let (_seq_len, _) = layer_output.dim();
-            let pooled: Array1<f32> = layer_output.mean_axis(Axis(0))
-                .ok_or_else(|| InferenceError::generation("AttnRes mean_pool failed: empty axis".to_string()))?;
+            let pooled: Array1<f32> = layer_output.mean_axis(Axis(0)).ok_or_else(|| {
+                InferenceError::generation("AttnRes mean_pool failed: empty axis".to_string())
+            })?;
             self.summaries[block_idx] = pooled.insert_axis(Axis(0));
         }
         Ok(())
@@ -146,7 +165,9 @@ impl BlockSummary {
         x: &Array2<f32>,
     ) -> InferenceResult<Array2<f32>> {
         let n = self.summaries.len();
-        if n == 0 { return Ok(x.clone()); }
+        if n == 0 {
+            return Ok(x.clone());
+        }
 
         // Step 1: 对每个摘要做 RMSNorm 并计算 attention score
         let mut scores = Vec::with_capacity(n);
@@ -181,7 +202,11 @@ impl BlockSummary {
 /// RMSNorm 向量版本：(x / sqrt(mean(x²) + eps))
 fn rms_norm_vector(x: &Array1<f32>, eps: f32) -> InferenceResult<Array1<f32>> {
     let n = x.len();
-    if n == 0 { return Err(InferenceError::generation("rms_norm_vector: empty input".to_string())); }
+    if n == 0 {
+        return Err(InferenceError::generation(
+            "rms_norm_vector: empty input".to_string(),
+        ));
+    }
     let sq_mean: f32 = x.iter().map(|&v| v * v).sum::<f32>() / n as f32;
     let norm = (sq_mean + eps).sqrt();
     Ok(x.mapv(|v| v / norm))
@@ -189,7 +214,9 @@ fn rms_norm_vector(x: &Array1<f32>, eps: f32) -> InferenceResult<Array1<f32>> {
 
 /// 1D Softmax（数值稳定版）
 fn softmax_1d(scores: &[f32]) -> Vec<f32> {
-    if scores.is_empty() { return vec![]; }
+    if scores.is_empty() {
+        return vec![];
+    }
     let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let exps: Vec<f32> = scores.iter().map(|&s| (s - max_score).exp()).collect();
     let sum: f32 = exps.iter().sum();
@@ -205,7 +232,9 @@ pub fn block_attnres_aggregate(
     rms_eps: f32,
 ) -> InferenceResult<Array2<f32>> {
     let n = summaries.len();
-    if n == 0 { return Ok(x.clone()); }
+    if n == 0 {
+        return Ok(x.clone());
+    }
 
     let mut scores = Vec::with_capacity(n);
     for summary in summaries {
@@ -245,7 +274,11 @@ impl TwoStageAttnResCache {
         for _ in 0..num_blocks {
             cross_weights.push(vec![0.0f32; num_blocks]);
         }
-        Self { cross_weights, valid: false, num_blocks }
+        Self {
+            cross_weights,
+            valid: false,
+            num_blocks,
+        }
     }
 
     /// 预计算阶段：一次性算好所有 Block 边界的跨块权重
@@ -257,13 +290,16 @@ impl TwoStageAttnResCache {
     ) -> InferenceResult<()> {
         let n = block_summaries.len();
         if n != self.num_blocks {
-            return Err(InferenceError::generation(
-                format!("Block count mismatch: expected {}, got {}", self.num_blocks, n)
-            ));
+            return Err(InferenceError::generation(format!(
+                "Block count mismatch: expected {}, got {}",
+                self.num_blocks, n
+            )));
         }
 
         for (i, pq) in layer_pseudo_queries.iter().enumerate() {
-            if i >= n { break; }
+            if i >= n {
+                break;
+            }
             let mut scores = Vec::with_capacity(n);
             for summary in block_summaries {
                 if summary.nrows() == 0 {
@@ -287,7 +323,9 @@ impl TwoStageAttnResCache {
         block_summaries: &[Array2<f32>],
     ) -> InferenceResult<Array2<f32>> {
         if !self.valid || target_block_idx >= self.cross_weights.len() {
-            return Err(InferenceError::generation("TwoStageCache: not initialized or invalid index".to_string()));
+            return Err(InferenceError::generation(
+                "TwoStageCache: not initialized or invalid index".to_string(),
+            ));
         }
 
         let alphas = &self.cross_weights[target_block_idx];
@@ -314,24 +352,24 @@ mod tests {
         // 测试不同层数的自适应配置
         let config_4 = AttnResConfig::auto(4, 256, 1e-6);
         assert!(config_4.enabled);
-        assert_eq!(config_4.num_blocks, 2);  // L<=8 → 2 blocks
-        assert_eq!(config_4.block_size, 2);   // ceil(4/2)=2
+        assert_eq!(config_4.num_blocks, 2); // L<=8 → 2 blocks
+        assert_eq!(config_4.block_size, 2); // ceil(4/2)=2
 
         let config_12 = AttnResConfig::auto(12, 256, 1e-6);
-        assert_eq!(config_12.num_blocks, 4);  // L<=16 → 4 blocks
-        assert_eq!(config_12.block_size, 3);  // ceil(12/4)=3
+        assert_eq!(config_12.num_blocks, 4); // L<=16 → 4 blocks
+        assert_eq!(config_12.block_size, 3); // ceil(12/4)=3
 
         let config_24 = AttnResConfig::auto(24, 256, 1e-6);
-        assert_eq!(config_24.num_blocks, 8);  // L<=32 → 8 blocks
-        assert_eq!(config_24.block_size, 3);  // ceil(24/8)=3
+        assert_eq!(config_24.num_blocks, 8); // L<=32 → 8 blocks
+        assert_eq!(config_24.block_size, 3); // ceil(24/8)=3
 
         let config_48 = AttnResConfig::auto(48, 256, 1e-6);
-        assert_eq!(config_48.num_blocks, 8);  // L<=64 → 8 blocks
-        assert_eq!(config_48.block_size, 6);  // ceil(48/8)=6
+        assert_eq!(config_48.num_blocks, 8); // L<=64 → 8 blocks
+        assert_eq!(config_48.block_size, 6); // ceil(48/8)=6
 
         let config_96 = AttnResConfig::auto(96, 256, 1e-6);
         assert_eq!(config_96.num_blocks, 16); // L>64 → 16 blocks
-        assert_eq!(config_96.block_size, 6);  // ceil(96/16)=6
+        assert_eq!(config_96.block_size, 6); // ceil(96/16)=6
     }
 
     #[test]
@@ -385,16 +423,16 @@ mod tests {
         let bs = BlockSummary::new(&config);
 
         // Block 边界检查
-        assert!(bs.is_block_start(0));   // 第一层总是 start
+        assert!(bs.is_block_start(0)); // 第一层总是 start
         assert!(!bs.is_block_start(1));
-        assert!(bs.is_block_start(3));   // block 1 开始
-        assert!(bs.is_block_start(6));   // block 2 开始
-        assert!(bs.is_block_start(9));   // block 3 开始
+        assert!(bs.is_block_start(3)); // block 1 开始
+        assert!(bs.is_block_start(6)); // block 2 开始
+        assert!(bs.is_block_start(9)); // block 3 开始
 
-        assert!(bs.is_block_end(2));     // block 0 结束
-        assert!(bs.is_block_end(5));     // block 1 结束
-        assert!(bs.is_block_end(8));     // block 2 结束
-        assert!(bs.is_block_end(11));    // 最后一层也是 end
+        assert!(bs.is_block_end(2)); // block 0 结束
+        assert!(bs.is_block_end(5)); // block 1 结束
+        assert!(bs.is_block_end(8)); // block 2 结束
+        assert!(bs.is_block_end(11)); // 最后一层也是 end
     }
 
     // ==================== B. 数学正确性测试 ====================
@@ -427,7 +465,7 @@ mod tests {
         // 设置不同的摘要值
         for (i, summary) in bs.summaries.iter_mut().enumerate() {
             let mut data = vec![0.0f32; 32];
-            data[0] = (i + 1) as f32;  // 不同摘要有不同值
+            data[0] = (i + 1) as f32; // 不同摘要有不同值
             *summary = Array2::from_shape_vec((1, 32), data).unwrap();
         }
 
@@ -436,7 +474,9 @@ mod tests {
 
         let _result = bs.aggregate(&pq, &x).unwrap();
         // 通过内部验证：手动计算 softmax 权重和
-        let scores: Vec<f32> = bs.summaries.iter()
+        let scores: Vec<f32> = bs
+            .summaries
+            .iter()
             .map(|s| {
                 let normed = rms_norm_vector(&s.row(0).to_owned(), 1e-6).unwrap();
                 pq.dot(&normed)
@@ -445,7 +485,11 @@ mod tests {
 
         let alphas = softmax_1d(&scores);
         let weight_sum: f32 = alphas.iter().sum();
-        assert!((weight_sum - 1.0).abs() < 1e-5, "Softmax weights should sum to 1.0, got {}", weight_sum);
+        assert!(
+            (weight_sum - 1.0).abs() < 1e-5,
+            "Softmax weights should sum to 1.0, got {}",
+            weight_sum
+        );
     }
 
     #[test]
@@ -457,7 +501,7 @@ mod tests {
         let data = vec![1.0f32; 32];
         bs.summaries[0] = Array2::from_shape_vec((1, 32), data).unwrap();
 
-        let x = Array2::zeros((2, 32));  // 零输入
+        let x = Array2::zeros((2, 32)); // 零输入
         let pq = Array1::ones(32);
 
         let result = bs.aggregate(&pq, &x).unwrap();
@@ -492,7 +536,7 @@ mod tests {
     #[test]
     fn test_rms_norm_vector_correctness() {
         // 手动计算 RMSNorm 验证
-        let x = Array1::from_vec(vec![3.0, 4.0]);  // sqrt((9+16)/2) = sqrt(12.5) ≈ 3.5355
+        let x = Array1::from_vec(vec![3.0, 4.0]); // sqrt((9+16)/2) = sqrt(12.5) ≈ 3.5355
         let result = rms_norm_vector(&x, 1e-6).unwrap();
 
         let expected_norm: f64 = ((9.0_f64 + 16.0_f64) / 2.0_f64 + 1e-6_f64).sqrt();
@@ -523,7 +567,7 @@ mod tests {
 
         // 性质4: 最大值对应最大概率
         let max_idx = probs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        assert_eq!(max_idx, probs[2]);  // scores[2]=3.0 最大
+        assert_eq!(max_idx, probs[2]); // scores[2]=3.0 最大
 
         // 测试空输入
         let empty_probs = softmax_1d(&[]);
@@ -704,10 +748,13 @@ mod tests {
 
         // 对每个 block 进行对比
         for block_idx in 0..num_blocks {
-            let x = Array2::from_shape_fn((3, hidden), |(i, j)| ((block_idx * 100 + i * hidden + j) as f32) * 0.01);
+            let x = Array2::from_shape_fn((3, hidden), |(i, j)| {
+                ((block_idx * 100 + i * hidden + j) as f32) * 0.01
+            });
 
             // 直接计算
-            let direct_result = block_attnres_aggregate(&x, &summaries, &queries[block_idx], 1e-6).unwrap();
+            let direct_result =
+                block_attnres_aggregate(&x, &summaries, &queries[block_idx], 1e-6).unwrap();
 
             // 缓存查询
             let cached_result = cache.query(&x, block_idx, &summaries).unwrap();
@@ -740,7 +787,7 @@ mod tests {
         let mhc_output = Array2::from_shape_fn((seq_len, hidden), |(i, j)| {
             // 模拟经过归一化的输出
             let base = (i * hidden + j) as f32;
-            base / (base.abs() + 1.0)  // 归一化到 [-1, 1]
+            base / (base.abs() + 1.0) // 归一化到 [-1, 1]
         });
 
         // 配置 AttnRes (使用 24 层 → 8 个 blocks)
@@ -765,9 +812,13 @@ mod tests {
         assert!(final_output.iter().all(|&v| v.is_finite()));
 
         // 验证残差连接确实生效（输出 ≠ 纯 mhc_output）
-        let is_different = final_output.iter()
+        let is_different = final_output
+            .iter()
             .zip(mhc_output.iter())
             .any(|(a, b)| (a - b).abs() > 1e-6);
-        assert!(is_different, "AttnRes should modify the output via residual connection");
+        assert!(
+            is_different,
+            "AttnRes should modify the output via residual connection"
+        );
     }
 }

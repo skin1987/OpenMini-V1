@@ -12,8 +12,8 @@ use std::collections::VecDeque;
 
 use ndarray::Array2;
 
-use super::{EvictionStrategy, MemoryConfig, MemoryItem};
 use super::simd_ops::SimdVectorOps;
+use super::{EvictionStrategy, MemoryConfig, MemoryItem};
 
 /// 重要性计算器配置
 #[derive(Debug, Clone)]
@@ -62,7 +62,7 @@ impl ImportanceCalculator {
     /// 计算单个记忆项的重要性分数
     ///
     /// 综合考虑注意力权重、访问频率、语义密度三个维度
-    /// 
+    ///
     /// # 参数
     /// - `item`: 记忆项
     /// - `access_count`: 访问次数
@@ -77,7 +77,8 @@ impl ImportanceCalculator {
         current_time: u64,
         attention_score_override: Option<f32>,
     ) -> f32 {
-        let attention_score = attention_score_override.unwrap_or_else(|| self.estimate_attention(&item.data));
+        let attention_score =
+            attention_score_override.unwrap_or_else(|| self.estimate_attention(&item.data));
         let frequency_score = self.normalize_frequency(access_count);
         let semantic_score = self.calculate_semantic_density(&item.data);
         let time_score = self.calculate_time_decay(write_timestamp, current_time);
@@ -101,9 +102,7 @@ impl ImportanceCalculator {
         let count = data.len() as f32;
         let mean = sum / count;
 
-        let variance: f32 = data.iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f32>() / count;
+        let variance: f32 = data.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / count;
 
         let normalized_variance = (variance.sqrt() / (mean.abs() + 1e-6)).min(1.0);
         let sparsity = data.iter().filter(|v| v.abs() < 1e-6).count() as f32 / count;
@@ -129,18 +128,15 @@ impl ImportanceCalculator {
         let cols = data.ncols();
 
         let row_norms: Vec<f32> = (0..rows)
-            .map(|i| {
-                (0..cols)
-                    .map(|j| data[[i, j]].powi(2))
-                    .sum::<f32>()
-                    .sqrt()
-            })
+            .map(|i| (0..cols).map(|j| data[[i, j]].powi(2)).sum::<f32>().sqrt())
             .collect();
 
         let avg_norm: f32 = row_norms.iter().sum::<f32>() / rows as f32;
-        let norm_variance: f32 = row_norms.iter()
+        let norm_variance: f32 = row_norms
+            .iter()
             .map(|n| (n - avg_norm).powi(2))
-            .sum::<f32>() / rows as f32;
+            .sum::<f32>()
+            / rows as f32;
 
         let density = 1.0 - (norm_variance / (avg_norm.powi(2) + 1e-6)).min(1.0);
         density.clamp(0.0, 1.0)
@@ -164,7 +160,8 @@ impl ImportanceCalculator {
         write_timestamps: &[u64],
         current_time: u64,
     ) -> Vec<f32> {
-        items.iter()
+        items
+            .iter()
             .zip(access_counts.iter())
             .zip(write_timestamps.iter())
             .map(|((item, &count), &write_ts)| {
@@ -236,7 +233,7 @@ impl Compressor {
     /// 智能压缩（旧版，已废弃）
     ///
     /// 根据重要性分数选择性保留和压缩记忆项
-    /// 
+    ///
     /// # 已废弃
     /// 此方法会重置访问计数为 1，丢失原始访问统计。
     /// 请使用 `compress_stored_items` 替代，该方法保留原始访问计数。
@@ -256,7 +253,12 @@ impl Compressor {
         }
 
         let items_vec: Vec<MemoryItem> = items.iter().cloned().collect();
-        let importance_scores = self.importance_calculator.batch_calculate(&items_vec, access_counts, timestamps, current_time);
+        let importance_scores = self.importance_calculator.batch_calculate(
+            &items_vec,
+            access_counts,
+            timestamps,
+            current_time,
+        );
 
         let mut indexed_items: Vec<(usize, f32)> = importance_scores
             .iter()
@@ -321,7 +323,12 @@ impl Compressor {
         let items_vec: Vec<MemoryItem> = items.iter().map(|s| s.item.clone()).collect();
         let access_counts: Vec<usize> = items.iter().map(|s| s.access_count).collect();
         let write_timestamps: Vec<u64> = items.iter().map(|s| s.write_timestamp).collect();
-        let importance_scores = self.importance_calculator.batch_calculate(&items_vec, &access_counts, &write_timestamps, current_time);
+        let importance_scores = self.importance_calculator.batch_calculate(
+            &items_vec,
+            &access_counts,
+            &write_timestamps,
+            current_time,
+        );
 
         let mut indexed_items: Vec<(usize, f32)> = importance_scores
             .iter()
@@ -379,12 +386,17 @@ impl Compressor {
         }
 
         let total_importance: f32 = items.iter().map(|(_, score)| score).sum();
-        let weights: Vec<f32> = items.iter()
+        let weights: Vec<f32> = items
+            .iter()
             .map(|(_, score)| score / total_importance)
             .collect();
 
         let dim = items[0].0.data.ncols();
-        let max_rows: usize = items.iter().map(|(item, _)| item.data.nrows()).max().unwrap_or(1);
+        let max_rows: usize = items
+            .iter()
+            .map(|(item, _)| item.data.nrows())
+            .max()
+            .unwrap_or(1);
 
         let mut merged_data = Array2::zeros((max_rows, dim));
 
@@ -398,13 +410,11 @@ impl Compressor {
             }
         }
 
-        let avg_importance: f32 = items.iter()
-            .map(|(_, score)| score)
-            .sum::<f32>() / items.len() as f32;
+        let avg_importance: f32 =
+            items.iter().map(|(_, score)| score).sum::<f32>() / items.len() as f32;
 
         items.last().map(|(item, _)| {
-            MemoryItem::new(merged_data, item.timestamp)
-                .with_importance(avg_importance)
+            MemoryItem::new(merged_data, item.timestamp).with_importance(avg_importance)
         })
     }
 
@@ -421,7 +431,8 @@ impl Compressor {
             let len = items.len() as f32;
             items.iter().map(|_| 1.0 / len).collect()
         } else {
-            items.iter()
+            items
+                .iter()
                 .map(|(_, score)| score / total_importance)
                 .collect()
         };
@@ -433,7 +444,11 @@ impl Compressor {
             }
         }
 
-        let max_rows: usize = items.iter().map(|(stored, _)| stored.item.data.nrows()).max().unwrap_or(1);
+        let max_rows: usize = items
+            .iter()
+            .map(|(stored, _)| stored.item.data.nrows())
+            .max()
+            .unwrap_or(1);
 
         let mut merged_data = Array2::zeros((max_rows, first_dim));
 
@@ -446,15 +461,18 @@ impl Compressor {
             }
         }
 
-        let avg_importance: f32 = items.iter()
-            .map(|(_, score)| score)
-            .sum::<f32>() / items.len() as f32;
+        let avg_importance: f32 =
+            items.iter().map(|(_, score)| score).sum::<f32>() / items.len() as f32;
 
         let total_access: usize = items.iter().map(|(stored, _)| stored.access_count).sum();
-        let latest_timestamp = items.iter().map(|(stored, _)| stored.write_timestamp).max().unwrap_or(0);
+        let latest_timestamp = items
+            .iter()
+            .map(|(stored, _)| stored.write_timestamp)
+            .max()
+            .unwrap_or(0);
 
-        let merged_item = MemoryItem::new(merged_data, latest_timestamp)
-            .with_importance(avg_importance);
+        let merged_item =
+            MemoryItem::new(merged_data, latest_timestamp).with_importance(avg_importance);
 
         Some(StoredItem::new(merged_item, latest_timestamp).with_access_count(total_access))
     }
@@ -467,14 +485,14 @@ impl Compressor {
 
         let a_slice: &[f32] = a.as_slice().unwrap_or(&[]);
         let b_slice: &[f32] = b.as_slice().unwrap_or(&[]);
-        
+
         if a_slice.is_empty() || b_slice.is_empty() {
             return 0.0;
         }
-        
+
         let simd_ops = SimdVectorOps::new();
         let min_len = a_slice.len().min(b_slice.len());
-        
+
         simd_ops.cosine_similarity(&a_slice[..min_len], &b_slice[..min_len])
     }
 
@@ -572,17 +590,15 @@ impl DynamicWindow {
             return self.current_size;
         }
 
-        let avg_utilization: f32 = self.utilization_history.iter()
-            .rev()
-            .take(10)
-            .sum::<f32>() / 10.0;
+        let avg_utilization: f32 =
+            self.utilization_history.iter().rev().take(10).sum::<f32>() / 10.0;
 
         if avg_utilization > self.config.expand_threshold {
-            let new_size = (self.current_size + self.config.adjust_step)
-                .min(self.config.max_size);
+            let new_size = (self.current_size + self.config.adjust_step).min(self.config.max_size);
             self.current_size = new_size;
         } else if avg_utilization < self.config.shrink_threshold {
-            let new_size = self.current_size
+            let new_size = self
+                .current_size
                 .saturating_sub(self.config.adjust_step)
                 .max(self.config.min_size);
             self.current_size = new_size;
@@ -598,9 +614,7 @@ impl DynamicWindow {
 
     /// 手动设置窗口大小
     pub fn set_size(&mut self, size: usize) {
-        self.current_size = size
-            .max(self.config.min_size)
-            .min(self.config.max_size);
+        self.current_size = size.max(self.config.min_size).min(self.config.max_size);
     }
 
     /// 获取平均利用率
@@ -630,7 +644,7 @@ impl Default for DynamicWindow {
 }
 
 /// 存储项包装结构体
-/// 
+///
 /// 统一存储记忆项、访问计数和时间戳，避免数据不同步问题
 #[derive(Debug, Clone)]
 pub struct StoredItem {
@@ -674,7 +688,7 @@ impl StoredItem {
 }
 
 /// 并查集结构体
-/// 
+///
 /// 用于实现传递闭包合并，确保 A~B, B~C 时 A、B、C 被合并到同一组
 struct UnionFind {
     parent: Vec<usize>,
@@ -694,14 +708,14 @@ impl UnionFind {
         while self.parent[root] != root {
             root = self.parent[root];
         }
-        
+
         let mut current = x;
         while self.parent[current] != root {
             let next = self.parent[current];
             self.parent[current] = root;
             current = next;
         }
-        
+
         root
     }
 
@@ -773,7 +787,7 @@ impl ShortTermMemory {
 
         let mut item = MemoryItem::new(data, timestamp);
         item.session_id = session_id;
-        
+
         let current_time = Self::current_system_time();
         let stored_item = StoredItem::new(item, current_time);
         self.items.push_back(stored_item);
@@ -782,12 +796,16 @@ impl ShortTermMemory {
             self.compress();
         }
 
-        self.dynamic_window.record_utilization(self.items.len(), effective_capacity);
+        self.dynamic_window
+            .record_utilization(self.items.len(), effective_capacity);
     }
 
     /// 读取所有记忆
     pub fn read_all(&self) -> Vec<Array2<f32>> {
-        self.items.iter().map(|stored| stored.item.data.clone()).collect()
+        self.items
+            .iter()
+            .map(|stored| stored.item.data.clone())
+            .collect()
     }
 
     /// 读取指定会话的记忆
@@ -823,7 +841,7 @@ impl ShortTermMemory {
         if self.items.is_empty() {
             return;
         }
-        
+
         match self.strategy {
             EvictionStrategy::LRU => {
                 self.items.pop_front();
@@ -851,8 +869,9 @@ impl ShortTermMemory {
         }
 
         let current_time = Self::current_system_time();
-        self.compressor.compress_stored_items(&mut self.items, current_time);
-        
+        self.compressor
+            .compress_stored_items(&mut self.items, current_time);
+
         self.dynamic_window.auto_adjust();
     }
 
@@ -863,7 +882,8 @@ impl ShortTermMemory {
         }
 
         let current_time = Self::current_system_time();
-        self.compressor.compress_stored_items(&mut self.items, current_time)
+        self.compressor
+            .compress_stored_items(&mut self.items, current_time)
     }
 
     /// 语义压缩
@@ -875,8 +895,8 @@ impl ShortTermMemory {
             return 0;
         }
 
-        let threshold = similarity_threshold
-            .unwrap_or_else(|| self.compressor.config().similarity_threshold);
+        let threshold =
+            similarity_threshold.unwrap_or_else(|| self.compressor.config().similarity_threshold);
 
         let n = self.items.len();
         let mut uf = UnionFind::new(n);
@@ -899,7 +919,8 @@ impl ShortTermMemory {
             uf.union(i, j);
         }
 
-        let mut groups: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+        let mut groups: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
         for i in 0..n {
             let root = uf.find(i);
             groups.entry(root).or_default().push(i);
@@ -911,11 +932,11 @@ impl ShortTermMemory {
         for (_, group) in groups {
             if group.len() > 1 {
                 let merged_stored = self.merge_stored_items(&group);
-                
+
                 if let Some(&first_idx) = group.first() {
                     self.items[first_idx] = merged_stored;
                 }
-                
+
                 for &idx in group.iter().skip(1) {
                     to_remove[idx] = true;
                     merged_count += 1;
@@ -942,10 +963,7 @@ impl ShortTermMemory {
             return StoredItem::new(MemoryItem::new(Array2::zeros((0, 0)), 0), 0);
         }
 
-        let items: Vec<&StoredItem> = indices
-            .iter()
-            .filter_map(|&i| self.items.get(i))
-            .collect();
+        let items: Vec<&StoredItem> = indices.iter().filter_map(|&i| self.items.get(i)).collect();
 
         if items.is_empty() {
             return StoredItem::new(MemoryItem::new(Array2::zeros((0, 0)), 0), 0);
@@ -963,7 +981,10 @@ impl ShortTermMemory {
             let len = items.len() as f32;
             items.iter().map(|_| 1.0 / len).collect()
         } else {
-            items.iter().map(|s| s.item.importance / total_importance).collect()
+            items
+                .iter()
+                .map(|s| s.item.importance / total_importance)
+                .collect()
         };
 
         let max_rows: usize = items.iter().map(|s| s.item.data.nrows()).max().unwrap_or(1);
@@ -979,19 +1000,15 @@ impl ShortTermMemory {
             }
         }
 
-        let avg_importance: f32 = items.iter()
-            .map(|s| s.item.importance)
-            .sum::<f32>() / items.len() as f32;
+        let avg_importance: f32 =
+            items.iter().map(|s| s.item.importance).sum::<f32>() / items.len() as f32;
 
-        let latest_timestamp = items.iter()
-            .map(|s| s.write_timestamp)
-            .max()
-            .unwrap_or(0);
+        let latest_timestamp = items.iter().map(|s| s.write_timestamp).max().unwrap_or(0);
 
         let total_access: usize = items.iter().map(|s| s.access_count).sum();
 
-        let merged_memory = MemoryItem::new(merged_data, latest_timestamp)
-            .with_importance(avg_importance);
+        let merged_memory =
+            MemoryItem::new(merged_data, latest_timestamp).with_importance(avg_importance);
 
         StoredItem::new(merged_memory, latest_timestamp).with_access_count(total_access)
     }
@@ -1152,7 +1169,6 @@ mod tests {
         assert!(importance_recent >= importance_old);
     }
 
-
     #[test]
     #[allow(deprecated)]
     fn test_compressor() {
@@ -1168,7 +1184,8 @@ mod tests {
             items.push_back(MemoryItem::new(data, i as u64).with_importance(0.5 + i as f32 * 0.1));
         }
 
-        let removed = compressor.compress_smart(&mut items, &mut access_counts, &mut timestamps, 10);
+        let removed =
+            compressor.compress_smart(&mut items, &mut access_counts, &mut timestamps, 10);
 
         assert!(items.len() < 5);
         assert!(!items.is_empty());
@@ -1339,7 +1356,7 @@ mod tests {
 
         let original_total_access: usize = items.iter().map(|s| s.access_count).sum();
         compressor.compress_stored_items(&mut items, 100);
-        
+
         assert!(!items.is_empty());
         let new_total_access: usize = items.iter().map(|s| s.access_count).sum();
         assert!(new_total_access <= original_total_access);
@@ -1348,17 +1365,17 @@ mod tests {
     #[test]
     fn test_union_find_transitive_closure() {
         let mut uf = super::UnionFind::new(5);
-        
+
         uf.union(0, 1);
         uf.union(1, 2);
         uf.union(3, 4);
-        
+
         assert_eq!(uf.find(0), uf.find(1));
         assert_eq!(uf.find(1), uf.find(2));
         assert_eq!(uf.find(0), uf.find(2));
-        
+
         assert_eq!(uf.find(3), uf.find(4));
-        
+
         assert_ne!(uf.find(0), uf.find(3));
     }
 
@@ -1372,21 +1389,27 @@ mod tests {
         let mut memory = ShortTermMemory::new(&config);
 
         let base = Array2::from_shape_fn((5, 32), |(i, j)| (i + j) as f32 * 0.1);
-        
+
         let mut data_a = base.clone();
-        for elem in data_a.iter_mut() { *elem += 0.001; }
+        for elem in data_a.iter_mut() {
+            *elem += 0.001;
+        }
         memory.write(data_a, 1, None);
-        
+
         let mut data_b = base.clone();
-        for elem in data_b.iter_mut() { *elem += 0.002; }
+        for elem in data_b.iter_mut() {
+            *elem += 0.002;
+        }
         memory.write(data_b, 2, None);
-        
+
         let mut data_c = base.clone();
-        for elem in data_c.iter_mut() { *elem += 0.003; }
+        for elem in data_c.iter_mut() {
+            *elem += 0.003;
+        }
         memory.write(data_c, 3, None);
 
         let merged = memory.semantic_compress(Some(0.95));
-        
+
         assert!(memory.len() <= 3);
         let _ = merged;
     }
@@ -1402,13 +1425,11 @@ mod tests {
             items.push_back(stored);
         }
 
-        let items_to_merge: Vec<(StoredItem, f32)> = items
-            .iter()
-            .map(|s| (s.clone(), 0.0f32))
-            .collect();
+        let items_to_merge: Vec<(StoredItem, f32)> =
+            items.iter().map(|s| (s.clone(), 0.0f32)).collect();
 
         let result = Compressor::semantic_merge_stored(&items_to_merge);
-        
+
         assert!(result.is_some());
         let merged = result.unwrap();
         assert_eq!(merged.access_count, 6);
@@ -1422,18 +1443,18 @@ mod tests {
             ..Default::default()
         };
         let mut memory = ShortTermMemory::new(&config);
-        
+
         let initial_size = memory.dynamic_window_size();
-        
+
         for _ in 0..20 {
             for i in 0..8 {
                 let data = Array2::zeros((1, 512));
                 memory.write(data, i as u64, None);
             }
         }
-        
+
         let final_size = memory.dynamic_window_size();
-        
+
         assert!(final_size != initial_size || memory.average_utilization() > 0.0);
     }
 
@@ -1447,15 +1468,17 @@ mod tests {
         let mut memory = ShortTermMemory::new(&config);
 
         let base = Array2::from_shape_fn((5, 32), |(i, j)| (i + j) as f32 * 0.1);
-        
+
         for i in 0..5 {
             let mut data = base.clone();
-            for elem in data.iter_mut() { *elem += i as f32 * 0.001; }
+            for elem in data.iter_mut() {
+                *elem += i as f32 * 0.001;
+            }
             memory.write(data, i as u64, None);
         }
 
         let merged_count = memory.semantic_compress(Some(0.95));
-        
+
         assert!(merged_count < 5);
         assert!(memory.len() <= 5);
     }
@@ -1629,10 +1652,8 @@ mod tests {
         assert_eq!(stored.write_timestamp, 1000);
 
         // 使用 with_access_count 设置自定义访问计数
-        let stored_custom = StoredItem::new(
-            MemoryItem::new(data, 12345),
-            2000
-        ).with_access_count(50);
+        let stored_custom =
+            StoredItem::new(MemoryItem::new(data, 12345), 2000).with_access_count(50);
 
         assert_eq!(stored_custom.access_count, 50);
         assert_eq!(stored_custom.write_timestamp, 2000);

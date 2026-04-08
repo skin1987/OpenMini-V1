@@ -626,10 +626,13 @@ impl std::fmt::Debug for MetalCommandHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetalCommandHandle")
             .field("label", &self.label)
-            .field("status", &match &self.command_buffer {
-                Some(cb) => format!("{:?}", cb.status()),
-                None => "None".to_string(),
-            })
+            .field(
+                "status",
+                &match &self.command_buffer {
+                    Some(cb) => format!("{:?}", cb.status()),
+                    None => "None".to_string(),
+                },
+            )
             .finish()
     }
 }
@@ -871,8 +874,16 @@ impl MetalBackend {
 
         let k = k1;
 
-        let a_buffer = MetalBuffer::from_data(self.device.device(), a.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
-        let b_buffer = MetalBuffer::from_data(self.device.device(), b.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
+        let a_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            a.as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
+        let b_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            b.as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
         let c_buffer = MetalBuffer::new(self.device.device(), m * n * std::mem::size_of::<f32>())?;
 
         let dims = [m as u32, n as u32, k as u32];
@@ -912,7 +923,12 @@ impl MetalBackend {
     fn softmax_metal(&self, input: &Array2<f32>) -> Result<Array2<f32>> {
         let (rows, cols) = input.dim();
 
-        let input_buffer = MetalBuffer::from_data(self.device.device(), input.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
+        let input_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            input
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
         let output_buffer = MetalBuffer::new(
             self.device.device(),
             rows * cols * std::mem::size_of::<f32>(),
@@ -959,7 +975,12 @@ impl MetalBackend {
             bail!("Layer norm 参数大小不匹配");
         }
 
-        let input_buffer = MetalBuffer::from_data(self.device.device(), input.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
+        let input_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            input
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
         let output_buffer = MetalBuffer::new(
             self.device.device(),
             rows * cols * std::mem::size_of::<f32>(),
@@ -972,7 +993,8 @@ impl MetalBackend {
         let eps_buffer = MetalBuffer::from_data(self.device.device(), &[eps])?;
 
         let grid_size = metal::MTLSize {
-            width: ((rows + LAYERNORM_BLOCK_SIZE as usize - 1) / LAYERNORM_BLOCK_SIZE as usize) as u64,
+            width: ((rows + LAYERNORM_BLOCK_SIZE as usize - 1) / LAYERNORM_BLOCK_SIZE as usize)
+                as u64,
             height: 1,
             depth: 1,
         };
@@ -1010,7 +1032,12 @@ impl MetalBackend {
             bail!("RMS norm 参数大小不匹配");
         }
 
-        let input_buffer = MetalBuffer::from_data(self.device.device(), input.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
+        let input_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            input
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
         let output_buffer = MetalBuffer::new(
             self.device.device(),
             rows * cols * std::mem::size_of::<f32>(),
@@ -1022,7 +1049,8 @@ impl MetalBackend {
         let eps_buffer = MetalBuffer::from_data(self.device.device(), &[eps])?;
 
         let grid_size = metal::MTLSize {
-            width: ((rows + LAYERNORM_BLOCK_SIZE as usize - 1) / LAYERNORM_BLOCK_SIZE as usize) as u64,
+            width: ((rows + LAYERNORM_BLOCK_SIZE as usize - 1) / LAYERNORM_BLOCK_SIZE as usize)
+                as u64,
             height: 1,
             depth: 1,
         };
@@ -1064,9 +1092,23 @@ impl MetalBackend {
 
         let scale = 1.0 / (head_dim as f32).sqrt();
 
-        let query_buffer = MetalBuffer::from_data(self.device.device(), query.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
-        let key_buffer = MetalBuffer::from_data(self.device.device(), key.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
-        let value_buffer = MetalBuffer::from_data(self.device.device(), value.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
+        let query_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            query
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
+        let key_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            key.as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
+        let value_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            value
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
         let output_buffer = MetalBuffer::new(
             self.device.device(),
             seq_len * head_dim * std::mem::size_of::<f32>(),
@@ -1079,15 +1121,21 @@ impl MetalBackend {
         let has_mask_buffer = MetalBuffer::from_data(self.device.device(), &[has_mask])?;
 
         let mask_buffer = if let Some(m) = mask {
-            MetalBuffer::from_data(self.device.device(), m.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?
+            MetalBuffer::from_data(
+                self.device.device(),
+                m.as_slice()
+                    .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+            )?
         } else {
             let dummy = vec![0.0f32; seq_len * kv_len];
             MetalBuffer::from_data(self.device.device(), &dummy)?
         };
 
         let grid_size = metal::MTLSize {
-            width: ((seq_len + ATTENTION_BLOCK_SIZE as usize - 1) / ATTENTION_BLOCK_SIZE as usize) as u64,
-            height: ((head_dim + ATTENTION_BLOCK_SIZE as usize - 1) / ATTENTION_BLOCK_SIZE as usize) as u64,
+            width: ((seq_len + ATTENTION_BLOCK_SIZE as usize - 1) / ATTENTION_BLOCK_SIZE as usize)
+                as u64,
+            height: ((head_dim + ATTENTION_BLOCK_SIZE as usize - 1) / ATTENTION_BLOCK_SIZE as usize)
+                as u64,
             depth: 1,
         };
         let threadgroup_size = metal::MTLSize {
@@ -1130,11 +1178,24 @@ impl MetalBackend {
 
         let scale = 1.0 / (head_dim as f32).sqrt();
 
-        let query_buffer = MetalBuffer::from_data(self.device.device(), query.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
-        let key_buffer =
-            MetalBuffer::from_data(self.device.device(), key_cache.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
-        let value_buffer =
-            MetalBuffer::from_data(self.device.device(), value_cache.as_slice().ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?)?;
+        let query_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            query
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
+        let key_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            key_cache
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
+        let value_buffer = MetalBuffer::from_data(
+            self.device.device(),
+            value_cache
+                .as_slice()
+                .ok_or_else(|| anyhow::anyhow!("矩阵不是连续存储"))?,
+        )?;
         let output_buffer =
             MetalBuffer::new(self.device.device(), head_dim * std::mem::size_of::<f32>())?;
 
@@ -1143,7 +1204,8 @@ impl MetalBackend {
         let scale_buffer = MetalBuffer::from_data(self.device.device(), &[scale])?;
 
         let grid_size = metal::MTLSize {
-            width: ((head_dim + ATTENTION_BLOCK_SIZE as usize - 1) / ATTENTION_BLOCK_SIZE as usize) as u64,
+            width: ((head_dim + ATTENTION_BLOCK_SIZE as usize - 1) / ATTENTION_BLOCK_SIZE as usize)
+                as u64,
             height: 1,
             depth: 1,
         };
@@ -1432,12 +1494,12 @@ mod tests {
 
         // 覆盖 device() 返回 Metal 设备引用
         let _device_ref = backend.device.device();
-        
+
         // 覆盖 info() 返回设备信息
         let info = backend.device.info();
         assert!(!info.name.is_empty());
         assert!(info.memory_size > 0);
-        
+
         // 验证 features 非空
         assert!(!info.features.is_empty(), "设备特性列表不应为空");
     }
@@ -1449,7 +1511,7 @@ mod tests {
 
         // 覆盖 queue() 返回命令队列引用
         let queue_ref = backend.command_queue.queue();
-        let _ = format!("{:?}", queue_ref);  // Debug trait
+        let _ = format!("{:?}", queue_ref); // Debug trait
     }
 
     /// 测试 MetalBuffer new/size/write/read（覆盖第497-568行）
@@ -1472,7 +1534,7 @@ mod tests {
         let data_buffer = MetalBuffer::from_data(device, &data);
         assert!(data_buffer.is_ok());
         let data_buffer = data_buffer.unwrap();
-        assert_eq!(data_buffer.size(), 16);  // 4 * sizeof(f32)
+        assert_eq!(data_buffer.size(), 16); // 4 * sizeof(f32)
 
         // 覆盖 write 和 read
         let write_data: Vec<f32> = vec![10.0, 20.0, 30.0, 40.0];
@@ -1509,7 +1571,7 @@ mod tests {
         let mut kernel_names = HashSet::new();
         for st in &shader_types {
             let name = st.kernel_name();
-            
+
             // 验证 kernel_name 非空且唯一
             assert!(!name.is_empty(), "{:?} 的 kernel_name 不应为空", st);
             kernel_names.insert(name);
@@ -1521,7 +1583,11 @@ mod tests {
         }
 
         // 所有 kernel_name 应唯一
-        assert_eq!(kernel_names.len(), shader_types.len(), "kernel_name 应全部唯一");
+        assert_eq!(
+            kernel_names.len(),
+            shader_types.len(),
+            "kernel_name 应全部唯一"
+        );
     }
 
     /// 测试 matmul 维度不匹配错误（覆盖第745-747行）
@@ -1530,15 +1596,18 @@ mod tests {
         let backend = get_backend();
 
         let a = Array2::from_shape_vec((2, 3), vec![1.0f32; 6]).unwrap();
-        let b = Array2::from_shape_vec((4, 5), vec![1.0f32; 20]).unwrap();  // K不匹配
+        let b = Array2::from_shape_vec((4, 5), vec![1.0f32; 20]).unwrap(); // K不匹配
 
         // 覆盖：维度不匹配应返回错误
         let result = backend.matmul(&a, &b);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(
-            err_msg.contains("维度") || err_msg.contains("dimension") || err_msg.contains("mismatch"),
-            "错误消息应包含维度信息: {}", err_msg
+            err_msg.contains("维度")
+                || err_msg.contains("dimension")
+                || err_msg.contains("mismatch"),
+            "错误消息应包含维度信息: {}",
+            err_msg
         );
     }
 
@@ -1549,8 +1618,8 @@ mod tests {
 
         let input = Array2::from_shape_vec((2, 4), vec![1.0f32; 8]).unwrap();
         let gamma = vec![1.0; 4];
-        let beta_wrong = vec![0.0; 2];  // beta长度不匹配
-        let gamma_wrong = vec![1.0; 2];  // gamma长度不匹配
+        let beta_wrong = vec![0.0; 2]; // beta长度不匹配
+        let gamma_wrong = vec![1.0; 2]; // gamma长度不匹配
 
         // 覆盖：layer_norm 参数不匹配
         let ln_result = backend.layer_norm(&input, &gamma, &beta_wrong, 1e-5);
@@ -1605,7 +1674,8 @@ mod tests {
         assert_eq!(result_zero.unwrap().dim(), (1, head_dim));
 
         // 覆盖：kv_len=max_seq 完整缓存
-        let result_full = backend.attention_with_kv_cache(&query, &key_cache, &value_cache, max_seq);
+        let result_full =
+            backend.attention_with_kv_cache(&query, &key_cache, &value_cache, max_seq);
         assert!(result_full.is_ok());
         assert_eq!(result_full.unwrap().dim(), (1, head_dim));
     }
@@ -1619,8 +1689,14 @@ mod tests {
         let device = backend.device.device();
 
         // 准备测试数据
-        let a = Array2::from_shape_vec((2, 3), vec![1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32]).unwrap();
-        let b = Array2::from_shape_vec((3, 2), vec![7.0f32, 8.0f32, 9.0f32, 10.0f32, 11.0f32, 12.0f32]).unwrap();
+        let a =
+            Array2::from_shape_vec((2, 3), vec![1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32])
+                .unwrap();
+        let b = Array2::from_shape_vec(
+            (3, 2),
+            vec![7.0f32, 8.0f32, 9.0f32, 10.0f32, 11.0f32, 12.0f32],
+        )
+        .unwrap();
 
         let a_buffer = MetalBuffer::from_data(device, a.as_slice().unwrap()).unwrap();
         let b_buffer = MetalBuffer::from_data(device, b.as_slice().unwrap()).unwrap();
@@ -1632,8 +1708,16 @@ mod tests {
         let handle = backend.execute_kernel_async(
             ShaderType::Matmul,
             &[&a_buffer, &b_buffer, &c_buffer, &dims_buffer],
-            metal::MTLSize { width: MATMUL_BLOCK_SIZE, height: MATMUL_BLOCK_SIZE, depth: 1 },
-            metal::MTLSize { width: 1, height: 1, depth: 1 },
+            metal::MTLSize {
+                width: MATMUL_BLOCK_SIZE,
+                height: MATMUL_BLOCK_SIZE,
+                depth: 1,
+            },
+            metal::MTLSize {
+                width: 1,
+                height: 1,
+                depth: 1,
+            },
             "test_async_matmul",
         );
 
@@ -1645,7 +1729,10 @@ mod tests {
 
         // 验证 Debug trait
         let debug_str = format!("{:?}", handle);
-        assert!(debug_str.contains("test_async_matmul"), "Debug 输出应包含标签");
+        assert!(
+            debug_str.contains("test_async_matmul"),
+            "Debug 输出应包含标签"
+        );
 
         // 等待完成（测试 wait 方法）
         handle.wait();
@@ -1667,13 +1754,23 @@ mod tests {
         let dims = [1u32, 4u32];
         let dims_buffer = MetalBuffer::from_data(device, &dims).unwrap();
 
-        let handle = backend.execute_kernel_async(
-            ShaderType::Softmax,
-            &[&input_buffer, &output_buffer, &dims_buffer],
-            metal::MTLSize { width: SOFTMAX_BLOCK_SIZE, height: 1, depth: 1 },
-            metal::MTLSize { width: 1, height: 1, depth: 1 },
-            "test_is_completed",
-        ).unwrap();
+        let handle = backend
+            .execute_kernel_async(
+                ShaderType::Softmax,
+                &[&input_buffer, &output_buffer, &dims_buffer],
+                metal::MTLSize {
+                    width: SOFTMAX_BLOCK_SIZE,
+                    height: 1,
+                    depth: 1,
+                },
+                metal::MTLSize {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                },
+                "test_is_completed",
+            )
+            .unwrap();
 
         // 对于小数据，可能已经完成，也可能还在执行
         // 两种状态都是合法的
@@ -1695,22 +1792,35 @@ mod tests {
 
         for i in 0..3 {
             let size = 4;
-            let input = Array2::from_shape_vec((1, size),
-                (0..size).map(|j| ((i * size + j) as f32)).collect()
-            ).unwrap();
+            let input = Array2::from_shape_vec(
+                (1, size),
+                (0..size).map(|j| ((i * size + j) as f32)).collect(),
+            )
+            .unwrap();
 
             let input_buffer = MetalBuffer::from_data(device, input.as_slice().unwrap()).unwrap();
-            let output_buffer = MetalBuffer::new(device, 1 * size * std::mem::size_of::<f32>()).unwrap();
+            let output_buffer =
+                MetalBuffer::new(device, 1 * size * std::mem::size_of::<f32>()).unwrap();
             let dims = [1u32, size as u32];
             let dims_buffer = MetalBuffer::from_data(device, &dims).unwrap();
 
-            let handle = backend.execute_kernel_async(
-                ShaderType::Softmax,
-                &[&input_buffer, &output_buffer, &dims_buffer],
-                metal::MTLSize { width: SOFTMAX_BLOCK_SIZE, height: 1, depth: 1 },
-                metal::MTLSize { width: 1, height: 1, depth: 1 },
-                &format!("batch_softmax_{}", i),
-            ).unwrap();
+            let handle = backend
+                .execute_kernel_async(
+                    ShaderType::Softmax,
+                    &[&input_buffer, &output_buffer, &dims_buffer],
+                    metal::MTLSize {
+                        width: SOFTMAX_BLOCK_SIZE,
+                        height: 1,
+                        depth: 1,
+                    },
+                    metal::MTLSize {
+                        width: 1,
+                        height: 1,
+                        depth: 1,
+                    },
+                    &format!("batch_softmax_{}", i),
+                )
+                .unwrap();
 
             handles.push(handle);
         }
@@ -1726,8 +1836,14 @@ mod tests {
     fn test_metal_async_correctness() {
         let backend = get_backend();
 
-        let a = Array2::from_shape_vec((2, 3), vec![1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32]).unwrap();
-        let b = Array2::from_shape_vec((3, 2), vec![7.0f32, 8.0f32, 9.0f32, 10.0f32, 11.0f32, 12.0f32]).unwrap();
+        let a =
+            Array2::from_shape_vec((2, 3), vec![1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32])
+                .unwrap();
+        let b = Array2::from_shape_vec(
+            (3, 2),
+            vec![7.0f32, 8.0f32, 9.0f32, 10.0f32, 11.0f32, 12.0f32],
+        )
+        .unwrap();
 
         // 同步版本
         let sync_result = backend.matmul(&a, &b).unwrap();
@@ -1742,7 +1858,10 @@ mod tests {
                 assert!(
                     (sync_result[[i, j]] - async_result[[i, j]]).abs() < 1e-5,
                     "异步和同步结果不一致: [{},{}] sync={} async={}",
-                    i, j, sync_result[[i, j]], async_result[[i, j]]
+                    i,
+                    j,
+                    sync_result[[i, j]],
+                    async_result[[i, j]]
                 );
             }
         }
@@ -1761,17 +1880,26 @@ mod tests {
         let dims_buffer = MetalBuffer::from_data(device, &dims).unwrap();
 
         let custom_label = "custom_test_label_12345";
-        let handle = backend.execute_kernel_async(
-            ShaderType::Softmax,
-            &[&input_buffer, &output_buffer, &dims_buffer],
-            metal::MTLSize { width: SOFTMAX_BLOCK_SIZE, height: 1, depth: 1 },
-            metal::MTLSize { width: 1, height: 1, depth: 1 },
-            custom_label,
-        ).unwrap();
+        let handle = backend
+            .execute_kernel_async(
+                ShaderType::Softmax,
+                &[&input_buffer, &output_buffer, &dims_buffer],
+                metal::MTLSize {
+                    width: SOFTMAX_BLOCK_SIZE,
+                    height: 1,
+                    depth: 1,
+                },
+                metal::MTLSize {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                },
+                custom_label,
+            )
+            .unwrap();
 
         // 验证自定义标签被正确保存
         assert_eq!(handle.label(), custom_label);
         handle.wait();
     }
 }
-

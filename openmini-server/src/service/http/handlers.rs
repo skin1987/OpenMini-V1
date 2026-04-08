@@ -5,12 +5,12 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    response::{IntoResponse, Response, Json},
+    response::{IntoResponse, Json, Response},
 };
-use std::sync::Arc;
-use tracing::{info, error, debug};
-use uuid::Uuid;
 use base64::Engine;
+use std::sync::Arc;
+use tracing::{debug, error, info};
+use uuid::Uuid;
 
 use super::types::*;
 // 使用相对路径访问 monitoring 模块
@@ -152,10 +152,11 @@ pub async fn chat_completion_stream(
         yield Ok::<_, axum::Error>(axum::response::sse::Event::default().data(finish_data));
     };
 
-    Ok(Sse::new(sse_stream).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(std::time::Duration::from_secs(15))
-    ).into_response())
+    Ok(Sse::new(sse_stream)
+        .keep_alive(
+            axum::response::sse::KeepAlive::new().interval(std::time::Duration::from_secs(15)),
+        )
+        .into_response())
 }
 
 /// 图像理解
@@ -197,7 +198,9 @@ pub async fn image_understand(
 
     // TODO: 集成真实图像理解逻辑
     // 当前返回模拟响应
-    let _question = req.question.unwrap_or_else(|| "请描述这张图片的内容。".to_string());
+    let _question = req
+        .question
+        .unwrap_or_else(|| "请描述这张图片的内容。".to_string());
 
     debug!(image_size = image_bytes.len(), "处理图像理解");
 
@@ -297,9 +300,7 @@ pub async fn speech_to_text(
 /// GET /api/v1/health
 ///
 /// 返回服务健康状态。
-pub async fn health_check(
-    State(state): State<AppState>,
-) -> Json<HealthCheckResponse> {
+pub async fn health_check(State(state): State<AppState>) -> Json<HealthCheckResponse> {
     debug!("执行健康检查");
 
     let is_healthy = state.health_checker.is_healthy().await;
@@ -339,14 +340,12 @@ pub async fn metrics() -> Result<String, StatusCode> {
 pub async fn list_models() -> Json<Vec<ModelInfo>> {
     debug("获取模型列表");
 
-    let models = vec![
-        ModelInfo {
-            id: "openmini-v1".to_string(),
-            name: "OpenMini V1".to_string(),
-            multimodal: true,
-            context_length: 4096,
-        },
-    ];
+    let models = vec![ModelInfo {
+        id: "openmini-v1".to_string(),
+        name: "OpenMini V1".to_string(),
+        multimodal: true,
+        context_length: 4096,
+    }];
 
     Json(models)
 }
@@ -374,7 +373,8 @@ fn debug(msg: &str) {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let status = StatusCode::from_u16(self.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let status =
+            StatusCode::from_u16(self.status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let body = Json(self);
 
         (status, body).into_response()

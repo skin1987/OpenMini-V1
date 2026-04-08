@@ -9,11 +9,11 @@
 //! - Keep Routing（专家路由保持）
 //! - Keep Sampling Mask（采样掩码保持）
 
+pub mod actor;
 pub mod grpo;
 pub mod keep_routing;
 pub mod keep_sampling_mask;
 pub mod reward;
-pub mod actor;
 
 use std::collections::HashMap;
 
@@ -84,7 +84,8 @@ impl Tensor {
             return 0.0;
         }
         let mean = self.mean();
-        let variance = self.data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / self.data.len() as f32;
+        let variance =
+            self.data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / self.data.len() as f32;
         variance.sqrt()
     }
 
@@ -94,7 +95,8 @@ impl Tensor {
         }
         let max_val = self.data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         let exp_sum: f32 = self.data.iter().map(|x| (x - max_val).exp()).sum();
-        let softmax_data: Vec<f32> = self.data
+        let softmax_data: Vec<f32> = self
+            .data
             .iter()
             .map(|x| (x - max_val).exp() / exp_sum)
             .collect();

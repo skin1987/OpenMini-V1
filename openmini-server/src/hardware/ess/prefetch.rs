@@ -62,7 +62,11 @@ impl LocalityAnalyzer {
     }
 
     fn abs_diff(a: usize, b: usize) -> usize {
-        if a > b { a - b } else { b - a }
+        if a > b {
+            a - b
+        } else {
+            b - a
+        }
     }
 
     fn signed_diff(a: usize, b: usize) -> i64 {
@@ -79,11 +83,11 @@ impl LocalityAnalyzer {
 
     pub fn record_access(&mut self, address: usize) {
         self.history.push_back(address);
-        
+
         if self.history.len() > self.config.max_history {
             self.history.pop_front();
         }
-        
+
         self.analyze_pattern();
     }
 
@@ -97,7 +101,7 @@ impl LocalityAnalyzer {
         let n = addresses.len();
 
         let last_addr = addresses[n - 1];
-        
+
         if addresses[..n - 1].contains(&last_addr) {
             self.pattern = AccessPattern::Temporal;
             return;
@@ -106,12 +110,12 @@ impl LocalityAnalyzer {
         if n >= 3 {
             let diff1 = Self::signed_diff(addresses[1], addresses[0]);
             let diff2 = Self::signed_diff(addresses[2], addresses[1]);
-            
+
             if diff1 == diff2 && diff1 != 0 {
-                let all_same_stride = addresses.windows(2).all(|w| {
-                    Self::signed_diff(w[1], w[0]) == diff1
-                });
-                
+                let all_same_stride = addresses
+                    .windows(2)
+                    .all(|w| Self::signed_diff(w[1], w[0]) == diff1);
+
                 if all_same_stride {
                     self.stride = Some(diff1.unsigned_abs() as usize);
                     self.stride_direction = diff1.signum();
@@ -122,21 +126,29 @@ impl LocalityAnalyzer {
         }
 
         if n >= 2 {
-            let signed_strides: Vec<i64> = addresses.windows(2)
+            let signed_strides: Vec<i64> = addresses
+                .windows(2)
                 .map(|w| Self::signed_diff(w[1], w[0]))
                 .collect();
-            
-            let abs_strides: Vec<usize> = signed_strides.iter()
+
+            let abs_strides: Vec<usize> = signed_strides
+                .iter()
                 .map(|&s| s.unsigned_abs() as usize)
                 .collect();
-            
+
             let sum: usize = abs_strides.iter().sum();
-            self.avg_stride = if abs_strides.is_empty() { 0 } else { sum / abs_strides.len() };
-            
-            let all_small = abs_strides.iter().all(|&s| s > 0 && s < self.config.sequential_threshold);
-            let all_same_direction = signed_strides.iter().all(|&s| s > 0) 
-                || signed_strides.iter().all(|&s| s < 0);
-            
+            self.avg_stride = if abs_strides.is_empty() {
+                0
+            } else {
+                sum / abs_strides.len()
+            };
+
+            let all_small = abs_strides
+                .iter()
+                .all(|&s| s > 0 && s < self.config.sequential_threshold);
+            let all_same_direction =
+                signed_strides.iter().all(|&s| s > 0) || signed_strides.iter().all(|&s| s < 0);
+
             if all_small && all_same_direction && self.avg_stride > 0 {
                 self.pattern = AccessPattern::Sequential;
                 return;
@@ -149,9 +161,12 @@ impl LocalityAnalyzer {
             let prev2 = addresses[n - 3];
             let diff1 = Self::abs_diff(last, prev);
             let diff2 = Self::abs_diff(prev, prev2);
-            
-            if diff1 > 0 && diff1 < self.config.spatial_threshold
-               && diff2 > 0 && diff2 < self.config.spatial_threshold {
+
+            if diff1 > 0
+                && diff1 < self.config.spatial_threshold
+                && diff2 > 0
+                && diff2 < self.config.spatial_threshold
+            {
                 self.pattern = AccessPattern::Spatial;
                 return;
             }
@@ -166,7 +181,7 @@ impl LocalityAnalyzer {
 
     pub fn predict_next(&self) -> Option<usize> {
         let last_addr = *self.history.back()?;
-        
+
         match self.pattern {
             AccessPattern::Temporal => Some(last_addr),
             AccessPattern::Strided => {
@@ -185,9 +200,7 @@ impl LocalityAnalyzer {
                     Some(last_addr + self.config.sequential_threshold)
                 }
             }
-            AccessPattern::Spatial => {
-                Some(last_addr + self.config.spatial_threshold)
-            }
+            AccessPattern::Spatial => Some(last_addr + self.config.spatial_threshold),
             _ => None,
         }
     }
@@ -390,13 +403,13 @@ mod tests {
             sequential_threshold: 1024,
             max_prefetch: 5,
         };
-        
+
         let mut prefetcher = Prefetcher::with_config(config);
-        
+
         prefetcher.access(0);
         prefetcher.access(256);
         prefetcher.access(768);
-        
+
         assert_eq!(prefetcher.get_pattern(), AccessPattern::Sequential);
     }
 
@@ -409,7 +422,7 @@ mod tests {
         let mut strided_analyzer = LocalityAnalyzer::new(100);
         strided_analyzer.record_access(100);
         strided_analyzer.record_access(200);
-        strided_analyzer.record_access(300);  // avg_stride=100, 所有stride相同 -> Strided
+        strided_analyzer.record_access(300); // avg_stride=100, 所有stride相同 -> Strided
         assert_eq!(strided_analyzer.get_pattern(), AccessPattern::Strided);
         let predicted = strided_analyzer.predict_next();
         assert!(predicted.is_some());
@@ -421,10 +434,10 @@ mod tests {
             ..Default::default()
         });
         seq_analyzer.record_access(0);
-        seq_analyzer.record_access(256);   // stride=256
-        seq_analyzer.record_access(768);   // stride=512 (不同) -> Sequential
+        seq_analyzer.record_access(256); // stride=256
+        seq_analyzer.record_access(768); // stride=512 (不同) -> Sequential
         assert_eq!(seq_analyzer.get_pattern(), AccessPattern::Sequential);
-        
+
         let predicted_seq = seq_analyzer.predict_next();
         assert!(predicted_seq.is_some());
 
@@ -432,7 +445,7 @@ mod tests {
         let mut temp_analyzer = LocalityAnalyzer::new(100);
         temp_analyzer.record_access(500);
         temp_analyzer.record_access(600);
-        temp_analyzer.record_access(500);  // 重复 -> temporal
+        temp_analyzer.record_access(500); // 重复 -> temporal
         assert_eq!(temp_analyzer.get_pattern(), AccessPattern::Temporal);
         assert_eq!(temp_analyzer.predict_next(), Some(500));
 
@@ -453,7 +466,7 @@ mod tests {
         analyzer.record_access(0);
 
         assert_eq!(analyzer.get_pattern(), AccessPattern::Strided);
-        
+
         // 预测下一个应为 -50，但负值返回None
         let predicted = analyzer.predict_next();
         assert!(predicted.is_none(), "负地址应返回None");
@@ -472,8 +485,8 @@ mod tests {
         analyzer.record_access(1);
         analyzer.record_access(2);
         analyzer.record_access(3);
-        analyzer.record_access(4);  // 应移除1
-        analyzer.record_access(5);  // 应移除2
+        analyzer.record_access(4); // 应移除1
+        analyzer.record_access(5); // 应移除2
 
         // 历史应只保留 [3, 4, 5]
         assert_eq!(analyzer.predict_next(), Some(6));
@@ -495,11 +508,11 @@ mod tests {
         for p in &patterns {
             // 验证 Debug
             let _ = format!("{:?}", p);
-            
+
             // 验证 Clone 和 Copy
             let p_copy = *p;
             assert_eq!(*p, p_copy);
-            
+
             // 验证 PartialEq
             assert_eq!(*p, p_copy);
         }
@@ -536,7 +549,7 @@ mod tests {
         // 生成足够多的预取以填满队列
         prefetcher.access(100);
         prefetcher.access(200);
-        prefetcher.access(300);  // 队列满，移除最早的
+        prefetcher.access(300); // 队列满，移除最早的
 
         let list = prefetcher.get_prefetch_list();
         assert!(list.len() <= 2, "队列大小不应超过max_prefetch");
@@ -547,20 +560,23 @@ mod tests {
     fn test_spatial_boundary_threshold() {
         let config = PrefetchConfig {
             spatial_threshold: 100,
-            sequential_threshold: 10,  // 设置很小的sequential阈值
+            sequential_threshold: 10, // 设置很小的sequential阈值
             ..Default::default()
         };
         let mut analyzer = LocalityAnalyzer::with_config(config);
 
         // 使用不同的stride（避免被识别为Strided），差距在spatial阈值内
         analyzer.record_access(10000);
-        analyzer.record_access(10050);   // diff=50 < 100 (spatial threshold)
-        analyzer.record_access(10130);   // diff=80 < 100 (不同stride，不是Strided)
+        analyzer.record_access(10050); // diff=50 < 100 (spatial threshold)
+        analyzer.record_access(10130); // diff=80 < 100 (不同stride，不是Strided)
 
         // 应该是 Spatial（因为stride不同且都在spatial阈值内）
         let pattern = analyzer.get_pattern();
         // 可能是 Spatial 或 Random（取决于具体实现），只要不是 Strided/Sequential 就可以
-        assert!(pattern == AccessPattern::Spatial || pattern == AccessPattern::Random,
-            "期望Spatial或Random，实际得到: {:?}", pattern);
+        assert!(
+            pattern == AccessPattern::Spatial || pattern == AccessPattern::Random,
+            "期望Spatial或Random，实际得到: {:?}",
+            pattern
+        );
     }
 }

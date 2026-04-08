@@ -79,11 +79,11 @@ impl PagedKVCache {
         let num_blocks = config.max_blocks;
         let kv_dim = config.num_heads * config.head_dim;
         let block_size = config.block_size;
-        
+
         let kv_data: Vec<Vec<Option<BlockKVData>>> = (0..num_layers)
             .map(|_| (0..num_blocks).map(|_| None).collect())
             .collect();
-        
+
         Self {
             block_manager,
             page_tables: HashMap::new(),
@@ -107,25 +107,33 @@ impl PagedKVCache {
     }
 
     /// 为请求分配槽位
-    pub fn allocate_slots(&mut self, request_id: RequestId, num_tokens: usize) -> Result<(), String> {
+    pub fn allocate_slots(
+        &mut self,
+        request_id: RequestId,
+        num_tokens: usize,
+    ) -> Result<(), String> {
         let num_blocks_needed = num_tokens.div_ceil(self.block_size);
-        
-        let block_ids = self.block_manager.allocate(num_blocks_needed, Some(request_id))?;
-        
+
+        let block_ids = self
+            .block_manager
+            .allocate(num_blocks_needed, Some(request_id))?;
+
         let page_table = PageTable::from_blocks(block_ids);
         self.page_tables.insert(request_id, page_table);
         self.num_active_requests.fetch_add(1, Ordering::SeqCst);
         self.total_tokens.fetch_add(num_tokens, Ordering::SeqCst);
-        
+
         Ok(())
     }
 
     /// 追加槽位
     pub fn append_slots(&mut self, request_id: RequestId, num_tokens: usize) -> Result<(), String> {
         let num_blocks_needed = num_tokens.div_ceil(self.block_size);
-        
-        let block_ids = self.block_manager.allocate(num_blocks_needed, Some(request_id))?;
-        
+
+        let block_ids = self
+            .block_manager
+            .allocate(num_blocks_needed, Some(request_id))?;
+
         if let Some(page_table) = self.page_tables.get_mut(&request_id) {
             page_table.reserve(num_blocks_needed);
             page_table.append_blocks(block_ids)?;
@@ -134,40 +142,56 @@ impl PagedKVCache {
             self.block_manager.free(&block_ids);
             return Err(format!("Request {} not found", request_id));
         }
-        
+
         Ok(())
     }
 
     /// 检查并执行COW：如果块的引用计数>1，则复制数据到新块
-    fn ensure_cow(&mut self, request_id: RequestId, block_idx: usize, block_id: BlockId) -> Result<BlockId, String> {
-        let ref_count = self.block_manager.get_block(block_id)
+    fn ensure_cow(
+        &mut self,
+        request_id: RequestId,
+        block_idx: usize,
+        block_id: BlockId,
+    ) -> Result<BlockId, String> {
+        let ref_count = self
+            .block_manager
+            .get_block(block_id)
             .map(|b| b.ref_count())
             .unwrap_or(1);
-        
+
         if ref_count <= 1 {
             return Ok(block_id);
         }
-        
-        let new_block_id = self.block_manager.allocate_one(Some(request_id))
+
+        let new_block_id = self
+            .block_manager
+            .allocate_one(Some(request_id))
             .map_err(|e| format!("Failed to allocate block for COW: {}", e))?;
-        
+
         for layer in 0..self.config.num_layers {
             if let Some(ref kv_data) = self.kv_data[layer][block_id] {
                 self.kv_data[layer][new_block_id] = Some(kv_data.clone());
             }
         }
-        
+
         self.block_manager.dec_ref(block_id);
-        
+
         if let Some(page_table) = self.page_tables.get_mut(&request_id) {
             let _ = page_table.set(block_idx, new_block_id);
         }
-        
+
         Ok(new_block_id)
     }
 
     /// 写入KV数据
-    pub fn write_kv(&mut self, request_id: RequestId, layer: usize, start_pos: usize, k: &Array2<f32>, v: &Array2<f32>) -> Result<(), String> {
+    pub fn write_kv(
+        &mut self,
+        request_id: RequestId,
+        layer: usize,
+        start_pos: usize,
+        k: &Array2<f32>,
+        v: &Array2<f32>,
+    ) -> Result<(), String> {
         if !self.page_tables.contains_key(&request_id) {
             return Err(format!("Request {} not found", request_id));
         }
@@ -178,17 +202,22 @@ impl PagedKVCache {
 
         let num_tokens = k.nrows();
         let input_dim = k.ncols();
-        
+
         if v.nrows() != num_tokens || v.ncols() != input_dim {
-            return Err(format!("K and V shape mismatch: K is ({}, {}), V is ({}, {})", 
-                num_tokens, input_dim, v.nrows(), v.ncols()));
+            return Err(format!(
+                "K and V shape mismatch: K is ({}, {}), V is ({}, {})",
+                num_tokens,
+                input_dim,
+                v.nrows(),
+                v.ncols()
+            ));
         }
 
         let mut block_mapping: HashMap<usize, BlockId> = HashMap::new();
-        
+
         let first_block_idx = start_pos / self.block_size;
         let last_block_idx = (start_pos + num_tokens - 1) / self.block_size;
-        
+
         for block_idx in first_block_idx..=last_block_idx {
             let page_table_ref = self.page_tables.get(&request_id).unwrap();
             if let Some(current_block_id) = page_table_ref.get(block_idx) {
@@ -202,23 +231,25 @@ impl PagedKVCache {
             let block_idx = global_pos / self.block_size;
             let local_pos = global_pos % self.block_size;
 
-            let actual_block_id = *block_mapping.get(&block_idx)
-                .ok_or_else(|| format!("Block {} not found for request {}", block_idx, request_id))?;
-            
+            let actual_block_id = *block_mapping.get(&block_idx).ok_or_else(|| {
+                format!("Block {} not found for request {}", block_idx, request_id)
+            })?;
+
             if self.kv_data[layer][actual_block_id].is_none() {
-                self.kv_data[layer][actual_block_id] = Some(BlockKVData::new(self.block_size, self.kv_dim));
+                self.kv_data[layer][actual_block_id] =
+                    Some(BlockKVData::new(self.block_size, self.kv_dim));
             }
 
             if let Some(ref mut kv_data) = self.kv_data[layer][actual_block_id] {
                 let offset = local_pos * self.kv_dim;
-                
+
                 let copy_dim = input_dim.min(self.kv_dim);
-                
+
                 for d in 0..copy_dim {
                     kv_data.k[offset + d] = k[[token_idx, d]];
                     kv_data.v[offset + d] = v[[token_idx, d]];
                 }
-                
+
                 for d in copy_dim..self.kv_dim {
                     kv_data.k[offset + d] = 0.0;
                     kv_data.v[offset + d] = 0.0;
@@ -230,7 +261,11 @@ impl PagedKVCache {
     }
 
     /// 读取KV数据
-    pub fn read_kv(&self, request_id: RequestId, layer: usize) -> Option<(Array2<f32>, Array2<f32>)> {
+    pub fn read_kv(
+        &self,
+        request_id: RequestId,
+        layer: usize,
+    ) -> Option<(Array2<f32>, Array2<f32>)> {
         let page_table = self.page_tables.get(&request_id)?;
 
         if layer >= self.config.num_layers {
@@ -265,7 +300,13 @@ impl PagedKVCache {
     }
 
     /// 读取指定范围的KV数据
-    pub fn read_kv_range(&self, request_id: RequestId, layer: usize, start: usize, len: usize) -> Option<(Array2<f32>, Array2<f32>)> {
+    pub fn read_kv_range(
+        &self,
+        request_id: RequestId,
+        layer: usize,
+        start: usize,
+        len: usize,
+    ) -> Option<(Array2<f32>, Array2<f32>)> {
         let page_table = self.page_tables.get(&request_id)?;
 
         if layer >= self.config.num_layers {
@@ -276,7 +317,7 @@ impl PagedKVCache {
         if start >= max_tokens {
             return None;
         }
-        
+
         let actual_len = len.min(max_tokens - start);
 
         let mut k = Array2::zeros((actual_len, self.kv_dim));
@@ -307,7 +348,7 @@ impl PagedKVCache {
         if let Some(page_table) = self.page_tables.remove(request_id) {
             let blocks = page_table.get_all_blocks();
             let num_tokens = blocks.len() * self.block_size;
-            
+
             self.block_manager.free(&blocks);
             self.num_active_requests.fetch_sub(1, Ordering::SeqCst);
             self.total_tokens.fetch_sub(num_tokens, Ordering::SeqCst);
@@ -316,7 +357,9 @@ impl PagedKVCache {
 
     /// 获取请求的序列长度
     pub fn get_seq_len(&self, request_id: RequestId) -> Option<usize> {
-        self.page_tables.get(&request_id).map(|pt| pt.len() * self.block_size)
+        self.page_tables
+            .get(&request_id)
+            .map(|pt| pt.len() * self.block_size)
     }
 
     /// 获取请求的块数
@@ -373,16 +416,18 @@ impl PagedKVCache {
 
     /// Fork请求（Copy-on-Write）
     pub fn fork_request(&mut self, source_id: RequestId, new_id: RequestId) -> Result<(), String> {
-        let source_pt = self.page_tables.get(&source_id)
+        let source_pt = self
+            .page_tables
+            .get(&source_id)
             .ok_or_else(|| format!("Source request {} not found", source_id))?;
-        
+
         let blocks = source_pt.get_all_blocks();
         let new_blocks = self.block_manager.fork(&blocks, Some(new_id))?;
-        
+
         let new_page_table = PageTable::from_blocks(new_blocks);
         self.page_tables.insert(new_id, new_page_table);
         self.num_active_requests.fetch_add(1, Ordering::SeqCst);
-        
+
         Ok(())
     }
 
@@ -431,9 +476,9 @@ mod tests {
     #[test]
     fn test_allocate_slots() {
         let mut cache = create_test_cache();
-        
+
         cache.allocate_slots(1, 32).unwrap();
-        
+
         assert_eq!(cache.num_active_requests(), 1);
         assert_eq!(cache.allocated_blocks(), 2);
         assert!(cache.contains_request(1));
@@ -443,10 +488,10 @@ mod tests {
     #[test]
     fn test_free_request() {
         let mut cache = create_test_cache();
-        
+
         cache.allocate_slots(1, 32).unwrap();
         cache.free_request(&1);
-        
+
         assert_eq!(cache.num_active_requests(), 0);
         assert_eq!(cache.allocated_blocks(), 0);
         assert!(!cache.contains_request(1));
@@ -455,25 +500,37 @@ mod tests {
     #[test]
     fn test_write_read_kv() {
         let mut cache = PagedKVCache::with_capacity(100, 16);
-        
+
         cache.allocate_slots(1, 16).unwrap();
-        
+
         let k = Array2::from_shape_fn((16, 128), |(i, j)| (i + j) as f32);
         let v = Array2::from_shape_fn((16, 128), |(i, j)| (i * 2 + j) as f32);
-        
+
         cache.write_kv(1, 0, 0, &k, &v).unwrap();
-        
+
         let (read_k, read_v) = cache.read_kv(1, 0).unwrap();
-        
+
         assert_eq!(read_k.nrows(), 16);
         assert_eq!(read_v.nrows(), 16);
-        
+
         for i in 0..16 {
             for j in 0..128 {
-                assert!((read_k[[i, j]] - k[[i, j]]).abs() < 1e-6, 
-                    "K mismatch at ({}, {}): expected {}, got {}", i, j, k[[i, j]], read_k[[i, j]]);
-                assert!((read_v[[i, j]] - v[[i, j]]).abs() < 1e-6,
-                    "V mismatch at ({}, {}): expected {}, got {}", i, j, v[[i, j]], read_v[[i, j]]);
+                assert!(
+                    (read_k[[i, j]] - k[[i, j]]).abs() < 1e-6,
+                    "K mismatch at ({}, {}): expected {}, got {}",
+                    i,
+                    j,
+                    k[[i, j]],
+                    read_k[[i, j]]
+                );
+                assert!(
+                    (read_v[[i, j]] - v[[i, j]]).abs() < 1e-6,
+                    "V mismatch at ({}, {}): expected {}, got {}",
+                    i,
+                    j,
+                    v[[i, j]],
+                    read_v[[i, j]]
+                );
             }
         }
     }
@@ -481,21 +538,25 @@ mod tests {
     #[test]
     fn test_write_read_kv_different_values() {
         let mut cache = PagedKVCache::with_capacity(100, 16);
-        
+
         cache.allocate_slots(1, 16).unwrap();
-        
+
         let k = Array2::from_shape_fn((16, 128), |(i, j)| (i + j) as f32);
         let v = Array2::from_shape_fn((16, 128), |(i, j)| (i + j + 1000) as f32);
-        
+
         cache.write_kv(1, 0, 0, &k, &v).unwrap();
-        
+
         let (read_k, read_v) = cache.read_kv(1, 0).unwrap();
-        
+
         for i in 0..16 {
             for j in 0..128 {
                 assert!((read_k[[i, j]] - k[[i, j]]).abs() < 1e-6);
                 assert!((read_v[[i, j]] - v[[i, j]]).abs() < 1e-6);
-                assert_ne!(read_k[[i, j]], read_v[[i, j]], "K and V should be different!");
+                assert_ne!(
+                    read_k[[i, j]],
+                    read_v[[i, j]],
+                    "K and V should be different!"
+                );
             }
         }
     }
@@ -503,16 +564,16 @@ mod tests {
     #[test]
     fn test_multiple_requests() {
         let mut cache = create_test_cache();
-        
+
         cache.allocate_slots(1, 16).unwrap();
         cache.allocate_slots(2, 32).unwrap();
         cache.allocate_slots(3, 48).unwrap();
-        
+
         assert_eq!(cache.num_active_requests(), 3);
         assert_eq!(cache.allocated_blocks(), 6);
-        
+
         cache.free_request(&2);
-        
+
         assert_eq!(cache.num_active_requests(), 2);
         assert_eq!(cache.allocated_blocks(), 4);
     }
@@ -520,10 +581,10 @@ mod tests {
     #[test]
     fn test_append_slots() {
         let mut cache = create_test_cache();
-        
+
         cache.allocate_slots(1, 16).unwrap();
         assert_eq!(cache.get_num_blocks(1), Some(1));
-        
+
         cache.append_slots(1, 32).unwrap();
         assert_eq!(cache.get_num_blocks(1), Some(3));
     }
@@ -531,9 +592,9 @@ mod tests {
     #[test]
     fn test_utilization() {
         let mut cache = create_test_cache();
-        
+
         assert!((cache.utilization() - 0.0).abs() < 0.001);
-        
+
         cache.allocate_slots(1, 800).unwrap();
         assert!((cache.utilization() - 0.5).abs() < 0.001);
     }
@@ -541,10 +602,10 @@ mod tests {
     #[test]
     fn test_fork_request() {
         let mut cache = create_test_cache();
-        
+
         cache.allocate_slots(1, 32).unwrap();
         cache.fork_request(1, 2).unwrap();
-        
+
         assert_eq!(cache.num_active_requests(), 2);
         assert!(cache.contains_request(2));
     }
@@ -552,7 +613,7 @@ mod tests {
     #[test]
     fn test_allocate_insufficient() {
         let mut cache = PagedKVCache::with_capacity(10, 16);
-        
+
         let result = cache.allocate_slots(1, 200);
         assert!(result.is_err());
     }
@@ -560,32 +621,48 @@ mod tests {
     #[test]
     fn test_cow_on_write() {
         let mut cache = PagedKVCache::with_capacity(100, 16);
-        
+
         cache.allocate_slots(1, 16).unwrap();
-        
+
         let k1 = Array2::from_shape_fn((16, 128), |(i, j)| (i + j) as f32);
         let v1 = Array2::from_shape_fn((16, 128), |(i, j)| (i + j + 100) as f32);
         cache.write_kv(1, 0, 0, &k1, &v1).unwrap();
-        
+
         cache.fork_request(1, 2).unwrap();
-        
+
         let k2 = Array2::from_shape_fn((16, 128), |(i, j)| (i * 2 + j) as f32);
         let v2 = Array2::from_shape_fn((16, 128), |(i, j)| (i * 2 + j + 200) as f32);
         cache.write_kv(2, 0, 0, &k2, &v2).unwrap();
-        
+
         let (read_k1, read_v1) = cache.read_kv(1, 0).unwrap();
         let (read_k2, read_v2) = cache.read_kv(2, 0).unwrap();
-        
+
         for i in 0..16 {
             for j in 0..128 {
-                assert!((read_k1[[i, j]] - k1[[i, j]]).abs() < 1e-6, 
-                    "Original request K should not be modified! Expected {}, got {}", k1[[i, j]], read_k1[[i, j]]);
-                assert!((read_v1[[i, j]] - v1[[i, j]]).abs() < 1e-6,
-                    "Original request V should not be modified! Expected {}, got {}", v1[[i, j]], read_v1[[i, j]]);
-                assert!((read_k2[[i, j]] - k2[[i, j]]).abs() < 1e-6,
-                    "Forked request K should have new value! Expected {}, got {}", k2[[i, j]], read_k2[[i, j]]);
-                assert!((read_v2[[i, j]] - v2[[i, j]]).abs() < 1e-6,
-                    "Forked request V should have new value! Expected {}, got {}", v2[[i, j]], read_v2[[i, j]]);
+                assert!(
+                    (read_k1[[i, j]] - k1[[i, j]]).abs() < 1e-6,
+                    "Original request K should not be modified! Expected {}, got {}",
+                    k1[[i, j]],
+                    read_k1[[i, j]]
+                );
+                assert!(
+                    (read_v1[[i, j]] - v1[[i, j]]).abs() < 1e-6,
+                    "Original request V should not be modified! Expected {}, got {}",
+                    v1[[i, j]],
+                    read_v1[[i, j]]
+                );
+                assert!(
+                    (read_k2[[i, j]] - k2[[i, j]]).abs() < 1e-6,
+                    "Forked request K should have new value! Expected {}, got {}",
+                    k2[[i, j]],
+                    read_k2[[i, j]]
+                );
+                assert!(
+                    (read_v2[[i, j]] - v2[[i, j]]).abs() < 1e-6,
+                    "Forked request V should have new value! Expected {}, got {}",
+                    v2[[i, j]],
+                    read_v2[[i, j]]
+                );
             }
         }
     }
@@ -593,18 +670,18 @@ mod tests {
     #[test]
     fn test_read_kv_range() {
         let mut cache = PagedKVCache::with_capacity(100, 16);
-        
+
         cache.allocate_slots(1, 32).unwrap();
-        
+
         let k = Array2::from_shape_fn((32, 128), |(i, j)| (i + j) as f32);
         let v = Array2::from_shape_fn((32, 128), |(i, j)| (i + j + 1000) as f32);
         cache.write_kv(1, 0, 0, &k, &v).unwrap();
-        
+
         let (read_k, read_v) = cache.read_kv_range(1, 0, 8, 16).unwrap();
-        
+
         assert_eq!(read_k.nrows(), 16);
         assert_eq!(read_v.nrows(), 16);
-        
+
         for i in 0..16 {
             for j in 0..128 {
                 assert!((read_k[[i, j]] - k[[i + 8, j]]).abs() < 1e-6);
@@ -616,16 +693,19 @@ mod tests {
     #[test]
     fn test_read_kv_range_out_of_bounds() {
         let mut cache = PagedKVCache::with_capacity(100, 16);
-        
+
         cache.allocate_slots(1, 16).unwrap();
-        
+
         let k = Array2::ones((16, 128));
         let v = Array2::ones((16, 128)) * 2.0;
         cache.write_kv(1, 0, 0, &k, &v).unwrap();
-        
+
         let result = cache.read_kv_range(1, 0, 100, 10);
-        assert!(result.is_none(), "Should return None for out of bounds start");
-        
+        assert!(
+            result.is_none(),
+            "Should return None for out of bounds start"
+        );
+
         let (read_k, read_v) = cache.read_kv_range(1, 0, 8, 100).unwrap();
         assert_eq!(read_k.nrows(), 8, "Should clamp to available tokens");
         assert_eq!(read_v.nrows(), 8);

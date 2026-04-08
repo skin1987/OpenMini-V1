@@ -14,9 +14,9 @@ use rayon::prelude::*;
 
 use super::error::{InferenceError, InferenceResult};
 use super::image_preprocess::{ImagePreprocessor, ImagePreprocessorConfig};
-use super::quant_loader::QuantizedWeightLoader;
 use super::model::ModelConfig;
 use super::model::MultimodalTransformer;
+use super::quant_loader::QuantizedWeightLoader;
 use super::sampler::GenerateParams;
 use super::tokenizer::Tokenizer;
 
@@ -38,12 +38,12 @@ pub struct InferenceStats {
     /// 每 token 平均生成时间（TPOT，毫秒）
     pub time_per_output_token_ms: Option<f64>,
     /// 总体 token 处理速度
-    /// 
+    ///
     /// **注意**：此指标包含 prompt 处理时间。
     /// 对于长 prompt 或短生成场景，该值可能低估实际生成速度。
-    /// 
+    ///
     /// 如需精确测量生成速度，应在生成过程中记录首 token 时间。
-    /// 
+    ///
     /// 计算公式：(prompt_tokens + generated_tokens) / inference_time_secs
     pub tokens_per_second: f32,
 }
@@ -168,7 +168,8 @@ impl InferenceEngine {
             .map_err(|e| InferenceError::model_file(e.to_string(), path))?;
 
         // 从 GGUF 元数据提取模型配置
-        let config = loader.get_model_config()
+        let config = loader
+            .get_model_config()
             .map_err(|e| InferenceError::config(e.to_string()))?;
 
         // 创建模型结构
@@ -238,7 +239,8 @@ impl InferenceEngine {
                     Err(_) => {}
                 }
 
-                let post_attn_norm_name = format!("model.layers.{}.post_attention_layernorm", layer_idx);
+                let post_attn_norm_name =
+                    format!("model.layers.{}.post_attention_layernorm", layer_idx);
                 match loader.load_norm_weights(&post_attn_norm_name) {
                     Ok(post_norm) => {
                         layer.post_attention_layernorm = post_norm;
@@ -255,15 +257,13 @@ impl InferenceEngine {
 
         info!(
             "Loaded {}/{} transformer layers from GGUF file",
-            loaded_layers,
-            config.num_hidden_layers
+            loaded_layers, config.num_hidden_layers
         );
 
         if loaded_layers < config.num_hidden_layers {
             warn!(
                 "Only {}/{} layers loaded - model may not work correctly!",
-                loaded_layers,
-                config.num_hidden_layers
+                loaded_layers, config.num_hidden_layers
             );
         }
 
@@ -281,18 +281,20 @@ impl InferenceEngine {
     }
 
     /// 文本生成
-    pub fn generate(
-        &self,
-        prompt: &str,
-        params: &GenerateParams,
-    ) -> InferenceResult<String> {
-        let tokens = self.tokenizer.encode(prompt)
+    pub fn generate(&self, prompt: &str, params: &GenerateParams) -> InferenceResult<String> {
+        let tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
-        let generated_ids = self.model.generate_with_params(&tokens, params)
+        let generated_ids = self
+            .model
+            .generate_with_params(&tokens, params)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
 
-        let generated_text = self.tokenizer.decode(&generated_ids)
+        let generated_text = self
+            .tokenizer
+            .decode(&generated_ids)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
         Ok(generated_text)
     }
@@ -318,20 +320,25 @@ impl InferenceEngine {
         params: &GenerateParams,
     ) -> InferenceResult<String> {
         // 预处理图像（自动 resize 到目标尺寸）
-        let processed = self.image_preprocessor.resize_only(image)
+        let processed = self
+            .image_preprocessor
+            .resize_only(image)
             .map_err(|e| InferenceError::image_preprocess(e.to_string()))?;
 
-        let tokens = self.tokenizer.encode(prompt)
+        let tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         // 调用多模态生成（传入预处理后的图像）
-        let generated_ids = self.model.generate_multimodal_with_params(
-            &tokens,
-            Some(&processed),
-            params,
-        ).map_err(|e| InferenceError::generation(e.to_string()))?;
+        let generated_ids = self
+            .model
+            .generate_multimodal_with_params(&tokens, Some(&processed), params)
+            .map_err(|e| InferenceError::generation(e.to_string()))?;
 
-        let generated_text = self.tokenizer.decode(&generated_ids)
+        let generated_text = self
+            .tokenizer
+            .decode(&generated_ids)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
         Ok(generated_text)
     }
@@ -360,23 +367,29 @@ impl InferenceEngine {
 
         // 预处理图像（如果存在）
         let processed_image = if let Some(img) = image {
-            Some(self.image_preprocessor.resize_only(img)
-                .map_err(|e| InferenceError::image_preprocess(e.to_string()))?)
+            Some(
+                self.image_preprocessor
+                    .resize_only(img)
+                    .map_err(|e| InferenceError::image_preprocess(e.to_string()))?,
+            )
         } else {
             None
         };
 
-        let tokens = self.tokenizer.encode(prompt)
+        let tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         // 调用多模态生成（带采样参数）
-        let generated_ids = self.model.generate_multimodal_with_params(
-            &tokens,
-            processed_image.as_ref(),
-            params,
-        ).map_err(|e| InferenceError::generation(e.to_string()))?;
+        let generated_ids = self
+            .model
+            .generate_multimodal_with_params(&tokens, processed_image.as_ref(), params)
+            .map_err(|e| InferenceError::generation(e.to_string()))?;
 
-        let generated_text = self.tokenizer.decode(&generated_ids)
+        let generated_text = self
+            .tokenizer
+            .decode(&generated_ids)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
         Ok(generated_text)
     }
@@ -389,15 +402,21 @@ impl InferenceEngine {
     ) -> InferenceResult<(String, InferenceStats)> {
         let start_time = Instant::now();
 
-        let tokens = self.tokenizer.encode(prompt)
+        let tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
         let prompt_tokens = tokens.len();
 
-        let generated_ids = self.model.generate_with_params(&tokens, params)
+        let generated_ids = self
+            .model
+            .generate_with_params(&tokens, params)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
         let generated_tokens = generated_ids.len();
 
-        let generated_text = self.tokenizer.decode(&generated_ids)
+        let generated_text = self
+            .tokenizer
+            .decode(&generated_ids)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         let elapsed_ms = start_time.elapsed().as_millis() as u64;
@@ -418,13 +437,19 @@ impl InferenceEngine {
         let results: Vec<String> = prompts
             .par_iter()
             .map(|prompt| {
-                let tokens = self.tokenizer.encode(prompt)
+                let tokens = self
+                    .tokenizer
+                    .encode(prompt)
                     .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
-                let generated_ids = self.model.generate_with_params(&tokens, params)
+                let generated_ids = self
+                    .model
+                    .generate_with_params(&tokens, params)
                     .map_err(|e| InferenceError::generation(e.to_string()))?;
 
-                let generated_text = self.tokenizer.decode(&generated_ids)
+                let generated_text = self
+                    .tokenizer
+                    .decode(&generated_ids)
                     .map_err(|e| InferenceError::tokenization(e.to_string()))?;
                 Ok(generated_text)
             })
@@ -447,19 +472,26 @@ impl InferenceEngine {
             .map(|prompt| {
                 let start_time = Instant::now();
 
-                let tokens = self.tokenizer.encode(prompt)
+                let tokens = self
+                    .tokenizer
+                    .encode(prompt)
                     .map_err(|e| InferenceError::tokenization(e.to_string()))?;
                 let prompt_tokens = tokens.len();
 
-                let generated_ids = self.model.generate_with_params(&tokens, params)
+                let generated_ids = self
+                    .model
+                    .generate_with_params(&tokens, params)
                     .map_err(|e| InferenceError::generation(e.to_string()))?;
                 let generated_tokens = generated_ids.len();
 
-                let generated_text = self.tokenizer.decode(&generated_ids)
+                let generated_text = self
+                    .tokenizer
+                    .decode(&generated_ids)
                     .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
                 let elapsed_ms = start_time.elapsed().as_millis() as u64;
-                let stats = InferenceStats::with_timing(elapsed_ms, prompt_tokens, generated_tokens);
+                let stats =
+                    InferenceStats::with_timing(elapsed_ms, prompt_tokens, generated_tokens);
 
                 Ok((generated_text, stats))
             })
@@ -520,18 +552,24 @@ impl StreamGenerator {
     {
         let start_time = Instant::now();
 
-        let tokens = self.tokenizer.encode(prompt)
+        let tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
         let prompt_tokens = tokens.len();
 
         let mut generated_tokens = 0;
 
-        self.model.generate_streaming(&tokens, params, |token_id| {
-            generated_tokens += 1;
-            let token_text = self.tokenizer.decode(&[token_id])
-                .map_err(|e| InferenceError::tokenization(e.to_string()))?;
-            callback(&token_text)
-        }).map_err(|e| InferenceError::generation(e.to_string()))?;
+        self.model
+            .generate_streaming(&tokens, params, |token_id| {
+                generated_tokens += 1;
+                let token_text = self
+                    .tokenizer
+                    .decode(&[token_id])
+                    .map_err(|e| InferenceError::tokenization(e.to_string()))?;
+                callback(&token_text)
+            })
+            .map_err(|e| InferenceError::generation(e.to_string()))?;
 
         let elapsed_ms = start_time.elapsed().as_millis() as u64;
         let stats = InferenceStats::with_timing(elapsed_ms, prompt_tokens, generated_tokens);
@@ -572,22 +610,30 @@ impl StreamGenerator {
         let start_time = Instant::now();
 
         // 预处理图像（自动 resize 到目标尺寸）
-        let processed = self.image_preprocessor.resize_only(image)
+        let processed = self
+            .image_preprocessor
+            .resize_only(image)
             .map_err(|e| InferenceError::image_preprocess(e.to_string()))?;
 
-        let tokens = self.tokenizer.encode(prompt)
+        let tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
         let prompt_tokens = tokens.len();
 
         let mut generated_tokens = 0;
 
         // 使用多模态流式生成
-        self.model.generate_streaming_multimodal(&tokens, Some(&processed), params, |token_id| {
-            generated_tokens += 1;
-            let token_text = self.tokenizer.decode(&[token_id])
-                .map_err(|e| InferenceError::tokenization(e.to_string()))?;
-            callback(&token_text)
-        }).map_err(|e| InferenceError::generation(e.to_string()))?;
+        self.model
+            .generate_streaming_multimodal(&tokens, Some(&processed), params, |token_id| {
+                generated_tokens += 1;
+                let token_text = self
+                    .tokenizer
+                    .decode(&[token_id])
+                    .map_err(|e| InferenceError::tokenization(e.to_string()))?;
+                callback(&token_text)
+            })
+            .map_err(|e| InferenceError::generation(e.to_string()))?;
 
         let elapsed_ms = start_time.elapsed().as_millis() as u64;
         let stats = InferenceStats::with_timing(elapsed_ms, prompt_tokens, generated_tokens);
@@ -626,12 +672,7 @@ mod tests {
 
     #[test]
     fn test_inference_stats_with_timing_high_precision() {
-        let stats = InferenceStats::with_timing_high_precision(
-            1.5,
-            50,
-            100,
-            Some(200),
-        );
+        let stats = InferenceStats::with_timing_high_precision(1.5, 50, 100, Some(200));
 
         assert_eq!(stats.inference_time_ms, 1500);
         assert!((stats.inference_time_secs - 1.5).abs() < 0.001);
@@ -670,13 +711,8 @@ mod tests {
     fn test_inference_stats_tpot_calculation() {
         // 场景：推理时间2秒，prompt=10，generated=20，TTFT=500ms
         // TPOT = (2000ms - 500ms) / 20 = 75ms/token
-        let stats = InferenceStats::with_timing_high_precision(
-            2.0,
-            10,
-            20,
-            Some(500),
-        );
-        
+        let stats = InferenceStats::with_timing_high_precision(2.0, 10, 20, Some(500));
+
         assert_eq!(stats.generated_tokens, 20);
         let tpot = stats.time_per_output_token_ms.expect("应该有TPOT");
         assert!((tpot - 75.0).abs() < 0.1, "TPOT应为75.0ms，实际: {}", tpot);
@@ -687,21 +723,21 @@ mod tests {
     fn test_inference_stats_no_ttft_no_tpot() {
         // 当没有TTFT或生成token数为0时，TPOT应该是None
         let stats = InferenceStats::with_timing_high_precision(
-            1.0,
-            10,
-            20,
-            None,  // 无TTFT
+            1.0, 10, 20, None, // 无TTFT
         );
-        
+
         assert!(stats.time_to_first_token_ms.is_none());
-        assert!(stats.time_per_output_token_ms.is_none(), "无TTFT时TPOT应为None");
+        assert!(
+            stats.time_per_output_token_ms.is_none(),
+            "无TTFT时TPOT应为None"
+        );
     }
 
     /// 测试：零生成token时的统计信息（边界条件）
     #[test]
     fn test_inference_stats_zero_generated_tokens() {
-        let stats = InferenceStats::with_timing(1000, 50, 0);  // 只处理prompt
-        
+        let stats = InferenceStats::with_timing(1000, 50, 0); // 只处理prompt
+
         assert_eq!(stats.total_tokens, 50);
         assert_eq!(stats.generated_tokens, 0);
         assert!((stats.tokens_per_second - 50.0).abs() < 0.01);
@@ -710,13 +746,8 @@ mod tests {
     /// 测试：InferenceStats的Clone特性（用于传递和复制统计信息）
     #[test]
     fn test_inference_stats_clone() {
-        let stats = InferenceStats::with_timing_high_precision(
-            3.14,
-            100,
-            200,
-            Some(300),
-        );
-        
+        let stats = InferenceStats::with_timing_high_precision(3.14, 100, 200, Some(300));
+
         let cloned = stats.clone();
         assert_eq!(cloned.inference_time_ms, stats.inference_time_ms);
         assert!((cloned.inference_time_secs - stats.inference_time_secs).abs() < 1e-10);
@@ -724,7 +755,10 @@ mod tests {
         assert_eq!(cloned.generated_tokens, stats.generated_tokens);
         assert_eq!(cloned.total_tokens, stats.total_tokens);
         assert_eq!(cloned.time_to_first_token_ms, stats.time_to_first_token_ms);
-        assert_eq!(cloned.time_per_output_token_ms, stats.time_per_output_token_ms);
+        assert_eq!(
+            cloned.time_per_output_token_ms,
+            stats.time_per_output_token_ms
+        );
         assert!((cloned.tokens_per_second - stats.tokens_per_second).abs() < 1e-5);
     }
 
@@ -733,12 +767,15 @@ mod tests {
     fn test_inference_stats_very_small_time() {
         // 极短时间（1毫秒），大量token
         let stats = InferenceStats::with_timing(1, 100, 100);
-        
+
         assert_eq!(stats.inference_time_ms, 1);
         assert!((stats.inference_time_secs - 0.001).abs() < 0.0001);
         // tokens_per_second 应该非常大但不应溢出
-        assert!(stats.tokens_per_second > 100000.0, 
-                "TPS应大于100K，实际: {:.2}", stats.tokens_per_second);
+        assert!(
+            stats.tokens_per_second > 100000.0,
+            "TPS应大于100K，实际: {:.2}",
+            stats.tokens_per_second
+        );
     }
 
     /// 测试：Debug trait实现（确保所有字段都被正确格式化）
@@ -746,7 +783,7 @@ mod tests {
     fn test_inference_stats_debug() {
         let stats = InferenceStats::with_timing(1234, 56, 78);
         let debug_str = format!("{:?}", stats);
-        
+
         // 验证Debug输出包含关键字段
         assert!(debug_str.contains("1234"), "应包含inference_time_ms");
         assert!(debug_str.contains("56"), "应包含prompt_tokens");
@@ -758,12 +795,7 @@ mod tests {
     fn test_inference_stats_time_conversion_rounding() {
         // 使用非整数秒数测试转换精度
         let original_secs = 1.234567;
-        let stats = InferenceStats::with_timing_high_precision(
-            original_secs,
-            10,
-            20,
-            None,
-        );
+        let stats = InferenceStats::with_timing_high_precision(original_secs, 10, 20, None);
 
         // 验证毫秒转换正确（1234ms）
         assert_eq!(stats.inference_time_ms, 1234);
@@ -779,14 +811,16 @@ mod tests {
         let stats = InferenceStats::with_timing_high_precision(
             1.0,
             10,
-            0,   // 零生成token
+            0, // 零生成token
             Some(500),
         );
 
         assert_eq!(stats.generated_tokens, 0);
         assert!(stats.time_to_first_token_ms.is_some());
-        assert!(stats.time_per_output_token_ms.is_none(),
-            "零生成token时TPOT应为None，即使有TTFT");
+        assert!(
+            stats.time_per_output_token_ms.is_none(),
+            "零生成token时TPOT应为None，即使有TTFT"
+        );
     }
 
     /// 测试：极端时间值的处理（极长时间运行）
@@ -797,16 +831,19 @@ mod tests {
 
         let stats = InferenceStats::with_timing(
             hours_in_ms,
-            10000,   // 10K prompt tokens
-            50000,   // 50K generated tokens
+            10000, // 10K prompt tokens
+            50000, // 50K generated tokens
         );
 
         assert_eq!(stats.total_tokens, 60000);
         assert!((stats.inference_time_secs - 3600.0).abs() < 1.0);
 
         // TPS应该在合理范围内 (60000 / 3600 ≈ 16.67)
-        assert!((stats.tokens_per_second - 16.67).abs() < 0.1,
-            "长时间运行TPS计算错误: {}", stats.tokens_per_second);
+        assert!(
+            (stats.tokens_per_second - 16.67).abs() < 0.1,
+            "长时间运行TPS计算错误: {}",
+            stats.tokens_per_second
+        );
     }
 
     /// 测试：tokens_per_second的各种边界条件
@@ -821,8 +858,11 @@ mod tests {
         // 边界2: 单个token在极短时间内
         {
             let stats = InferenceStats::with_timing(1, 0, 1);
-            assert!(stats.tokens_per_second > 999.0,
-                "单tokenTPS应约等于1000: {}", stats.tokens_per_second);
+            assert!(
+                stats.tokens_per_second > 999.0,
+                "单tokenTPS应约等于1000: {}",
+                stats.tokens_per_second
+            );
         }
 
         // 边界3: 大量token在合理时间内
@@ -841,7 +881,10 @@ mod tests {
 
         // Default和New应该产生相同的结果
         assert_eq!(default_stats.inference_time_ms, new_stats.inference_time_ms);
-        assert_eq!(default_stats.inference_time_secs, new_stats.inference_time_secs);
+        assert_eq!(
+            default_stats.inference_time_secs,
+            new_stats.inference_time_secs
+        );
         assert_eq!(default_stats.total_tokens, new_stats.total_tokens);
         assert_eq!(default_stats.prompt_tokens, new_stats.prompt_tokens);
         assert_eq!(default_stats.generated_tokens, new_stats.generated_tokens);
@@ -853,16 +896,19 @@ mod tests {
     fn test_inference_stats_ttft_equals_total_time() {
         // TTFT等于总推理时间（意味着所有时间都在首token上）
         let stats = InferenceStats::with_timing_high_precision(
-            2.0,     // 2秒总时间
-            10,      // 10 prompt tokens
-            5,       // 5 generated tokens
+            2.0,        // 2秒总时间
+            10,         // 10 prompt tokens
+            5,          // 5 generated tokens
             Some(2000), // TTFT = 2000ms = 总时间
         );
 
         // TPOT应该接近0或很小（解码时间几乎为0）
         if let Some(tpot) = stats.time_per_output_token_ms {
-            assert!(tpot.abs() < 1.0 || tpot < 0.01,
-                "TTFT=总时间时TPOT应接近0: {}", tpot);
+            assert!(
+                tpot.abs() < 1.0 || tpot < 0.01,
+                "TTFT=总时间时TPOT应接近0: {}",
+                tpot
+            );
         }
     }
 

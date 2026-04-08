@@ -211,7 +211,14 @@ impl IndexEntry {
     /// - `timestamp`: 创建时间戳
     /// - `importance`: 重要性分数
     /// - `level`: 记忆级别
-    pub fn new(memory_id: String, offset: u64, length: u64, timestamp: u64, importance: f32, level: MemoryLevel) -> Self {
+    pub fn new(
+        memory_id: String,
+        offset: u64,
+        length: u64,
+        timestamp: u64,
+        importance: f32,
+        level: MemoryLevel,
+    ) -> Self {
         Self {
             memory_id,
             offset,
@@ -407,7 +414,9 @@ impl Persistence {
         }
     }
 
-    fn load_existing(config: &PersistenceConfig) -> io::Result<(FileHeader, Metadata, HashMap<String, IndexEntry>, u64)> {
+    fn load_existing(
+        config: &PersistenceConfig,
+    ) -> io::Result<(FileHeader, Metadata, HashMap<String, IndexEntry>, u64)> {
         let data_path = Self::data_path(&config.path);
         let index_path = Self::index_path(&config.path);
 
@@ -438,7 +447,10 @@ impl Persistence {
             let mut buf = vec![0u8; header.metadata_size as usize];
             file.read_exact(&mut buf)?;
             serde_json::from_slice(&buf).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid metadata: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid metadata: {}", e),
+                )
             })?
         };
 
@@ -450,7 +462,10 @@ impl Persistence {
             let entries: Vec<IndexEntry> = bincode::deserialize(&buf).map_err(|e| {
                 io::Error::new(io::ErrorKind::InvalidData, format!("Invalid index: {}", e))
             })?;
-            entries.into_iter().map(|e| (e.memory_id.clone(), e)).collect()
+            entries
+                .into_iter()
+                .map(|e| (e.memory_id.clone(), e))
+                .collect()
         };
 
         let current_offset = FileHeader::SIZE as u64 + header.metadata_size + header.data_size;
@@ -475,7 +490,10 @@ impl Persistence {
         self.ensure_not_closed()?;
         let serialized = SerializedMemory::from(item);
         let data = serde_json::to_vec(&serialized).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("Serialization error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Serialization error: {}", e),
+            )
         })?;
 
         let offset = self.current_offset;
@@ -569,7 +587,10 @@ impl Persistence {
         if let Some(ref mut file) = self.index_file {
             file.seek(SeekFrom::Start(0))?;
             let data = bincode::serialize(&entries).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Index serialization error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Index serialization error: {}", e),
+                )
             })?;
             file.write_all(&data)?;
         }
@@ -604,7 +625,10 @@ impl Persistence {
             reader.read_exact(&mut buf)?;
 
             let serialized: SerializedMemory = serde_json::from_slice(&buf).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Deserialize error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Deserialize error: {}", e),
+                )
             })?;
 
             let item: MemoryItem = serialized.into();
@@ -645,7 +669,10 @@ impl Persistence {
         reader.read_exact(&mut buf)?;
 
         let serialized: SerializedMemory = serde_json::from_slice(&buf).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("Deserialize error: {}", e))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Deserialize error: {}", e),
+            )
         })?;
 
         Ok(Some(serialized.into()))
@@ -755,26 +782,22 @@ impl Persistence {
                 Ok(_) => {
                     if serde_json::from_slice::<SerializedMemory>(&buf).is_err() {
                         result.data_valid = false;
-                        result.errors.push(format!(
-                            "Invalid data for memory: {}",
-                            entry.memory_id
-                        ));
+                        result
+                            .errors
+                            .push(format!("Invalid data for memory: {}", entry.memory_id));
                     }
                 }
                 Err(e) => {
                     result.data_valid = false;
-                    result.errors.push(format!(
-                        "Failed to read memory {}: {}",
-                        entry.memory_id, e
-                    ));
+                    result
+                        .errors
+                        .push(format!("Failed to read memory {}: {}", entry.memory_id, e));
                 }
             }
         }
 
-        result.valid = result.header_valid
-            && result.metadata_valid
-            && result.index_valid
-            && result.data_valid;
+        result.valid =
+            result.header_valid && result.metadata_valid && result.index_valid && result.data_valid;
 
         Ok(result)
     }
@@ -801,81 +824,84 @@ impl Persistence {
     }
 
     /// 压缩数据文件，回收已删除记忆占用的空间
-    /// 
+    ///
     /// 重写数据文件，移除已删除记忆的数据，更新索引偏移量。
     /// 这是一个昂贵的操作，建议在删除大量记忆后手动调用。
     pub fn compact(&mut self) -> io::Result<()> {
         self.ensure_not_closed()?;
-        
+
         if self.atomic_write_active {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Cannot compact during atomic write transaction",
             ));
         }
-        
+
         if self.index.is_empty() {
             return self.clear();
         }
 
         let data_path = Self::data_path(&self.config.path);
         let index_path = Self::index_path(&self.config.path);
-        
+
         let temp_data_path = data_path.with_extension("compact.tmp");
         let temp_index_path = index_path.with_extension("compact.tmp");
-        
+
         let mut entries: Vec<&mut IndexEntry> = self.index.values_mut().collect();
         entries.sort_by_key(|e| e.offset);
-        
+
         let temp_data_file = File::create(&temp_data_path)?;
         let mut writer = BufWriter::new(temp_data_file);
-        
+
         writer.seek(SeekFrom::Start(0))?;
         writer.write_all(&self.header.to_bytes())?;
         let metadata_bytes = serde_json::to_vec(&self.metadata).map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, format!("Metadata error: {}", e))
         })?;
         writer.write_all(&metadata_bytes)?;
-        
+
         let mut new_offset = (FileHeader::SIZE + metadata_bytes.len()) as u64;
         let mut new_data_size = 0u64;
-        
+
         {
             let src_file = File::open(&data_path)?;
             let mut reader = BufReader::new(src_file);
-            
+
             for entry in &mut entries {
                 reader.seek(SeekFrom::Start((*entry).offset))?;
                 let mut buf = vec![0u8; (*entry).length as usize];
                 reader.read_exact(&mut buf)?;
-                
+
                 writer.write_all(&buf)?;
-                
+
                 (*entry).offset = new_offset;
                 new_offset += (*entry).length;
                 new_data_size += (*entry).length;
             }
         }
-        
+
         writer.flush()?;
-        
+
         {
             let entries: Vec<&IndexEntry> = self.index.values().collect();
             let temp_index_file = File::create(&temp_index_path)?;
             let mut index_writer = BufWriter::new(temp_index_file);
             let data = bincode::serialize(&entries).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Index serialization error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Index serialization error: {}", e),
+                )
             })?;
             index_writer.write_all(&data)?;
             index_writer.flush()?;
         }
-        
+
         fs::rename(&temp_index_path, &index_path)?;
         fs::rename(&temp_data_path, &data_path)?;
-        
+
         self.header.data_size = new_data_size;
         self.current_offset = new_offset;
-        
+
         {
             let data_file = OpenOptions::new()
                 .write(true)
@@ -890,7 +916,7 @@ impl Persistence {
             self.data_file = Some(data_file);
             self.index_file = Some(index_file);
         }
-        
+
         Ok(())
     }
 
@@ -904,13 +930,13 @@ impl Persistence {
         self.metadata.memory_count = 0;
         self.metadata.index_count = 0;
         self.metadata.updated_at = current_timestamp();
-        
+
         let metadata_bytes = serde_json::to_vec(&self.metadata).map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, format!("Metadata error: {}", e))
         })?;
         self.header.metadata_size = metadata_bytes.len() as u64;
         self.current_offset = (FileHeader::SIZE + metadata_bytes.len()) as u64;
-        
+
         if let Some(ref mut file) = self.data_file {
             file.get_mut().set_len(0)?;
             file.seek(SeekFrom::Start(0))?;
@@ -918,12 +944,12 @@ impl Persistence {
             file.write_all(&metadata_bytes)?;
             file.flush()?;
         }
-        
+
         if let Some(ref mut file) = self.index_file {
             file.get_mut().set_len(0)?;
             file.flush()?;
         }
-        
+
         Ok(())
     }
 
@@ -975,29 +1001,29 @@ impl Persistence {
     }
 
     /// 开始原子写入事务
-    /// 
+    ///
     /// 创建临时文件，后续所有写入都写入临时文件。
     /// 完成后调用 `commit_atomic_write` 原子替换原文件。
     /// 如果中途崩溃或调用 `rollback_atomic_write`，原有数据仍然保留。
     pub fn begin_atomic_write(&mut self) -> io::Result<()> {
         self.ensure_not_closed()?;
-        
+
         let data_path = Self::data_path(&self.config.path);
         let index_path = Self::index_path(&self.config.path);
-        
+
         let temp_data_path = data_path.with_extension("mem.tmp");
         let temp_index_path = index_path.with_extension("idx.tmp");
-        
+
         let temp_data_file = File::create(&temp_data_path)?;
         let mut temp_data_writer = BufWriter::new(temp_data_file);
-        
+
         self.saved_index = Some(self.index.clone());
         self.saved_header = Some(self.header.clone());
-        
+
         self.index.clear();
         self.header.data_size = 0;
         self.current_offset = FileHeader::SIZE as u64 + self.header.metadata_size;
-        
+
         temp_data_writer.seek(SeekFrom::Start(0))?;
         temp_data_writer.write_all(&self.header.to_bytes())?;
         let metadata_bytes = serde_json::to_vec(&self.metadata).map_err(|e| {
@@ -1005,18 +1031,18 @@ impl Persistence {
         })?;
         temp_data_writer.write_all(&metadata_bytes)?;
         temp_data_writer.flush()?;
-        
+
         self.temp_data_file = Some(temp_data_writer);
         self.temp_index_file = None;
         self.temp_data_path = Some(temp_data_path);
         self.temp_index_path = Some(temp_index_path);
         self.atomic_write_active = true;
-        
+
         Ok(())
     }
 
     /// 提交原子写入事务
-    /// 
+    ///
     /// 刷新临时文件，写入索引，然后使用 fs::rename 原子替换原文件。
     pub fn commit_atomic_write(&mut self) -> io::Result<()> {
         if !self.atomic_write_active {
@@ -1044,16 +1070,20 @@ impl Persistence {
         let temp_index_path = self.temp_index_path.take().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "Temp index path not set")
         })?;
-        let temp_data_path = self.temp_data_path.take().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Temp data path not set")
-        })?;
+        let temp_data_path = self
+            .temp_data_path
+            .take()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Temp data path not set"))?;
 
         {
             let entries: Vec<&IndexEntry> = self.index.values().collect();
             let temp_index_file = File::create(&temp_index_path)?;
             let mut writer = BufWriter::new(temp_index_file);
             let data = bincode::serialize(&entries).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Index serialization error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Index serialization error: {}", e),
+                )
             })?;
             writer.write_all(&data)?;
             writer.flush()?;
@@ -1068,7 +1098,7 @@ impl Persistence {
         self.temp_data_file = None;
         self.temp_index_file = None;
         self.atomic_write_active = false;
-        
+
         {
             let data_file = OpenOptions::new()
                 .write(true)
@@ -1088,7 +1118,7 @@ impl Persistence {
     }
 
     /// 回滚原子写入事务
-    /// 
+    ///
     /// 放弃当前原子写入，删除临时文件，恢复原状态。
     pub fn rollback_atomic_write(&mut self) -> io::Result<()> {
         if !self.atomic_write_active {
@@ -1111,8 +1141,9 @@ impl Persistence {
         if let Some(saved_header) = self.saved_header.take() {
             self.header = saved_header;
         }
-        
-        self.current_offset = FileHeader::SIZE as u64 + self.header.metadata_size + self.header.data_size;
+
+        self.current_offset =
+            FileHeader::SIZE as u64 + self.header.metadata_size + self.header.data_size;
 
         self.temp_data_path = None;
         self.temp_index_path = None;
@@ -1170,7 +1201,7 @@ pub struct PersistenceStats {
 }
 
 /// 线程安全的持久化存储包装器
-/// 
+///
 /// 使用 RwLock 保护内部 Persistence 实例，支持多线程并发读取和写入。
 /// 注意：写入操作需要获取写锁，会阻塞其他所有操作。
 pub struct ThreadSafePersistence {
@@ -1195,14 +1226,14 @@ impl ThreadSafePersistence {
         item: &MemoryItem,
         level: MemoryLevel,
     ) -> io::Result<()> {
-        self.inner.write().unwrap().write_memory(memory_id, item, level)
+        self.inner
+            .write()
+            .unwrap()
+            .write_memory(memory_id, item, level)
     }
 
     /// 线程安全地批量写入记忆（需要写锁）
-    pub fn write_batch(
-        &self,
-        memories: &[(String, MemoryItem, MemoryLevel)],
-    ) -> io::Result<()> {
+    pub fn write_batch(&self, memories: &[(String, MemoryItem, MemoryLevel)]) -> io::Result<()> {
         self.inner.write().unwrap().write_batch(memories)
     }
 
@@ -1369,7 +1400,12 @@ impl AsyncWriter {
     }
 
     /// 异步写入单个记忆，等待写入完成并返回结果
-    pub fn write_sync(&self, memory_id: String, item: MemoryItem, level: MemoryLevel) -> io::Result<()> {
+    pub fn write_sync(
+        &self,
+        memory_id: String,
+        item: MemoryItem,
+        level: MemoryLevel,
+    ) -> io::Result<()> {
         let (tx, rx) = mpsc::channel();
         self.sender
             .send(AsyncCommand::Write {
@@ -1397,10 +1433,16 @@ impl AsyncWriter {
     }
 
     /// 异步批量写入（等待结果）
-    pub fn write_batch_sync(&self, memories: Vec<(String, MemoryItem, MemoryLevel)>) -> io::Result<()> {
+    pub fn write_batch_sync(
+        &self,
+        memories: Vec<(String, MemoryItem, MemoryLevel)>,
+    ) -> io::Result<()> {
         let (tx, rx) = mpsc::channel();
         self.sender
-            .send(AsyncCommand::WriteBatch { memories, response: tx })
+            .send(AsyncCommand::WriteBatch {
+                memories,
+                response: tx,
+            })
             .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?;
         rx.recv()
             .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))?
@@ -1410,7 +1452,10 @@ impl AsyncWriter {
     pub fn write_batch(&self, memories: Vec<(String, MemoryItem, MemoryLevel)>) -> io::Result<()> {
         let (tx, _) = mpsc::channel();
         self.sender
-            .send(AsyncCommand::WriteBatch { memories, response: tx })
+            .send(AsyncCommand::WriteBatch {
+                memories,
+                response: tx,
+            })
             .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))
     }
 
@@ -1453,15 +1498,15 @@ impl AsyncWriter {
     }
 
     /// 尝试关闭异步写入器
-    /// 
+    ///
     /// 发送关闭命令并阻塞等待后台线程结束。
     /// 如果线程已 panic 或已关闭，返回错误。
-    /// 
+    ///
     /// 注意：此方法会阻塞调用线程直到后台线程完成关闭。
     /// 如需非阻塞关闭，请直接丢弃 AsyncWriter 实例。
     pub fn try_close(&mut self) -> io::Result<()> {
         let send_result = self.sender.send(AsyncCommand::Close);
-        
+
         if send_result.is_err() {
             self.handle = None;
             return Err(io::Error::new(
@@ -1469,7 +1514,7 @@ impl AsyncWriter {
                 "AsyncWriter channel already closed",
             ));
         }
-        
+
         if let Some(handle) = self.handle.take() {
             match handle.join() {
                 Ok(result) => result,
@@ -1540,8 +1585,8 @@ mod tests {
     #[test]
     fn test_persistence_write_read() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("test_memory"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("test_memory")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1569,8 +1614,8 @@ mod tests {
     #[test]
     fn test_persistence_batch_write() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("batch_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("batch_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1593,8 +1638,8 @@ mod tests {
     #[test]
     fn test_persistence_verify() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("verify_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("verify_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1615,8 +1660,8 @@ mod tests {
     #[test]
     fn test_persistence_remove() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("remove_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("remove_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1638,8 +1683,8 @@ mod tests {
     #[test]
     fn test_persistence_clear() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("clear_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("clear_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1661,8 +1706,8 @@ mod tests {
     #[test]
     fn test_persistence_stats() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("stats_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("stats_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1746,8 +1791,8 @@ mod tests {
     #[test]
     fn test_atomic_write() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("atomic_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("atomic_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
@@ -1755,8 +1800,10 @@ mod tests {
         assert!(persistence.is_atomic_write_active());
 
         let item = create_test_memory(5, 32);
-        persistence.write_memory("atomic_mem", &item, MemoryLevel::LongTerm).unwrap();
-        
+        persistence
+            .write_memory("atomic_mem", &item, MemoryLevel::LongTerm)
+            .unwrap();
+
         persistence.commit_atomic_write().unwrap();
         assert!(!persistence.is_atomic_write_active());
 
@@ -1770,18 +1817,22 @@ mod tests {
     #[test]
     fn test_atomic_write_rollback() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("rollback_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("rollback_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
         let item = create_test_memory(5, 32);
-        persistence.write_memory("existing_mem", &item, MemoryLevel::LongTerm).unwrap();
+        persistence
+            .write_memory("existing_mem", &item, MemoryLevel::LongTerm)
+            .unwrap();
         persistence.flush().unwrap();
 
         persistence.begin_atomic_write().unwrap();
-        persistence.write_memory("temp_mem", &item, MemoryLevel::LongTerm).unwrap();
-        
+        persistence
+            .write_memory("temp_mem", &item, MemoryLevel::LongTerm)
+            .unwrap();
+
         persistence.rollback_atomic_write().unwrap();
         assert!(!persistence.is_atomic_write_active());
 
@@ -1809,7 +1860,8 @@ mod tests {
             let p = Arc::clone(&persistence);
             let handle = thread::spawn(move || {
                 let item = create_test_memory(5, 32);
-                p.write_memory(&format!("thread_{}", i), &item, MemoryLevel::LongTerm).unwrap();
+                p.write_memory(&format!("thread_{}", i), &item, MemoryLevel::LongTerm)
+                    .unwrap();
             });
             handles.push(handle);
         }
@@ -1829,14 +1881,16 @@ mod tests {
     #[test]
     fn test_compact() {
         let temp_dir = TempDir::new().unwrap();
-        let config = PersistenceConfig::new(temp_dir.path().join("compact_test"))
-            .with_async_write(false);
+        let config =
+            PersistenceConfig::new(temp_dir.path().join("compact_test")).with_async_write(false);
 
         let mut persistence = Persistence::new(config).unwrap();
 
         for i in 0..5 {
             let item = create_test_memory(5, 32);
-            persistence.write_memory(&format!("mem_{}", i), &item, MemoryLevel::LongTerm).unwrap();
+            persistence
+                .write_memory(&format!("mem_{}", i), &item, MemoryLevel::LongTerm)
+                .unwrap();
         }
         persistence.flush().unwrap();
 

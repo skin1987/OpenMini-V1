@@ -7,12 +7,8 @@
 use std::collections::TryReserveError as StdTryReserveError;
 
 use crate::hardware::kv_cache::{
-    KVCache,
-    KVCacheError,
-    mla::{
-        config::MLAConfig,
-        latent_cache::MLALatentCache,
-    },
+    mla::{config::MLAConfig, latent_cache::MLALatentCache},
+    KVCache, KVCacheError,
 };
 
 use super::memory::{MemoryConfig, MemoryManager};
@@ -58,7 +54,9 @@ pub enum InitError {
 impl std::fmt::Display for InitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InitError::CacheNotEmpty => write!(f, "Cache already contains tokens, call clear() first"),
+            InitError::CacheNotEmpty => {
+                write!(f, "Cache already contains tokens, call clear() first")
+            }
         }
     }
 }
@@ -86,10 +84,18 @@ impl std::fmt::Display for ContextError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ContextError::LayerCountMismatch { expected, actual } => {
-                write!(f, "Layer count mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "Layer count mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             ContextError::CapacityOverflow { requested, max } => {
-                write!(f, "Capacity overflow: requested {} exceeds max {}", requested, max)
+                write!(
+                    f,
+                    "Capacity overflow: requested {} exceeds max {}",
+                    requested, max
+                )
             }
         }
     }
@@ -102,10 +108,18 @@ impl std::fmt::Display for AppendError {
         match self {
             AppendError::NotInitialized => write!(f, "per_token_size not initialized"),
             AppendError::KLengthMismatch { expected, actual } => {
-                write!(f, "K length mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "K length mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             AppendError::VLengthMismatch { expected, actual } => {
-                write!(f, "V length mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "V length mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             AppendError::CapacityExceeded { current, max } => {
                 write!(f, "Capacity exceeded: {}/{}", current, max)
@@ -370,7 +384,10 @@ impl StandardKVCache {
     /// ```ignore
     /// let cache = StandardKVCache::with_token_capacity(1024, 128)?;
     /// ```
-    pub fn with_token_capacity(token_capacity: usize, per_token_size: usize) -> Result<Self, ContextError> {
+    pub fn with_token_capacity(
+        token_capacity: usize,
+        per_token_size: usize,
+    ) -> Result<Self, ContextError> {
         let capacity = token_capacity.checked_mul(per_token_size).ok_or_else(|| {
             ContextError::CapacityOverflow {
                 requested: token_capacity.saturating_mul(per_token_size),
@@ -507,7 +524,7 @@ impl StandardKVCache {
     /// 按需增长并追加数据
     ///
     /// 当容量不足时自动扩容（每次翻倍）
-    /// 
+    ///
     /// # 注意
     /// 如果设置了 `max_tokens` 且当前 token 数量已达到最大容量，
     /// 将返回 `AppendError::CapacityExceeded`。
@@ -588,20 +605,23 @@ impl StandardKVCache {
             return Err(AppendError::KLengthMismatch {
                 expected: expected_len,
                 actual: k.len(),
-            }.into());
+            }
+            .into());
         }
         if v.len() != expected_len {
             return Err(AppendError::VLengthMismatch {
                 expected: expected_len,
                 actual: v.len(),
-            }.into());
+            }
+            .into());
         }
 
         if self.max_tokens > 0 && self.num_tokens >= self.max_tokens {
             return Err(AppendError::CapacityExceeded {
                 current: self.num_tokens,
                 max: self.max_tokens,
-            }.into());
+            }
+            .into());
         }
 
         self.k_cache.try_reserve(expected_len)?;
@@ -637,7 +657,8 @@ impl StandardKVCache {
             return Err(AppendError::CapacityExceeded {
                 current: self.num_tokens,
                 max: self.max_tokens,
-            }.into());
+            }
+            .into());
         }
 
         let expected_len = self.per_token_size;
@@ -645,13 +666,15 @@ impl StandardKVCache {
             return Err(AppendError::KLengthMismatch {
                 expected: expected_len,
                 actual: k.len(),
-            }.into());
+            }
+            .into());
         }
         if v.len() != expected_len {
             return Err(AppendError::VLengthMismatch {
                 expected: expected_len,
                 actual: v.len(),
-            }.into());
+            }
+            .into());
         }
 
         let required = (self.num_tokens + 1).saturating_mul(self.per_token_size);
@@ -945,7 +968,10 @@ impl StandardKVCache {
     /// - 如果设置了 `max_tokens`，预留容量将被限制为不超过 `max_tokens` 对应的容量。
     /// - 与 `try_reserve_tokens` 不同，此方法使用 `try_reserve_exact`，
     ///   会精确分配所需容量，不会额外分配。
-    pub fn try_reserve_exact_tokens(&mut self, additional_tokens: usize) -> Result<(), TryAppendError> {
+    pub fn try_reserve_exact_tokens(
+        &mut self,
+        additional_tokens: usize,
+    ) -> Result<(), TryAppendError> {
         if additional_tokens == 0 {
             return Ok(());
         }
@@ -974,7 +1000,10 @@ impl Extend<(Vec<f32>, Vec<f32>)> for StandardKVCache {
     fn extend<T: IntoIterator<Item = (Vec<f32>, Vec<f32>)>>(&mut self, iter: T) {
         for (k, v) in iter {
             self.append(&k, &v).unwrap_or_else(|e| {
-                panic!("Extend failed: {}. Use try_extend() for graceful error handling.", e)
+                panic!(
+                    "Extend failed: {}. Use try_extend() for graceful error handling.",
+                    e
+                )
             });
         }
     }
@@ -991,7 +1020,10 @@ impl StandardKVCache {
     ///
     /// # 注意
     /// 如果中途失败，已追加的数据不会回滚。
-    pub fn try_extend<T: IntoIterator<Item = (Vec<f32>, Vec<f32>)>>(&mut self, iter: T) -> Result<(), AppendError> {
+    pub fn try_extend<T: IntoIterator<Item = (Vec<f32>, Vec<f32>)>>(
+        &mut self,
+        iter: T,
+    ) -> Result<(), AppendError> {
         for (k, v) in iter {
             self.append(&k, &v)?;
         }
@@ -1074,7 +1106,10 @@ impl InferenceContext {
     /// # Errors
     /// - `ContextError::LayerCountMismatch`: `use_mla` 长度不等于 `num_layers`
     /// - `ContextError::CapacityOverflow`: 容量超过 `isize::MAX`
-    fn build_layer_caches(num_layers: usize, config: &ModelRunConfig) -> Result<Vec<LayerCache>, ContextError> {
+    fn build_layer_caches(
+        num_layers: usize,
+        config: &ModelRunConfig,
+    ) -> Result<Vec<LayerCache>, ContextError> {
         if config.use_mla.len() != num_layers {
             return Err(ContextError::LayerCountMismatch {
                 expected: num_layers,
@@ -1084,12 +1119,13 @@ impl InferenceContext {
 
         let per_token_size = config.num_key_value_heads.saturating_mul(config.head_dim);
         let capacity = if config.preallocate {
-            let cap = config.max_seq_len.checked_mul(per_token_size).ok_or_else(|| {
-                ContextError::CapacityOverflow {
+            let cap = config
+                .max_seq_len
+                .checked_mul(per_token_size)
+                .ok_or_else(|| ContextError::CapacityOverflow {
                     requested: config.max_seq_len.saturating_mul(per_token_size),
                     max: usize::MAX,
-                }
-            })?;
+                })?;
             if cap > isize::MAX as usize {
                 return Err(ContextError::CapacityOverflow {
                     requested: cap,
@@ -1100,7 +1136,6 @@ impl InferenceContext {
         } else {
             0
         };
-
 
         Ok((0..num_layers)
             .map(|i| {
@@ -1117,7 +1152,10 @@ impl InferenceContext {
                     };
                     LayerCache::MLA(MLALatentCache::new(mla_config))
                 } else {
-                    LayerCache::Standard(StandardKVCache::with_token_capacity(capacity, per_token_size).expect("Failed to create StandardKVCache"))
+                    LayerCache::Standard(
+                        StandardKVCache::with_token_capacity(capacity, per_token_size)
+                            .expect("Failed to create StandardKVCache"),
+                    )
                 }
             })
             .collect())
@@ -1134,7 +1172,10 @@ impl InferenceContext {
     pub fn reset(&mut self) {
         self.reset_with_error_handler(|_layer_idx, _error| {
             #[cfg(debug_assertions)]
-            eprintln!("Failed to clear MLA cache at layer {}: {}", _layer_idx, _error);
+            eprintln!(
+                "Failed to clear MLA cache at layer {}: {}",
+                _layer_idx, _error
+            );
         });
     }
 
@@ -1319,12 +1360,12 @@ pub struct ModelRunConfig {
     /// RoPE theta 参数
     pub rope_theta: f32,
     /// 每层是否使用 MLA
-    /// 
+    ///
     /// 每层可独立配置是否使用 MLA。`from_model_config` 会将模型配置的单一布尔值复制到所有层。
     /// 如需每层独立配置，可直接修改此字段。
     pub use_mla: Vec<bool>,
     /// 是否预分配最大容量
-    /// 
+    ///
     /// - `true`: 预分配 `max_seq_len * per_token_size` 容量（默认行为，适合长序列场景）
     /// - `false`: 按需增长，初始容量为 0（适合短序列或内存受限场景）
     ///
@@ -1360,13 +1401,13 @@ impl Default for ModelRunConfig {
 
 impl ModelRunConfig {
     /// 从模型配置创建运行配置
-    /// 
+    ///
     /// # 注意
     /// - `use_mla` 从 `ModelConfig.use_mla` 复制到所有层
     /// - 默认启用预分配（`preallocate: true`）
     pub fn from_model_config(config: &super::model::ModelConfig) -> Self {
         let use_mla = vec![config.use_mla; config.num_hidden_layers];
-        
+
         Self {
             hidden_size: config.hidden_size,
             num_attention_heads: config.num_attention_heads,
@@ -1437,7 +1478,7 @@ mod tests {
         let mut cache = create_test_cache(4);
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
-        
+
         assert!(cache.append(&k, &v).is_ok());
         assert_eq!(cache.num_tokens(), 1);
         assert_eq!(cache.get_k(0), Some(&k[..]));
@@ -1449,7 +1490,7 @@ mod tests {
         let mut cache = create_test_cache(0);
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
-        
+
         let result = cache.append(&k, &v);
         assert_eq!(result, Err(AppendError::NotInitialized));
     }
@@ -1459,15 +1500,27 @@ mod tests {
         let mut cache = create_test_cache(4);
         let k = vec![1.0, 2.0, 3.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
-        
+
         let result = cache.append(&k, &v);
-        assert_eq!(result, Err(AppendError::KLengthMismatch { expected: 4, actual: 3 }));
-        
+        assert_eq!(
+            result,
+            Err(AppendError::KLengthMismatch {
+                expected: 4,
+                actual: 3
+            })
+        );
+
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0];
-        
+
         let result = cache.append(&k, &v);
-        assert_eq!(result, Err(AppendError::VLengthMismatch { expected: 4, actual: 3 }));
+        assert_eq!(
+            result,
+            Err(AppendError::VLengthMismatch {
+                expected: 4,
+                actual: 3
+            })
+        );
     }
 
     #[test]
@@ -1475,12 +1528,15 @@ mod tests {
         let mut cache = create_test_cache_with_max(2, 4);
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
-        
+
         assert!(cache.append(&k, &v).is_ok());
         assert!(cache.append(&k, &v).is_ok());
-        
+
         let result = cache.append(&k, &v);
-        assert_eq!(result, Err(AppendError::CapacityExceeded { current: 2, max: 2 }));
+        assert_eq!(
+            result,
+            Err(AppendError::CapacityExceeded { current: 2, max: 2 })
+        );
     }
 
     #[test]
@@ -1488,24 +1544,27 @@ mod tests {
         let mut cache = create_test_cache_with_max(2, 4);
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
-        
+
         assert!(cache.append_with_grow(&k, &v).is_ok());
         assert!(cache.append_with_grow(&k, &v).is_ok());
-        
+
         let result = cache.append_with_grow(&k, &v);
-        assert_eq!(result, Err(AppendError::CapacityExceeded { current: 2, max: 2 }));
+        assert_eq!(
+            result,
+            Err(AppendError::CapacityExceeded { current: 2, max: 2 })
+        );
     }
 
     #[test]
     fn test_append_with_grow_expansion() {
         let mut cache = StandardKVCache::with_token_capacity(4, 4).unwrap();
-        
+
         for i in 0..10 {
             let k = vec![i as f32; 4];
             let v = vec![(i + 10) as f32; 4];
             assert!(cache.append_with_grow(&k, &v).is_ok());
         }
-        
+
         assert_eq!(cache.num_tokens(), 10);
     }
 
@@ -1515,7 +1574,7 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         assert!(cache.get_k(1).is_none());
         assert!(cache.get_v(1).is_none());
     }
@@ -1526,7 +1585,7 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         assert_eq!(cache.get_k_range(0, 0), Some(&[][..]));
         assert_eq!(cache.get_k_range(1, 0), Some(&[][..]));
         assert!(cache.get_k_range(2, 0).is_none());
@@ -1538,7 +1597,7 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         assert_eq!(cache.get_v_range(0, 0), Some(&[][..]));
         assert_eq!(cache.get_v_range(1, 0), Some(&[][..]));
         assert!(cache.get_v_range(2, 0).is_none());
@@ -1578,7 +1637,7 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         cache.clear();
         assert_eq!(cache.num_tokens(), 0);
         assert!(cache.get_k(0).is_none());
@@ -1590,7 +1649,7 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         cache.shrink_to_fit();
         assert_eq!(cache.k_cache().len(), 4);
     }
@@ -1599,7 +1658,7 @@ mod tests {
     fn test_max_tokens_zero_unlimited() {
         let mut cache = create_test_cache(4);
         assert_eq!(cache.max_tokens(), 0);
-        
+
         for i in 0..100 {
             let k = vec![i as f32; 4];
             let v = vec![(i + 10) as f32; 4];
@@ -1615,15 +1674,27 @@ mod tests {
             "per_token_size not initialized"
         );
         assert_eq!(
-            AppendError::KLengthMismatch { expected: 4, actual: 3 }.to_string(),
+            AppendError::KLengthMismatch {
+                expected: 4,
+                actual: 3
+            }
+            .to_string(),
             "K length mismatch: expected 4, got 3"
         );
         assert_eq!(
-            AppendError::VLengthMismatch { expected: 4, actual: 3 }.to_string(),
+            AppendError::VLengthMismatch {
+                expected: 4,
+                actual: 3
+            }
+            .to_string(),
             "V length mismatch: expected 4, got 3"
         );
         assert_eq!(
-            AppendError::CapacityExceeded { current: 10, max: 10 }.to_string(),
+            AppendError::CapacityExceeded {
+                current: 10,
+                max: 10
+            }
+            .to_string(),
             "Capacity exceeded: 10/10"
         );
     }
@@ -1636,12 +1707,12 @@ mod tests {
             let v = vec![(i + 10) as f32; 4];
             cache.append(&k, &v).unwrap();
         }
-        
+
         let k_range = cache.get_k_range(1, 3);
         assert!(k_range.is_some());
         let k_range = k_range.unwrap();
         assert_eq!(k_range.len(), 12);
-        
+
         let v_range = cache.get_v_range(1, 3);
         assert!(v_range.is_some());
         let v_range = v_range.unwrap();
@@ -1652,13 +1723,13 @@ mod tests {
     fn test_append_with_grow_capacity_increase() {
         let mut cache = StandardKVCache::with_token_capacity(4, 4).unwrap();
         let initial_capacity = 4;
-        
+
         for i in 0..10 {
             let k = vec![i as f32; 4];
             let v = vec![(i + 10) as f32; 4];
             cache.append_with_grow(&k, &v).unwrap();
         }
-        
+
         assert!(cache.k_cache_capacity() > initial_capacity);
         assert_eq!(cache.num_tokens(), 10);
     }
@@ -1667,13 +1738,13 @@ mod tests {
     fn test_append_with_grow_respects_max_tokens_capacity() {
         let max_tokens = 5;
         let mut cache = StandardKVCache::with_max_tokens(max_tokens, 4);
-        
+
         for i in 0..max_tokens {
             let k = vec![i as f32; 4];
             let v = vec![(i + 10) as f32; 4];
             cache.append_with_grow(&k, &v).unwrap();
         }
-        
+
         assert_eq!(cache.num_tokens(), max_tokens);
         assert!(cache.k_cache().len() <= max_tokens * 4);
     }
@@ -1682,12 +1753,12 @@ mod tests {
     fn test_is_empty() {
         let mut cache = create_test_cache(4);
         assert!(cache.is_empty());
-        
+
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
         assert!(!cache.is_empty());
-        
+
         cache.clear();
         assert!(cache.is_empty());
     }
@@ -1696,7 +1767,7 @@ mod tests {
     fn test_reserve_respects_max_tokens() {
         let max_tokens = 5;
         let mut cache = StandardKVCache::with_max_tokens(max_tokens, 4);
-        
+
         let _ = cache.reserve(100);
         assert!(cache.k_cache_capacity() <= max_tokens * 4);
     }
@@ -1719,14 +1790,14 @@ mod tests {
             cache.append(&k, &v).unwrap();
         }
         assert_eq!(cache.num_tokens(), 10);
-        
+
         let _ = cache.truncate(5);
         assert_eq!(cache.num_tokens(), 5);
         assert_eq!(cache.k_cache().len(), 20);
-        
+
         let _ = cache.truncate(10);
         assert_eq!(cache.num_tokens(), 5);
-        
+
         let _ = cache.truncate(0);
         assert!(cache.is_empty());
     }
@@ -1736,7 +1807,7 @@ mod tests {
         let mut cache = create_test_cache(4);
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
-        
+
         assert!(cache.try_append(&k, &v).is_ok());
         assert_eq!(cache.num_tokens(), 1);
     }
@@ -1759,7 +1830,7 @@ mod tests {
         let items: Vec<(Vec<f32>, Vec<f32>)> = (0..5)
             .map(|i| (vec![i as f32; 4], vec![(i + 10) as f32; 4]))
             .collect();
-        
+
         cache.extend(items);
         assert_eq!(cache.num_tokens(), 5);
     }
@@ -1768,7 +1839,7 @@ mod tests {
     fn test_layer_cache_helpers() {
         let standard_cache = StandardKVCache::with_token_capacity(100, 4).unwrap();
         let layer = LayerCache::Standard(standard_cache);
-        
+
         assert!(layer.is_standard());
         assert!(!layer.is_mla());
         assert!(layer.as_standard().is_some());
@@ -1781,7 +1852,7 @@ mod tests {
         let items: Vec<(Vec<f32>, Vec<f32>)> = (0..5)
             .map(|i| (vec![i as f32; 4], vec![(i + 10) as f32; 4]))
             .collect();
-        
+
         assert!(cache.try_extend(items).is_ok());
         assert_eq!(cache.num_tokens(), 5);
     }
@@ -1793,7 +1864,7 @@ mod tests {
             (vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, 7.0, 8.0]),
             (vec![1.0, 2.0, 3.0], vec![5.0, 6.0, 7.0, 8.0]), // 错误：长度不匹配
         ];
-        
+
         let result = cache.try_extend(items);
         assert!(result.is_err());
         assert_eq!(cache.num_tokens(), 1); // 第一个成功追加
@@ -1810,7 +1881,7 @@ mod tests {
     fn test_init() {
         let mut cache = StandardKVCache::default();
         assert!(!cache.is_initialized());
-        
+
         let _ = cache.init(4);
         assert!(cache.is_initialized());
         assert_eq!(cache.per_token_size(), 4);
@@ -1819,7 +1890,7 @@ mod tests {
     #[test]
     fn test_try_reserve_tokens() {
         let mut cache = create_test_cache(4);
-        
+
         assert!(cache.try_reserve_tokens(10).is_ok());
         assert!(cache.k_cache_capacity() >= 40);
     }
@@ -1827,7 +1898,7 @@ mod tests {
     #[test]
     fn test_try_reserve_tokens_uninitialized() {
         let mut cache = StandardKVCache::default();
-        
+
         let result = cache.try_reserve_tokens(10);
         assert!(result.is_err());
     }
@@ -1835,7 +1906,7 @@ mod tests {
     #[test]
     fn test_try_reserve_exact_tokens() {
         let mut cache = StandardKVCache::with_token_capacity(0, 4).unwrap();
-        
+
         assert!(cache.try_reserve_exact_tokens(10).is_ok());
         assert_eq!(cache.k_cache_capacity(), 40);
     }
@@ -1848,7 +1919,7 @@ mod tests {
             let v = vec![(i + 10) as f32; 4];
             cache.append(&k, &v).unwrap();
         }
-        
+
         let kv_pairs: Vec<_> = cache.iter_kv().collect();
         assert_eq!(kv_pairs.len(), 5);
     }
@@ -1859,11 +1930,11 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         assert_eq!(KVCache::num_tokens(&cache), 1);
         assert!(!KVCache::is_empty(&cache));
         assert!(KVCache::memory_usage(&cache) > 0);
-        
+
         KVCache::clear_cache(&mut cache).unwrap();
         assert!(KVCache::is_empty(&cache));
     }
@@ -1886,9 +1957,8 @@ mod tests {
 
     #[test]
     fn test_with_num_layers() {
-        let config = ModelRunConfig::default()
-            .with_num_layers(32, true);
-        
+        let config = ModelRunConfig::default().with_num_layers(32, true);
+
         assert_eq!(config.use_mla.len(), 32);
         assert!(config.use_mla.iter().all(|&v| v));
     }
@@ -1898,7 +1968,7 @@ mod tests {
         let config = ModelRunConfig::default()
             .with_num_layers(16, false)
             .with_preallocate(false);
-        
+
         assert_eq!(config.use_mla.len(), 16);
         assert!(!config.preallocate);
     }
@@ -1909,9 +1979,9 @@ mod tests {
         let k = vec![1.0, 2.0, 3.0, 4.0];
         let v = vec![5.0, 6.0, 7.0, 8.0];
         cache.append(&k, &v).unwrap();
-        
+
         assert_eq!(cache.num_tokens(), 1);
-        
+
         // reinit 清除数据并设置新的 per_token_size
         cache.reinit(8);
         assert_eq!(cache.num_tokens(), 0);
@@ -1921,12 +1991,11 @@ mod tests {
 
     #[test]
     fn test_inference_context_new() {
-        let config = ModelRunConfig::default()
-            .with_num_layers(2, false);
-        
+        let config = ModelRunConfig::default().with_num_layers(2, false);
+
         let ctx = InferenceContext::new(2, &config);
         assert!(ctx.is_ok());
-        
+
         let ctx = ctx.unwrap();
         assert_eq!(ctx.layer_caches.len(), 2);
         assert_eq!(ctx.max_seq_len, config.max_seq_len);
@@ -1935,10 +2004,10 @@ mod tests {
     #[test]
     fn test_inference_context_layer_count_mismatch() {
         let config = ModelRunConfig::default(); // use_mla.len() == 1
-        
+
         let result = InferenceContext::new(3, &config);
         assert!(result.is_err());
-        
+
         match result {
             Err(ContextError::LayerCountMismatch { expected, actual }) => {
                 assert_eq!(expected, 3);
@@ -1953,10 +2022,9 @@ mod tests {
         let config = ModelRunConfig::default()
             .with_num_layers(4, false)
             .with_preallocate(false);
-        
-        let ctx = InferenceContextBuilder::new(4, config)
-            .build();
-        
+
+        let ctx = InferenceContextBuilder::new(4, config).build();
+
         assert!(ctx.is_ok());
         let ctx = ctx.unwrap();
         assert_eq!(ctx.layer_caches.len(), 4);
@@ -1994,13 +2062,13 @@ mod tests {
             use_mla: vec![false, true, false],
             ..ModelRunConfig::default()
         };
-        
+
         let ctx = InferenceContext::new(3, &config);
         assert!(ctx.is_ok());
-        
+
         let ctx = ctx.unwrap();
         assert_eq!(ctx.layer_caches.len(), 3);
-        
+
         assert!(ctx.layer_caches[0].is_standard());
         assert!(ctx.layer_caches[1].is_mla());
         assert!(ctx.layer_caches[2].is_standard());
@@ -2008,26 +2076,24 @@ mod tests {
 
     #[test]
     fn test_inference_context_get_layer_cache() {
-        let config = ModelRunConfig::default()
-            .with_num_layers(2, false);
-        
+        let config = ModelRunConfig::default().with_num_layers(2, false);
+
         let ctx = InferenceContext::new(2, &config).unwrap();
-        
+
         let layer0 = ctx.layer_cache(0);
         assert!(layer0.is_some());
         assert!(layer0.unwrap().is_standard());
-        
+
         let layer_invalid = ctx.layer_cache(5);
         assert!(layer_invalid.is_none());
     }
 
     #[test]
     fn test_inference_context_advance_position() {
-        let config = ModelRunConfig::default()
-            .with_num_layers(1, false);
-        
+        let config = ModelRunConfig::default().with_num_layers(1, false);
+
         let mut ctx = InferenceContext::new(1, &config).unwrap();
-        
+
         assert_eq!(ctx.next_position(), 0);
         ctx.advance_position(10);
         assert_eq!(ctx.next_position(), 10);

@@ -9,7 +9,7 @@
 
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -136,9 +136,12 @@ impl WorkerHandle {
     /// 检查 Worker 是否存活
     pub fn is_alive(&self) -> bool {
         self.state.load(Ordering::SeqCst) != WORKER_STATE_DEAD
-            && self.child.lock().unwrap().as_mut().is_some_and(|c| {
-                c.try_wait().ok().flatten().is_none()
-            })
+            && self
+                .child
+                .lock()
+                .unwrap()
+                .as_mut()
+                .is_some_and(|c| c.try_wait().ok().flatten().is_none())
     }
 
     /// 检查 Worker 是否空闲
@@ -157,19 +160,23 @@ impl WorkerHandle {
         let mut stdin_guard = self.stdin.lock().unwrap();
         let stdin = stdin_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError("stdin not available".into()))?;
+            .ok_or(WorkerPoolError::CommunicationError(
+                "stdin not available".into(),
+            ))?;
 
         let task_data = task.serialize();
 
-        stdin
-            .write_all(&[WORKER_CMD_TASK])
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to send command: {}", e)))?;
+        stdin.write_all(&[WORKER_CMD_TASK]).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to send command: {}", e))
+        })?;
         stdin
             .write_all(&(task_data.len() as u32).to_le_bytes())
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to send length: {}", e)))?;
-        stdin
-            .write_all(&task_data)
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to send task: {}", e)))?;
+            .map_err(|e| {
+                WorkerPoolError::CommunicationError(format!("Failed to send length: {}", e))
+            })?;
+        stdin.write_all(&task_data).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to send task: {}", e))
+        })?;
         stdin
             .flush()
             .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to flush: {}", e)))?;
@@ -179,21 +186,24 @@ impl WorkerHandle {
         let mut stdout_guard = self.stdout.lock().unwrap();
         let stdout = stdout_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError("stdout not available".into()))?;
+            .ok_or(WorkerPoolError::CommunicationError(
+                "stdout not available".into(),
+            ))?;
 
         let mut len_buf = [0u8; 4];
-        stdout
-            .read_exact(&mut len_buf)
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to read result length: {}", e)))?;
+        stdout.read_exact(&mut len_buf).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to read result length: {}", e))
+        })?;
         let len = u32::from_le_bytes(len_buf) as usize;
 
         let mut result_data = vec![0u8; len];
-        stdout
-            .read_exact(&mut result_data)
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to read result: {}", e)))?;
+        stdout.read_exact(&mut result_data).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to read result: {}", e))
+        })?;
 
-        TaskResult::deserialize(&result_data)
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to deserialize result: {}", e)))
+        TaskResult::deserialize(&result_data).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to deserialize result: {}", e))
+        })
     }
 
     /// 发送心跳检测
@@ -204,11 +214,13 @@ impl WorkerHandle {
         let mut stdin_guard = self.stdin.lock().unwrap();
         let stdin = stdin_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError("stdin not available".into()))?;
+            .ok_or(WorkerPoolError::CommunicationError(
+                "stdin not available".into(),
+            ))?;
 
-        stdin
-            .write_all(&[WORKER_CMD_HEARTBEAT])
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to send heartbeat: {}", e)))?;
+        stdin.write_all(&[WORKER_CMD_HEARTBEAT]).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to send heartbeat: {}", e))
+        })?;
         stdin
             .flush()
             .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to flush: {}", e)))?;
@@ -218,12 +230,14 @@ impl WorkerHandle {
         let mut stdout_guard = self.stdout.lock().unwrap();
         let stdout = stdout_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError("stdout not available".into()))?;
+            .ok_or(WorkerPoolError::CommunicationError(
+                "stdout not available".into(),
+            ))?;
 
         let mut resp = [0u8; 1];
-        stdout
-            .read_exact(&mut resp)
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to read heartbeat response: {}", e)))?;
+        stdout.read_exact(&mut resp).map_err(|e| {
+            WorkerPoolError::CommunicationError(format!("Failed to read heartbeat response: {}", e))
+        })?;
 
         Ok(resp[0])
     }
@@ -431,7 +445,10 @@ impl WorkerPool {
 
     /// 获取空闲 Worker 数量
     pub fn idle_worker_count(&self) -> usize {
-        self.workers.iter().filter(|w| w.is_idle() && w.is_alive()).count()
+        self.workers
+            .iter()
+            .filter(|w| w.is_idle() && w.is_alive())
+            .count()
     }
 
     /// 获取忙碌 Worker 数量

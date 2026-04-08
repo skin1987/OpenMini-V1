@@ -19,7 +19,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 /// 健康状态常量
 pub const STATUS_HEALTHY: &str = "healthy";
@@ -229,7 +229,11 @@ impl HealthChecker {
                 ),
             )
         } else if gpu_util >= self.config.gpu_warning_threshold {
-            warn!(gpu_utilization = gpu_util, threshold = self.config.gpu_warning_threshold, "GPU utilization high");
+            warn!(
+                gpu_utilization = gpu_util,
+                threshold = self.config.gpu_warning_threshold,
+                "GPU utilization high"
+            );
             ComponentHealth::unhealthy(
                 "gpu",
                 format!(
@@ -270,7 +274,11 @@ impl HealthChecker {
                 ),
             )
         } else if memory_percent >= self.config.memory_warning_threshold {
-            warn!(memory_usage = memory_percent, threshold = self.config.memory_warning_threshold, "Memory usage high");
+            warn!(
+                memory_usage = memory_percent,
+                threshold = self.config.memory_warning_threshold,
+                "Memory usage high"
+            );
             ComponentHealth::unhealthy(
                 "memory",
                 format!(
@@ -298,7 +306,11 @@ impl HealthChecker {
         CPU_USAGE.set(cpu_usage as f64);
 
         if cpu_usage >= self.config.cpu_warning_threshold as f32 {
-            warn!(cpu_usage = cpu_usage, threshold = self.config.cpu_warning_threshold, "CPU usage high");
+            warn!(
+                cpu_usage = cpu_usage,
+                threshold = self.config.cpu_warning_threshold,
+                "CPU usage high"
+            );
             ComponentHealth::unhealthy(
                 "cpu",
                 format!(
@@ -318,7 +330,11 @@ impl HealthChecker {
         let queue_len = SCHEDULER_QUEUE_LENGTH.get() as usize;
 
         if queue_len > self.config.queue_length_warning {
-            warn!(queue_length = queue_len, threshold = self.config.queue_length_warning, "Scheduler queue long");
+            warn!(
+                queue_length = queue_len,
+                threshold = self.config.queue_length_warning,
+                "Scheduler queue long"
+            );
             ComponentHealth::unhealthy(
                 "scheduler",
                 format!(
@@ -373,10 +389,7 @@ impl HealthChecker {
             None => {
                 debug!("No model configuration found, using default model status");
                 // 当无法获取模型配置时，返回不健康状态并说明原因
-                ComponentHealth::unhealthy(
-                    "model",
-                    "Model configuration not available",
-                )
+                ComponentHealth::unhealthy("model", "Model configuration not available")
             }
         }
     }
@@ -400,7 +413,8 @@ impl HealthChecker {
     /// 聚合各组件状态为整体状态
     fn aggregate_status(&self, components: &[ComponentHealth]) -> String {
         let unhealthy_count = components.iter().filter(|c| !c.healthy).count();
-        let critical_count = components.iter()
+        let critical_count = components
+            .iter()
             .filter(|c| !c.healthy && c.message.as_ref().map_or(false, |m| m.contains("critical")))
             .count();
 
@@ -458,7 +472,10 @@ mod tests {
 
         let unhealthy_component = ComponentHealth::unhealthy("memory", "Out of memory");
         assert!(!unhealthy_component.healthy);
-        assert_eq!(unhealthy_component.message.as_deref(), Some("Out of memory"));
+        assert_eq!(
+            unhealthy_component.message.as_deref(),
+            Some("Out of memory")
+        );
     }
 
     /// 测试健康状态聚合逻辑
@@ -469,10 +486,11 @@ mod tests {
 
         // 验证返回的状态是有效的（healthy/degraded/unhealthy）
         assert!(
-            status.status == STATUS_HEALTHY ||
-            status.status == STATUS_DEGRADED ||
-            status.status == STATUS_UNHEALTHY,
-            "Invalid health status: {}", status.status
+            status.status == STATUS_HEALTHY
+                || status.status == STATUS_DEGRADED
+                || status.status == STATUS_UNHEALTHY,
+            "Invalid health status: {}",
+            status.status
         );
         // 验证组件列表不为空
         assert!(!status.components.is_empty());
@@ -519,7 +537,11 @@ mod tests {
         let checker = HealthChecker::with_config(config);
         let status = checker.check().await.unwrap();
 
-        let scheduler_component = status.components.iter().find(|c| c.name == "scheduler").unwrap();
+        let scheduler_component = status
+            .components
+            .iter()
+            .find(|c| c.name == "scheduler")
+            .unwrap();
         assert!(!scheduler_component.healthy);
 
         // 重置
@@ -590,7 +612,7 @@ mod tests {
             cpu_warning_threshold: 75.0,
             queue_length_warning: 30,
         };
-        
+
         assert!((config.gpu_warning_threshold - 70.0).abs() < 0.001);
         assert!((config.gpu_error_threshold - 95.0).abs() < 0.001);
         assert!((config.memory_warning_threshold - 60.0).abs() < 0.001);
@@ -624,18 +646,24 @@ mod tests {
         };
 
         let json = serde_json::to_string(&status).expect("Serialization should succeed");
-        
+
         // 验证JSON包含关键字段
         assert!(json.contains("healthy"), "JSON should contain status");
         assert!(json.contains("gpu"), "JSON should contain gpu component");
-        assert!(json.contains("memory"), "JSON should contain memory component");
-        assert!(json.contains("High memory usage"), "JSON should contain error message");
+        assert!(
+            json.contains("memory"),
+            "JSON should contain memory component"
+        );
+        assert!(
+            json.contains("High memory usage"),
+            "JSON should contain error message"
+        );
     }
 
     #[test]
     fn test_component_health_serialization_with_and_without_message() {
         // 测试组件健康状态在有/无消息时的序列化
-        
+
         // 无消息的组件
         let healthy = ComponentHealth::healthy("gpu");
         let json_healthy = serde_json::to_string(&healthy).unwrap();
@@ -675,7 +703,8 @@ mod tests {
             ComponentHealth::healthy("cpu"),
         ];
 
-        let has_critical = components.iter()
+        let has_critical = components
+            .iter()
             .any(|c| !c.healthy && c.message.as_ref().map_or(false, |m| m.contains("critical")));
         let has_unhealthy = components.iter().any(|c| !c.healthy);
 
@@ -693,23 +722,42 @@ mod tests {
         ];
 
         // 使用大小写不敏感的匹配（与HealthChecker::aggregate_status逻辑一致）
-        let has_critical = components.iter()
-            .any(|c| !c.healthy && c.message.as_ref().map_or(false, |m| m.to_lowercase().contains("critical")));
+        let has_critical = components.iter().any(|c| {
+            !c.healthy
+                && c.message
+                    .as_ref()
+                    .map_or(false, |m| m.to_lowercase().contains("critical"))
+        });
 
         assert!(has_critical); // 有critical问题
 
         // 验证聚合逻辑：有critical组件时应该返回unhealthy
         let unhealthy_count = components.iter().filter(|c| !c.healthy).count();
-        let critical_count = components.iter()
-            .filter(|c| !c.healthy && c.message.as_ref().map_or(false, |m| m.to_lowercase().contains("critical")))
+        let critical_count = components
+            .iter()
+            .filter(|c| {
+                !c.healthy
+                    && c.message
+                        .as_ref()
+                        .map_or(false, |m| m.to_lowercase().contains("critical"))
+            })
             .count();
 
         if critical_count > 0 {
-            assert_eq!(STATUS_UNHEALTHY, "unhealthy", "Should be unhealthy when critical issues exist");
+            assert_eq!(
+                STATUS_UNHEALTHY, "unhealthy",
+                "Should be unhealthy when critical issues exist"
+            );
         } else if unhealthy_count > 0 {
-            assert_eq!(STATUS_DEGRADED, "degraded", "Should be degraded when non-critical issues exist");
+            assert_eq!(
+                STATUS_DEGRADED, "degraded",
+                "Should be degraded when non-critical issues exist"
+            );
         } else {
-            assert_eq!(STATUS_HEALTHY, "healthy", "Should be healthy when all components are OK");
+            assert_eq!(
+                STATUS_HEALTHY, "healthy",
+                "Should be healthy when all components are OK"
+            );
         }
     }
 
@@ -718,7 +766,7 @@ mod tests {
         // 当check()失败时is_healthy应该返回false
         // （正常情况下check()不会失败，但我们验证错误处理路径）
         let checker = HealthChecker::new();
-        
+
         // 正常调用应该成功并返回布尔值
         let result = checker.is_healthy().await;
         // 结果取决于实际系统状态，我们只验证它不会panic
@@ -741,7 +789,7 @@ mod tests {
 
         let unhealthy = status.unhealthy_components();
         assert_eq!(unhealthy.len(), 2);
-        
+
         // 验证返回的都是不健康的组件
         for component in unhealthy {
             assert!(!component.healthy);

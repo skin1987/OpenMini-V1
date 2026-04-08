@@ -1,6 +1,6 @@
 //! 硬件能力分级系统
 
-use super::detector::{HardwareProfile, CpuArch};
+use super::detector::{CpuArch, HardwareProfile};
 
 /// 硬件能力级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -54,10 +54,15 @@ impl HardwareClassifier {
     pub fn new(profile: HardwareProfile) -> Self {
         let device_type = Self::detect_device_type(&profile);
         let (level, meets_requirements) = Self::classify(&profile, device_type);
-        
-        Self { profile, device_type, level, meets_requirements }
+
+        Self {
+            profile,
+            device_type,
+            level,
+            meets_requirements,
+        }
     }
-    
+
     fn detect_device_type(profile: &HardwareProfile) -> DeviceType {
         if profile.cpu.is_apple_silicon && profile.memory.total_gb >= 8 {
             return DeviceType::Desktop;
@@ -70,7 +75,7 @@ impl HardwareClassifier {
         }
         DeviceType::Desktop
     }
-    
+
     fn classify(profile: &HardwareProfile, device_type: DeviceType) -> (HardwareLevel, bool) {
         match device_type {
             DeviceType::Mobile => Self::classify_mobile(profile),
@@ -78,15 +83,17 @@ impl HardwareClassifier {
             DeviceType::Server => Self::classify_server(profile),
         }
     }
-    
+
     fn classify_mobile(profile: &HardwareProfile) -> (HardwareLevel, bool) {
         let meets = profile.cpu.physical_cores >= MOBILE_MIN_CORES
             && profile.memory.total_gb >= MOBILE_MIN_MEM_GB
             && profile.cpu.simd.neon
             && profile.gpu.supports_metal;
-        
-        if !meets { return (HardwareLevel::Entry, false); }
-        
+
+        if !meets {
+            return (HardwareLevel::Entry, false);
+        }
+
         let level = if profile.cpu.physical_cores >= 8 {
             HardwareLevel::Professional
         } else if profile.cpu.physical_cores >= 6 {
@@ -96,15 +103,17 @@ impl HardwareClassifier {
         };
         (level, true)
     }
-    
+
     fn classify_desktop(profile: &HardwareProfile) -> (HardwareLevel, bool) {
         let meets = profile.cpu.physical_cores >= PC_MIN_CORES
             && profile.cpu.logical_cores >= PC_MIN_THREADS
             && profile.memory.total_gb >= PC_MIN_MEM_GB
             && (profile.cpu.simd.avx2 || profile.cpu.simd.neon);
-        
-        if !meets { return (HardwareLevel::Entry, false); }
-        
+
+        if !meets {
+            return (HardwareLevel::Entry, false);
+        }
+
         let level = if profile.cpu.logical_cores >= 32 {
             HardwareLevel::Server
         } else if profile.cpu.logical_cores >= 16 {
@@ -116,13 +125,15 @@ impl HardwareClassifier {
         };
         (level, true)
     }
-    
+
     fn classify_server(profile: &HardwareProfile) -> (HardwareLevel, bool) {
-        let meets = profile.cpu.physical_cores >= PC_MIN_CORES
-            && profile.memory.total_gb >= PC_MIN_MEM_GB;
-        
-        if !meets { return (HardwareLevel::Entry, false); }
-        
+        let meets =
+            profile.cpu.physical_cores >= PC_MIN_CORES && profile.memory.total_gb >= PC_MIN_MEM_GB;
+
+        if !meets {
+            return (HardwareLevel::Entry, false);
+        }
+
         let level = if profile.cpu.logical_cores >= 128 {
             HardwareLevel::Server
         } else if profile.cpu.logical_cores >= 64 {
@@ -132,30 +143,52 @@ impl HardwareClassifier {
         };
         (level, true)
     }
-    
-    pub fn level(&self) -> HardwareLevel { self.level }
-    pub fn device_type(&self) -> DeviceType { self.device_type }
+
+    pub fn level(&self) -> HardwareLevel {
+        self.level
+    }
+    pub fn device_type(&self) -> DeviceType {
+        self.device_type
+    }
     #[allow(dead_code)]
-    pub fn meets_requirements(&self) -> bool { self.meets_requirements }
-    
+    pub fn meets_requirements(&self) -> bool {
+        self.meets_requirements
+    }
+
     #[allow(dead_code)]
     pub fn recommended_strategy(&self) -> InferenceStrategy {
         match self.level {
             HardwareLevel::Entry => InferenceStrategy {
-                use_simd: true, use_gpu: false, use_dsa: true,
-                use_flash_attention: false, batch_size: 1, max_seq_len: 2048,
+                use_simd: true,
+                use_gpu: false,
+                use_dsa: true,
+                use_flash_attention: false,
+                batch_size: 1,
+                max_seq_len: 2048,
             },
             HardwareLevel::Standard => InferenceStrategy {
-                use_simd: true, use_gpu: true, use_dsa: true,
-                use_flash_attention: false, batch_size: 1, max_seq_len: 4096,
+                use_simd: true,
+                use_gpu: true,
+                use_dsa: true,
+                use_flash_attention: false,
+                batch_size: 1,
+                max_seq_len: 4096,
             },
             HardwareLevel::Professional => InferenceStrategy {
-                use_simd: true, use_gpu: true, use_dsa: true,
-                use_flash_attention: true, batch_size: 4, max_seq_len: 8192,
+                use_simd: true,
+                use_gpu: true,
+                use_dsa: true,
+                use_flash_attention: true,
+                batch_size: 4,
+                max_seq_len: 8192,
             },
             HardwareLevel::Server => InferenceStrategy {
-                use_simd: true, use_gpu: true, use_dsa: true,
-                use_flash_attention: true, batch_size: 16, max_seq_len: 32768,
+                use_simd: true,
+                use_gpu: true,
+                use_dsa: true,
+                use_flash_attention: true,
+                batch_size: 16,
+                max_seq_len: 32768,
             },
         }
     }
@@ -163,8 +196,11 @@ impl HardwareClassifier {
 
 #[cfg(test)]
 mod tests {
+    use super::super::detector::{
+        CacheTopology, CpuArch, CpuInfo, GpuInfo, HardwareProfile, HyperthreadTopology, MemoryInfo,
+        NumaTopology, SimdCapabilities,
+    };
     use super::*;
-    use super::super::detector::{HardwareProfile, CpuInfo, GpuInfo, MemoryInfo, CpuArch, SimdCapabilities, HyperthreadTopology, CacheTopology, NumaTopology};
 
     /// 创建测试用的 HardwareProfile 辅助函数
     fn create_test_profile(
@@ -211,7 +247,7 @@ mod tests {
         assert!(HardwareLevel::Entry < HardwareLevel::Standard);
         assert!(HardwareLevel::Standard < HardwareLevel::Professional);
         assert!(HardwareLevel::Professional < HardwareLevel::Server);
-        
+
         // 测试相等性
         assert_eq!(HardwareLevel::Entry, HardwareLevel::Entry);
     }
@@ -243,15 +279,15 @@ mod tests {
     fn test_classify_mobile_professional() {
         let profile = create_test_profile(
             CpuArch::AArch64,
-            8,  // physical_cores >= 8 => Professional
+            8, // physical_cores >= 8 => Professional
             8,
-            8,  // >= MOBILE_MIN_MEM_GB (6)
+            8, // >= MOBILE_MIN_MEM_GB (6)
             false,
-            true,   // neon required
+            true, // neon required
             false,
-            true,   // metal required
+            true, // metal required
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.device_type(), DeviceType::Mobile);
         assert_eq!(classifier.level(), HardwareLevel::Professional);
@@ -263,15 +299,15 @@ mod tests {
     fn test_classify_mobile_standard() {
         let profile = create_test_profile(
             CpuArch::AArch64,
-            6,  // 刚好满足 MOBILE_MIN_CORES
+            6, // 刚好满足 MOBILE_MIN_CORES
             6,
-            6,  // 刚好满足 MOBILE_MIN_MEM_GB
+            6, // 刚好满足 MOBILE_MIN_MEM_GB
             false,
             true,
             false,
             true,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.level(), HardwareLevel::Standard);
         assert!(classifier.meets_requirements());
@@ -282,15 +318,15 @@ mod tests {
     fn test_classify_desktop_not_meet_requirements() {
         let profile = create_test_profile(
             CpuArch::X86_64,
-            2,  // < PC_MIN_CORES (4)
-            4,  // < PC_MIN_THREADS (8)
-            8,  // < PC_MIN_MEM_GB (16)
+            2, // < PC_MIN_CORES (4)
+            4, // < PC_MIN_THREADS (8)
+            8, // < PC_MIN_MEM_GB (16)
             false,
             false,
-            false,  // 无SIMD
+            false, // 无SIMD
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.level(), HardwareLevel::Entry);
         assert!(!classifier.meets_requirements());
@@ -303,13 +339,13 @@ mod tests {
             CpuArch::AArch64,
             10,
             10,
-            16,  // >= 8GB
-            true,  // Apple Silicon
+            16,   // >= 8GB
+            true, // Apple Silicon
             true,
             false,
             true,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         // Apple Silicon + 内存>=8GB 应该被识别为 Desktop
         assert_eq!(classifier.device_type(), DeviceType::Desktop);
@@ -321,14 +357,14 @@ mod tests {
         let profile = create_test_profile(
             CpuArch::X86_64,
             32,
-            128,  // >= 64 => Server
+            128, // >= 64 => Server
             64,
             false,
             false,
             true,
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.device_type(), DeviceType::Server);
     }
@@ -337,7 +373,8 @@ mod tests {
     #[test]
     fn test_recommended_strategy_for_each_level() {
         // Entry level
-        let profile_entry = create_test_profile(CpuArch::X86_64, 1, 1, 1, false, false, false, false);
+        let profile_entry =
+            create_test_profile(CpuArch::X86_64, 1, 1, 1, false, false, false, false);
         let classifier_entry = HardwareClassifier::new(profile_entry);
         let strategy_entry = classifier_entry.recommended_strategy();
         assert!(!strategy_entry.use_gpu);
@@ -345,16 +382,8 @@ mod tests {
         assert_eq!(strategy_entry.batch_size, 1);
 
         // Server level
-        let profile_server = create_test_profile(
-            CpuArch::X86_64,
-            64,
-            128,
-            64,
-            false,
-            false,
-            true,
-            false,
-        );
+        let profile_server =
+            create_test_profile(CpuArch::X86_64, 64, 128, 64, false, false, true, false);
         let classifier_server = HardwareClassifier::new(profile_server);
         let strategy_server = classifier_server.recommended_strategy();
         assert!(strategy_server.use_gpu);
@@ -374,7 +403,7 @@ mod tests {
             batch_size: 4,
             max_seq_len: 8192,
         };
-        
+
         let cloned = strategy.clone();
         assert_eq!(cloned.use_simd, strategy.use_simd);
         assert_eq!(cloned.max_seq_len, strategy.max_seq_len);
@@ -385,15 +414,15 @@ mod tests {
     fn test_classify_desktop_boundary_professional() {
         let profile = create_test_profile(
             CpuArch::X86_64,
-            8,   // >= PC_MIN_CORES
-            16,  // >= 16 => Professional
-            16,  // >= PC_MIN_MEM_GB
+            8,  // >= PC_MIN_CORES
+            16, // >= 16 => Professional
+            16, // >= PC_MIN_MEM_GB
             false,
             false,
-            true,  // avx2 or neon
+            true, // avx2 or neon
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.level(), HardwareLevel::Professional);
         assert!(classifier.meets_requirements());
@@ -406,15 +435,15 @@ mod tests {
     fn test_classify_mobile_not_meet_requirements() {
         let profile = create_test_profile(
             CpuArch::AArch64,
-            4,   // < MOBILE_MIN_CORES (6)
+            4, // < MOBILE_MIN_CORES (6)
             4,
-            4,   // < MOBILE_MIN_MEM_GB (6)
+            4, // < MOBILE_MIN_MEM_GB (6)
             false,
-            true,   // neon
+            true, // neon
             false,
-            false,  // 无metal
+            false, // 无metal
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.device_type(), DeviceType::Mobile);
         assert_eq!(classifier.level(), HardwareLevel::Entry);
@@ -426,15 +455,15 @@ mod tests {
     fn test_classify_mobile_boundary_standard() {
         let profile = create_test_profile(
             CpuArch::AArch64,
-            7,   // >=6 但 <8，应该是Standard
+            7, // >=6 但 <8，应该是Standard
             7,
-            8,   // >=6
+            8, // >=6
             false,
-            true,   // neon required
+            true, // neon required
             false,
-            true,   // metal required
+            true, // metal required
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.level(), HardwareLevel::Standard);
         assert!(classifier.meets_requirements());
@@ -445,15 +474,15 @@ mod tests {
     fn test_classify_desktop_standard_boundary() {
         let profile = create_test_profile(
             CpuArch::X86_64,
-            4,   // PC_MIN_CORES
-            8,   // PC_MIN_THREADS，刚好满足Standard
-            16,  // PC_MIN_MEM_GB
+            4,  // PC_MIN_CORES
+            8,  // PC_MIN_THREADS，刚好满足Standard
+            16, // PC_MIN_MEM_GB
             false,
             false,
-            true,  // avx2
+            true, // avx2
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.device_type(), DeviceType::Desktop);
         assert_eq!(classifier.level(), HardwareLevel::Standard);
@@ -465,15 +494,15 @@ mod tests {
     fn test_classify_desktop_server_level() {
         let profile = create_test_profile(
             CpuArch::X86_64,
-            16,  // >=4
-            32,  // >=32 => Server
-            32,  // >=16
+            16, // >=4
+            32, // >=32 => Server
+            32, // >=16
             false,
             false,
             true,
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.level(), HardwareLevel::Server);
         assert!(classifier.meets_requirements());
@@ -485,14 +514,14 @@ mod tests {
         let profile = create_test_profile(
             CpuArch::X86_64,
             32,
-            96,  // 64 <= 96 < 128 => Professional
+            96, // 64 <= 96 < 128 => Professional
             64,
             false,
             false,
             true,
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.device_type(), DeviceType::Server);
         assert_eq!(classifier.level(), HardwareLevel::Professional);
@@ -505,14 +534,14 @@ mod tests {
         let profile = create_test_profile(
             CpuArch::X86_64,
             8,
-            32,  // <64 => Standard（服务器类型）
+            32, // <64 => Standard（服务器类型）
             32,
             false,
             false,
             true,
             false,
         );
-        
+
         let classifier = HardwareClassifier::new(profile);
         assert_eq!(classifier.device_type(), DeviceType::Desktop);
         assert_eq!(classifier.level(), HardwareLevel::Server);
@@ -525,17 +554,22 @@ mod tests {
         // Standard level 策略验证
         let profile_std = create_test_profile(
             CpuArch::X86_64,
-            4, 8, 16,  // 刚好满足桌面标准要求
-            false, false, true, false,
+            4,
+            8,
+            16, // 刚好满足桌面标准要求
+            false,
+            false,
+            true,
+            false,
         );
         let classifier_std = HardwareClassifier::new(profile_std);
         let strategy_std = classifier_std.recommended_strategy();
-        
+
         if classifier_std.level() == HardwareLevel::Standard {
             assert!(strategy_std.use_simd);
             assert!(strategy_std.use_gpu);
             assert!(strategy_std.use_dsa);
-            assert!(!strategy_std.use_flash_attention);  // Standard不支持flash attention
+            assert!(!strategy_std.use_flash_attention); // Standard不支持flash attention
             assert_eq!(strategy_std.batch_size, 1);
             assert_eq!(strategy_std.max_seq_len, 4096);
         }
@@ -543,16 +577,21 @@ mod tests {
         // Professional level 策略验证
         let profile_pro = create_test_profile(
             CpuArch::X86_64,
-            8, 16, 16,  // 满足Professional
-            false, false, true, false,
+            8,
+            16,
+            16, // 满足Professional
+            false,
+            false,
+            true,
+            false,
         );
         let classifier_pro = HardwareClassifier::new(profile_pro);
         let strategy_pro = classifier_pro.recommended_strategy();
-        
+
         if classifier_pro.level() == HardwareLevel::Professional {
             assert!(strategy_pro.use_simd);
             assert!(strategy_pro.use_gpu);
-            assert!(strategy_pro.use_flash_attention);  // Professional支持
+            assert!(strategy_pro.use_flash_attention); // Professional支持
             assert_eq!(strategy_pro.batch_size, 4);
             assert_eq!(strategy_pro.max_seq_len, 8192);
         }
@@ -568,12 +607,17 @@ mod tests {
             HardwareLevel::Professional,
             HardwareLevel::Server,
         ];
-        
+
         // 验证严格递增
-        for i in 0..levels.len()-1 {
-            assert!(levels[i] < levels[i+1], "{:?} should be < {:?}", levels[i], levels[i+1]);
+        for i in 0..levels.len() - 1 {
+            assert!(
+                levels[i] < levels[i + 1],
+                "{:?} should be < {:?}",
+                levels[i],
+                levels[i + 1]
+            );
         }
-        
+
         // 验证Debug输出不为空且包含变体名
         for level in &levels {
             let debug_str = format!("{:?}", level);

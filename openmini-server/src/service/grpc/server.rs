@@ -3,29 +3,25 @@
 //! 实现 OpenMini gRPC 服务，支持聊天、图像理解、多模态等功能。
 //! 集成真实推理引擎，支持流式输出和记忆注入。
 
-use crate::service::grpc::types::{
-    ChatRequest, ChatResponse,
-    ImageRequest, ImageResponse,
-    HealthRequest, HealthResponse,
-    OmniChatRequest, OmniChatResponse,
-    SpeechToTextRequest, SpeechToTextResponse,
-    TextToSpeechRequest, TextToSpeechResponse,
-    UsageInfo, OmniInput, OmniOutput,
-};
 use crate::config::settings::ServerConfig;
-use crate::model::inference::InferenceEngine;
-use crate::model::inference::inference::{StreamGenerator, InferenceStats};
-use crate::model::inference::sampler::GenerateParams;
-use crate::model::inference::memory::MemoryManager;
 use crate::hardware::scheduler::MemoryStrategy;
+use crate::model::inference::inference::{InferenceStats, StreamGenerator};
+use crate::model::inference::memory::MemoryManager;
+use crate::model::inference::sampler::GenerateParams;
+use crate::model::inference::InferenceEngine;
+use crate::service::grpc::types::{
+    ChatRequest, ChatResponse, HealthRequest, HealthResponse, ImageRequest, ImageResponse,
+    OmniChatRequest, OmniChatResponse, OmniInput, OmniOutput, SpeechToTextRequest,
+    SpeechToTextResponse, TextToSpeechRequest, TextToSpeechResponse, UsageInfo,
+};
 
 use futures::Stream;
+use ndarray::Array2;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tonic::Status;
 use tokio::sync::RwLock;
-use ndarray::Array2;
+use tonic::Status;
 
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatResponse, Status>> + Send>>;
 pub type ImageStream = Pin<Box<dyn Stream<Item = Result<ImageResponse, Status>> + Send>>;
@@ -152,19 +148,26 @@ impl OpenMiniService {
     }
 
     /// 构建带记忆的提示词
-    async fn build_prompt_with_memory(&self, session_id: &str, messages: &[crate::service::grpc::types::Message]) -> String {
+    async fn build_prompt_with_memory(
+        &self,
+        session_id: &str,
+        messages: &[crate::service::grpc::types::Message],
+    ) -> String {
         let memory = self.get_memory(session_id).await.unwrap_or_default();
-        
+
         let mut prompt_parts = Vec::new();
-        
+
         if !memory.is_empty() {
-            prompt_parts.push(format!("[记忆上下文]\n{}\n[/记忆上下文]\n", memory.join("\n")));
+            prompt_parts.push(format!(
+                "[记忆上下文]\n{}\n[/记忆上下文]\n",
+                memory.join("\n")
+            ));
         }
-        
+
         for msg in messages {
             prompt_parts.push(format!("{}: {}", msg.role, msg.content));
         }
-        
+
         prompt_parts.join("\n")
     }
 
@@ -184,7 +187,7 @@ impl OpenMiniService {
         params: &GenerateParams,
     ) -> Result<(String, InferenceStats), Status> {
         let mut last_error = None;
-        
+
         for attempt in 0..MAX_RETRIES {
             match self.inference_engine.generate_with_stats(prompt, params) {
                 Ok(result) => return Ok(result),
@@ -197,7 +200,7 @@ impl OpenMiniService {
                 }
             }
         }
-        
+
         Err(Status::internal(format!(
             "推理失败，已重试 {} 次: {}",
             MAX_RETRIES,
@@ -220,12 +223,9 @@ impl Default for OpenMiniService {
 ///
 /// # 返回
 /// 流式聊天响应
-pub async fn chat(
-    service: &OpenMiniService,
-    request: ChatRequest,
-) -> Result<ChatStream, Status> {
+pub async fn chat(service: &OpenMiniService, request: ChatRequest) -> Result<ChatStream, Status> {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
-    
+
     let engine = Arc::clone(&service.inference_engine);
     let session_id = request.session_id.clone();
     let messages = request.messages.clone();
@@ -240,15 +240,18 @@ pub async fn chat(
         };
 
         let mut prompt_parts = Vec::new();
-        
+
         if !memory.is_empty() {
-            prompt_parts.push(format!("[记忆上下文]\n{}\n[/记忆上下文]", memory.join("\n")));
+            prompt_parts.push(format!(
+                "[记忆上下文]\n{}\n[/记忆上下文]",
+                memory.join("\n")
+            ));
         }
-        
+
         for msg in &messages {
             prompt_parts.push(format!("{}: {}", msg.role, msg.content));
         }
-        
+
         let prompt = prompt_parts.join("\n");
 
         let params = GenerateParams::new()
@@ -256,41 +259,39 @@ pub async fn chat(
             .with_max_new_tokens(max_tokens);
 
         let stream_generator = StreamGenerator::from_engine(&engine);
-        
+
         let mut generated_tokens = 0;
         let mut total_text = String::new();
-        
+
         let callback_result = stream_generator.stream_generate(&prompt, &params, |token| {
             total_text.push_str(token);
             generated_tokens += 1;
-            
+
             let response = ChatResponse {
                 session_id: session_id.clone(),
                 token: token.to_string(),
                 finished: false,
                 usage: None,
             };
-            
+
             if tx.blocking_send(Ok(response)).is_err() {
                 return Err(anyhow::anyhow!("通道已关闭"));
             }
-            
+
             Ok(())
         });
 
         let final_response = match callback_result {
-            Ok(stats) => {
-                ChatResponse {
-                    session_id: session_id.clone(),
-                    token: String::new(),
-                    finished: true,
-                    usage: Some(UsageInfo {
-                        prompt_tokens: stats.prompt_tokens as i32,
-                        completion_tokens: stats.generated_tokens as i32,
-                        total_tokens: stats.total_tokens as i32,
-                    }),
-                }
-            }
+            Ok(stats) => ChatResponse {
+                session_id: session_id.clone(),
+                token: String::new(),
+                finished: true,
+                usage: Some(UsageInfo {
+                    prompt_tokens: stats.prompt_tokens as i32,
+                    completion_tokens: stats.generated_tokens as i32,
+                    total_tokens: stats.total_tokens as i32,
+                }),
+            },
             Err(e) => {
                 tracing::error!("流式生成失败: {}", e);
                 ChatResponse {
@@ -301,10 +302,10 @@ pub async fn chat(
                 }
             }
         };
-        
+
         let _ = tx.send(Ok(final_response)).await;
     });
-    
+
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     Ok(Box::pin(stream) as ChatStream)
 }
@@ -323,9 +324,8 @@ pub async fn image_understanding(
 ) -> Result<ImageResponse, Status> {
     let image_patches = decode_image(&request.image_data)
         .map_err(|e| Status::internal(format!("图像解码失败: {}", e)))?;
-    
-    let params = GenerateParams::new()
-        .with_max_new_tokens(512);
+
+    let params = GenerateParams::new().with_max_new_tokens(512);
 
     let prompt = if request.question.is_empty() {
         "请描述这张图片的内容。".to_string()
@@ -333,7 +333,8 @@ pub async fn image_understanding(
         request.question.clone()
     };
 
-    let result = service.inference_engine
+    let result = service
+        .inference_engine
         .generate_with_image(&prompt, &image_patches, &params)
         .map_err(|e| Status::internal(format!("图像理解失败: {}", e)))?;
 
@@ -357,7 +358,7 @@ pub async fn image_understanding_stream(
     request: ImageRequest,
 ) -> Result<ImageStream, Status> {
     let (tx, rx) = tokio::sync::mpsc::channel(100);
-    
+
     let engine = Arc::clone(&service.inference_engine);
     let session_id = request.session_id.clone();
     let image_data = request.image_data.clone();
@@ -371,16 +372,17 @@ pub async fn image_understanding_stream(
         let image_patches = match decode_image(&image_data) {
             Ok(patches) => patches,
             Err(e) => {
-                let _ = tx.send(Err(Status::internal(format!("图像解码失败: {}", e)))).await;
+                let _ = tx
+                    .send(Err(Status::internal(format!("图像解码失败: {}", e))))
+                    .await;
                 return;
             }
         };
 
-        let params = GenerateParams::new()
-            .with_max_new_tokens(512);
+        let params = GenerateParams::new().with_max_new_tokens(512);
 
         let stream_generator = StreamGenerator::from_engine(&engine);
-        
+
         let callback_result = stream_generator.stream_generate_with_image(
             &question,
             &image_patches,
@@ -391,23 +393,21 @@ pub async fn image_understanding_stream(
                     token: token.to_string(),
                     finished: false,
                 };
-                
+
                 if tx.blocking_send(Ok(response)).is_err() {
                     return Err(anyhow::anyhow!("通道已关闭"));
                 }
-                
+
                 Ok(())
-            }
+            },
         );
 
         let final_response = match callback_result {
-            Ok(_) => {
-                ImageResponse {
-                    session_id: session_id.clone(),
-                    token: String::new(),
-                    finished: true,
-                }
-            }
+            Ok(_) => ImageResponse {
+                session_id: session_id.clone(),
+                token: String::new(),
+                finished: true,
+            },
             Err(e) => {
                 tracing::error!("图像流式生成失败: {}", e);
                 ImageResponse {
@@ -417,10 +417,10 @@ pub async fn image_understanding_stream(
                 }
             }
         };
-        
+
         let _ = tx.send(Ok(final_response)).await;
     });
-    
+
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     Ok(Box::pin(stream) as ImageStream)
 }
@@ -532,14 +532,16 @@ pub async fn omni_chat(
                 tracing::warn!(video_size = video_data.len(), "视频输入暂不支持");
                 Ok(OmniProcessingResult::Unsupported(
                     "视频理解功能正在开发中，当前版本暂不支持视频输入。\
-                     请使用图像或音频输入，或等待后续版本更新。".to_string()
+                     请使用图像或音频输入，或等待后续版本更新。"
+                        .to_string(),
                 ))
             }
 
             // 无输入 → 默认提示
             None => {
                 tracing::debug!("无输入数据，使用默认提示");
-                match engine.generate("请提供输入内容（文本、图像或音频）。", &params) {
+                match engine.generate("请提供输入内容（文本、图像或音频）。", &params)
+                {
                     Ok(text) => Ok(OmniProcessingResult::Text(text)),
                     Err(e) => Err(e),
                 }
@@ -551,12 +553,7 @@ pub async fn omni_chat(
             Ok(processing_result) => {
                 match processing_result {
                     OmniProcessingResult::Text(response_text) => {
-                        send_text_stream(
-                            &tx,
-                            &session_id,
-                            response_text,
-                            stream_mode,
-                        ).await;
+                        send_text_stream(&tx, &session_id, response_text, stream_mode).await;
                     }
                     OmniProcessingResult::Unsupported(message) => {
                         // 发送不支持的提示信息
@@ -693,13 +690,19 @@ pub async fn speech_to_text(
     tokio::spawn(async move {
         // 验证音频数据
         if audio_data.is_empty() {
-            let _ = tx.send(Err(Status::invalid_argument("音频数据不能为空"))).await;
+            let _ = tx
+                .send(Err(Status::invalid_argument("音频数据不能为空")))
+                .await;
             return;
         }
 
         // 音频数据大小限制（最大 10MB）
         if audio_data.len() > 10 * 1024 * 1024 {
-            let _ = tx.send(Err(Status::invalid_argument("音频数据超过限制（最大10MB）"))).await;
+            let _ = tx
+                .send(Err(Status::invalid_argument(
+                    "音频数据超过限制（最大10MB）",
+                )))
+                .await;
             return;
         }
 
@@ -725,8 +728,7 @@ pub async fn speech_to_text(
         };
 
         // 使用推理引擎进行多模态识别（预留接口）
-        let params = GenerateParams::new()
-            .with_max_new_tokens(1024);
+        let params = GenerateParams::new().with_max_new_tokens(1024);
 
         let prompt = if language.is_empty() || language.to_lowercase() == "auto" {
             "请将以下语音转录为文字。".to_string()
@@ -735,19 +737,11 @@ pub async fn speech_to_text(
         };
 
         // 调用推理引擎进行识别
-        let result = engine.generate_multimodal(
-            &prompt,
-            None,
-            Some(&audio_features),
-            &params
-        );
+        let result = engine.generate_multimodal(&prompt, None, Some(&audio_features), &params);
 
         match result {
             Ok(recognized_text) => {
-                tracing::info!(
-                    text_length = recognized_text.len(),
-                    "ASR 识别成功"
-                );
+                tracing::info!(text_length = recognized_text.len(), "ASR 识别成功");
 
                 if stream_mode && recognized_text.len() > 10 {
                     // 流式模式：逐步返回识别结果（模拟逐词/逐句输出）
@@ -867,7 +861,9 @@ fn calculate_final_confidence(audio_meta: &AudioMetadata) -> f32 {
         base_confidence - 0.02
     } else {
         base_confidence
-    }.max(0.80).min(0.99)
+    }
+    .max(0.80)
+    .min(0.99)
 }
 
 /// 文字转语音（流式输出）
@@ -908,12 +904,18 @@ pub async fn text_to_speech(
     tokio::spawn(async move {
         // 验证输入参数
         if text.is_empty() {
-            let _ = tx.send(Err(Status::invalid_argument("文本内容不能为空"))).await;
+            let _ = tx
+                .send(Err(Status::invalid_argument("文本内容不能为空")))
+                .await;
             return;
         }
 
         if text.len() > 10000 {
-            let _ = tx.send(Err(Status::invalid_argument("文本长度超过限制（最大10000字符）"))).await;
+            let _ = tx
+                .send(Err(Status::invalid_argument(
+                    "文本长度超过限制（最大10000字符）",
+                )))
+                .await;
             return;
         }
 
@@ -932,12 +934,8 @@ pub async fn text_to_speech(
         // 模拟流式音频生成
         for chunk_index in 0..total_chunks {
             // 生成模拟的音频数据（正弦波 + 噪声）
-            let audio_chunk = generate_synthetic_audio_chunk(
-                chunk_index,
-                chunk_size,
-                base_audio_size,
-                pitch,
-            );
+            let audio_chunk =
+                generate_synthetic_audio_chunk(chunk_index, chunk_size, base_audio_size, pitch);
 
             let is_finished = chunk_index == total_chunks - 1;
 
@@ -1061,9 +1059,7 @@ pub async fn start_grpc_server(
     // 解析地址
     let addr = addr
         .parse::<std::net::SocketAddr>()
-        .map_err(|e| {
-            format!("无效的地址格式 '{}': {}", addr, e)
-        })?;
+        .map_err(|e| format!("无效的地址格式 '{}': {}", addr, e))?;
 
     // 从配置中提取 gRPC 设置（如果有）
     let max_message_size = config
@@ -1087,7 +1083,7 @@ pub async fn start_grpc_server(
 
     // 创建服务实例
     let service = Arc::new(OpenMiniService::with_config(
-        config.cloned().unwrap_or_default()
+        config.cloned().unwrap_or_default(),
     ));
 
     // 创建 shutdown 信号通道
@@ -1154,17 +1150,18 @@ pub async fn start_grpc_server(
                 .layer(tonic::service::ExtRequestLayer::new(|| {
                     tower_http::trace::TraceLayer::new_for_http()
                         .make_span_with(|_req: &tonic::request::Request<()>| {
-                            tracing::span!(
-                                tracing::Level::INFO,
-                                "grpc_request",
-                            )
+                            tracing::span!(tracing::Level::INFO, "grpc_request",)
                         })
                         .on_request(|_req: &tonic::request::Request<()>, _s: &tracing::Span| {
                             tracing::info!("收到 gRPC 请求");
                         })
-                        .on_response(|_res: &tonic::Response<Body>, _latency: Duration, _s: &tracing::Span| {
-                            tracing::info!("gRPC 响应完成");
-                        })
+                        .on_response(
+                            |_res: &tonic::Response<Body>,
+                             _latency: Duration,
+                             _s: &tracing::Span| {
+                                tracing::info!("gRPC 响应完成");
+                            },
+                        )
                 }))
                 .add_service(create_openmini_router(server_service))
                 .serve_with_shutdown(addr, async move {
@@ -1220,8 +1217,12 @@ fn create_openmini_router(
     tonic::body::BoxBody,
     Response = http::Response<tonic::body::BoxBody>,
     Error = std::convert::Infallible,
-    Future = core::future::Ready<Result<http::Response<tonic::body::BoxBody>, std::convert::Infallible>>,
-> + Clone + Send + 'static {
+    Future = core::future::Ready<
+        Result<http::Response<tonic::body::BoxBody>, std::convert::Infallible>,
+    >,
+> + Clone
+       + Send
+       + 'static {
     // 预留：当有 proto 文件时，这里会注册实际的 gRPC 服务
     //
     // 示例：
@@ -1231,12 +1232,12 @@ fn create_openmini_router(
     // ```
 
     // 当前返回一个简单的 echo 服务作为占位符
-    use tower::{ServiceBuilder, ServiceExt};
-    use http::{Request, Response};
     use bytes::Bytes;
+    use http::{Request, Response};
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll};
+    use tower::{ServiceBuilder, ServiceExt};
 
     /// 简单的 Echo 服务（用于测试和占位）
     #[derive(Clone)]
@@ -1255,9 +1256,9 @@ fn create_openmini_router(
             let response = Response::builder()
                 .status(http::StatusCode::OK)
                 .header("content-type", "application/grpc+proto")
-                .body(tonic::body::BoxBody::new(
-                    http_body_util::Full::new(Bytes::from_static(b"\x00\x00\x00\x00\x05\x00\x00\x00\x06\x0a\x04pong"))
-                ))
+                .body(tonic::body::BoxBody::new(http_body_util::Full::new(
+                    Bytes::from_static(b"\x00\x00\x00\x00\x05\x00\x00\x00\x06\x0a\x04pong"),
+                )))
                 .unwrap();
 
             Box::pin(async move { Ok(response) })
@@ -1313,27 +1314,27 @@ pub async fn wait_for_server_shutdown(
 fn decode_image(image_data: &[u8]) -> Result<Array2<f32>, anyhow::Error> {
     let patch_size = 14;
     let num_patches = 256;
-    
+
     if image_data.is_empty() {
         return Ok(Array2::zeros((num_patches, patch_size * patch_size * 3)));
     }
-    
+
     let feature_dim = patch_size * patch_size * 3;
     let mut patches = Array2::zeros((num_patches, feature_dim));
-    
+
     let bytes_per_patch = feature_dim.min(image_data.len() / num_patches);
-    
+
     for i in 0..num_patches {
         let start = (i * bytes_per_patch).min(image_data.len());
         let end = (start + bytes_per_patch).min(image_data.len());
-        
+
         for (j, &byte) in image_data[start..end].iter().enumerate() {
             if j < feature_dim {
                 patches[[i, j]] = byte as f32 / 255.0;
             }
         }
     }
-    
+
     Ok(patches)
 }
 
@@ -1347,26 +1348,26 @@ fn decode_image(image_data: &[u8]) -> Result<Array2<f32>, anyhow::Error> {
 fn decode_audio(audio_data: &[u8]) -> Result<Array2<f32>, anyhow::Error> {
     let num_frames = 100;
     let feature_dim = 80;
-    
+
     if audio_data.is_empty() {
         return Ok(Array2::zeros((num_frames, feature_dim)));
     }
-    
+
     let mut features = Array2::zeros((num_frames, feature_dim));
-    
+
     let bytes_per_frame = feature_dim.min(audio_data.len() / num_frames);
-    
+
     for i in 0..num_frames {
         let start = (i * bytes_per_frame).min(audio_data.len());
         let end = (start + bytes_per_frame).min(audio_data.len());
-        
+
         for (j, &byte) in audio_data[start..end].iter().enumerate() {
             if j < feature_dim {
                 features[[i, j]] = (byte as f32 - 128.0) / 128.0;
             }
         }
     }
-    
+
     Ok(features)
 }
 
@@ -1381,14 +1382,14 @@ fn decode_video(video_data: &[u8]) -> Result<(Array2<f32>, Array2<f32>), anyhow:
     if video_data.len() < 100 {
         return Ok((Array2::zeros((256, 588)), Array2::zeros((100, 80))));
     }
-    
+
     let mid = video_data.len() / 2;
     let image_data = &video_data[..mid];
     let audio_data = &video_data[mid..];
-    
+
     let image_patches = decode_image(image_data)?;
     let audio_features = decode_audio(audio_data)?;
-    
+
     Ok((image_patches, audio_features))
 }
 
@@ -1432,7 +1433,9 @@ mod tests {
     async fn test_memory_injection() {
         let service = OpenMiniService::new();
 
-        service.inject_memory("test-session", vec!["记忆1".to_string()]).await;
+        service
+            .inject_memory("test-session", vec!["记忆1".to_string()])
+            .await;
 
         let memory = service.get_memory("test-session").await;
         assert!(memory.is_some());
@@ -1448,7 +1451,7 @@ mod tests {
     #[test]
     fn test_decode_image_with_data() {
         // 创建小的图像数据（避免大内存分配）
-        let data = vec![128u8; 200];  // 200字节
+        let data = vec![128u8; 200]; // 200字节
         let result = decode_image(&data);
 
         assert!(result.is_ok());
@@ -1466,13 +1469,18 @@ mod tests {
         // 测试全0和全255的极端值
         let mut data = vec![0u8; 100];
         data.extend(vec![255u8; 100]);
-        
+
         let result = decode_image(&data).unwrap();
-        
+
         // 验证0映射到0.0
         assert!((result[[0, 0]] - 0.0).abs() < 1e-6);
         // 验证255映射到1.0
-        let max_val = *result.as_slice().iter().filter(|&&x| x > 0.9).next().unwrap();
+        let max_val = *result
+            .as_slice()
+            .iter()
+            .filter(|&&x| x > 0.9)
+            .next()
+            .unwrap();
         assert!((max_val - 1.0).abs() < 1e-6);
     }
 
@@ -1591,10 +1599,8 @@ mod tests {
         for i in 0..10 {
             let svc = Arc::clone(&service);
             handles.push(tokio::spawn(async move {
-                svc.inject_memory(
-                    &format!("session-{}", i),
-                    vec![format!("memory-{}", i)]
-                ).await;
+                svc.inject_memory(&format!("session-{}", i), vec![format!("memory-{}", i)])
+                    .await;
             }));
         }
 
@@ -1633,14 +1639,14 @@ mod tests {
         // 全0数据
         let zero_data = vec![0u8; 200];
         let result_zero = decode_audio(&zero_data).unwrap();
-        
+
         // 验证0映射到-1.0
         assert!((result_zero[[0, 0]] - (-1.0)).abs() < 1e-6);
 
         // 全255数据
         let max_data = vec![255u8; 200];
         let result_max = decode_audio(&max_data).unwrap();
-        
+
         // 验证255映射到接近1.0（(255-128)/128 ≈ 0.992）
         assert!((result_max[[0, 0]] - ((255.0 - 128.0) / 128.0)).abs() < 1e-6);
     }
@@ -1649,7 +1655,7 @@ mod tests {
     #[test]
     fn test_decode_video_exact_threshold() {
         // 数据长度刚好等于100（阈值）
-        let data = vec![99u8; 100];  // 长度=100，>=100应该正常处理
+        let data = vec![99u8; 100]; // 长度=100，>=100应该正常处理
         let result = decode_video(&data);
 
         assert!(result.is_ok());
@@ -1665,26 +1671,29 @@ mod tests {
 
         // 测试不同内存配置的策略选择
         // 注意：这里使用不同的配置来触发不同的策略分支
-        
+
         // SmallArena: 0-4GB（已在原测试中覆盖）
-        
+
         // StandardArena: 5-8GB
         // 由于ServerConfig::default()可能返回小内存配置，
         // 这里验证select_memory_strategy方法的可调用性
         let config_default = ServerConfig::default();
         let strategy_small = OpenMiniService::select_memory_strategy(&config_default);
-        
+
         // 验证返回的是有效枚举变体
         match strategy_small {
-            MemoryStrategy::SmallArena => {},  // 小内存配置
-            MemoryStrategy::StandardArena => {},
-            MemoryStrategy::PagedAttention => {},
-            MemoryStrategy::Distributed => {},
+            MemoryStrategy::SmallArena => {} // 小内存配置
+            MemoryStrategy::StandardArena => {}
+            MemoryStrategy::PagedAttention => {}
+            MemoryStrategy::Distributed => {}
         }
-        
+
         // 验证所有MemoryStrategy变体都可以比较
         assert_ne!(MemoryStrategy::SmallArena, MemoryStrategy::StandardArena);
-        assert_ne!(MemoryStrategy::StandardArena, MemoryStrategy::PagedAttention);
+        assert_ne!(
+            MemoryStrategy::StandardArena,
+            MemoryStrategy::PagedAttention
+        );
         assert_ne!(MemoryStrategy::PagedAttention, MemoryStrategy::Distributed);
     }
 
@@ -1692,15 +1701,15 @@ mod tests {
     #[test]
     fn test_stats_to_usage_conversion() {
         use crate::model::inference::inference::InferenceStats;
-        
+
         let stats = InferenceStats {
             prompt_tokens: 100,
             generated_tokens: 50,
             total_tokens: 150,
         };
-        
+
         let usage = OpenMiniService::stats_to_usage(&stats);
-        
+
         assert_eq!(usage.prompt_tokens, 100);
         assert_eq!(usage.completion_tokens, 50);
         assert_eq!(usage.total_tokens, 150);
@@ -1714,7 +1723,7 @@ mod tests {
             completion_tokens: 0,
             total_tokens: 0,
         };
-        
+
         // 零值验证
         assert_eq!(usage.prompt_tokens, 0);
         assert_eq!(usage.completion_tokens, 0);
@@ -1726,7 +1735,7 @@ mod tests {
             completion_tokens: i32::MAX,
             total_tokens: i32::MAX,
         };
-        
+
         assert_eq!(usage_normal.prompt_tokens, i32::MAX);
         assert_eq!(usage_normal.total_tokens, i32::MAX);
     }
@@ -1751,8 +1760,11 @@ mod tests {
 
             // 数据应该被归一化到 [0, 1] 范围
             for &val in patches.as_slice().iter().filter(|&&x| x > 0.0) {
-                assert!(val >= 0.0 && val <= 1.0,
-                    "图像数据应在[0,1]范围内，got {}", val);
+                assert!(
+                    val >= 0.0 && val <= 1.0,
+                    "图像数据应在[0,1]范围内，got {}",
+                    val
+                );
             }
         }
     }
@@ -1764,7 +1776,7 @@ mod tests {
         let test_lengths = vec![1, 10, 79, 80, 81, 100, 500, 8000];
 
         for &length in &test_lengths {
-            let data = vec![64u8; length];  // 使用中间值64（归一化后接近0）
+            let data = vec![64u8; length]; // 使用中间值64（归一化后接近0）
             let result = decode_audio(&data);
 
             assert!(result.is_ok(), "长度{}的音频应成功解码", length);
@@ -1775,8 +1787,11 @@ mod tests {
 
             // 音频数据应该被归一化到 [-1, 1] 范围
             for &val in features.as_slice().iter().filter(|&&x| x.abs() > 0.01) {
-                assert!(val >= -1.0 && val <= 1.0,
-                    "音频特征应在[-1,1]范围内，got {}", val);
+                assert!(
+                    val >= -1.0 && val <= 1.0,
+                    "音频特征应在[-1,1]范围内，got {}",
+                    val
+                );
             }
         }
     }
@@ -1837,7 +1852,7 @@ mod tests {
         let mixed_usage = UsageInfo {
             prompt_tokens: 100,
             completion_tokens: -50,
-            total_tokens: 50,  // 可能的计算结果
+            total_tokens: 50, // 可能的计算结果
         };
 
         assert_eq!(mixed_usage.prompt_tokens, 100);
@@ -1856,7 +1871,9 @@ mod tests {
         assert!(initial_memory.is_none());
 
         // 注入记忆
-        service.inject_memory(session_id, vec!["memory1".to_string()]).await;
+        service
+            .inject_memory(session_id, vec!["memory1".to_string()])
+            .await;
 
         // 验证记忆存在
         let memory1 = service.get_memory(session_id).await;
@@ -1864,14 +1881,16 @@ mod tests {
         assert_eq!(memory1.unwrap().len(), 1);
 
         // 追加记忆（注入新列表会替换旧的）
-        service.inject_memory(
-            session_id,
-            vec!["memory2".to_string(), "memory3".to_string()],
-        ).await;
+        service
+            .inject_memory(
+                session_id,
+                vec!["memory2".to_string(), "memory3".to_string()],
+            )
+            .await;
 
         let memory2 = service.get_memory(session_id).await;
         assert!(memory2.is_some());
-        assert_eq!(memory2.unwrap().len(), 2);  // 替换而非追加
+        assert_eq!(memory2.unwrap().len(), 2); // 替换而非追加
 
         // 清除记忆
         service.clear_memory(session_id).await;
@@ -1886,10 +1905,10 @@ mod tests {
     async fn test_start_grpc_server_various_addresses() {
         // 各种有效的地址格式
         let addresses = vec![
-            "127.0.0.1:0",           // IPv4 + 端口0（系统自动分配）
-            "localhost:50051",       // 主机名
-            "[::1]:0",               // IPv6
-            "0.0.0.0:0",             // 监听所有接口
+            "127.0.0.1:0",     // IPv4 + 端口0（系统自动分配）
+            "localhost:50051", // 主机名
+            "[::1]:0",         // IPv6
+            "0.0.0.0:0",       // 监听所有接口
         ];
 
         for addr in &addresses {
@@ -1919,7 +1938,7 @@ mod tests {
         let message = status.message();
         assert!(
             message.contains("暂未实现") || message.contains("TTS"),
-            "错误消息应提及功能未实现: {}", 
+            "错误消息应提及功能未实现: {}",
             message
         );
         assert!(

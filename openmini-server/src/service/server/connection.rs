@@ -71,7 +71,8 @@ impl ConnectionStats {
 
     /// 计算连接复用率
     pub fn reuse_rate(&self) -> f64 {
-        let total = self.total_created.load(Ordering::Relaxed) + self.total_reused.load(Ordering::Relaxed);
+        let total =
+            self.total_created.load(Ordering::Relaxed) + self.total_reused.load(Ordering::Relaxed);
         if total == 0 {
             0.0
         } else {
@@ -281,7 +282,11 @@ pub struct ConnectionPool {
 impl ConnectionPool {
     /// 创建新的连接池
     pub fn new(max_connections: usize) -> Self {
-        Self::with_options(max_connections, DEFAULT_IDLE_TIMEOUT, DEFAULT_CONNECTION_TIMEOUT)
+        Self::with_options(
+            max_connections,
+            DEFAULT_IDLE_TIMEOUT,
+            DEFAULT_CONNECTION_TIMEOUT,
+        )
     }
 
     /// 使用自定义选项创建连接池
@@ -325,11 +330,13 @@ impl ConnectionPool {
                 let id = self.next_connection_id.fetch_add(1, Ordering::Relaxed);
                 let mut conn = Connection::new(stream, remote_addr, id);
                 conn.mark_active();
-                
+
                 self.stats.total_created.fetch_add(1, Ordering::Relaxed);
-                self.stats.active_connections.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .active_connections
+                    .fetch_add(1, Ordering::Relaxed);
                 self.stats.acquire_count.fetch_add(1, Ordering::Relaxed);
-                
+
                 permit.forget();
                 Ok(conn)
             }
@@ -350,23 +357,25 @@ impl ConnectionPool {
     /// 从池中获取空闲连接
     pub async fn acquire(&self) -> Option<Connection> {
         let permit = self.semaphore.acquire().await.ok()?;
-        
+
         let mut connections = self.connections.write();
-        
+
         while let Some(mut conn) = connections.pop_front() {
             if conn.is_expired(self.idle_timeout) {
                 self.stats.total_closed.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            
+
             conn.mark_active();
             self.stats.total_reused.fetch_add(1, Ordering::Relaxed);
-            self.stats.active_connections.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .active_connections
+                .fetch_add(1, Ordering::Relaxed);
             self.stats.acquire_count.fetch_add(1, Ordering::Relaxed);
             permit.forget();
             return Some(conn);
         }
-        
+
         drop(connections);
         self.semaphore.add_permits(1);
         None
@@ -376,23 +385,29 @@ impl ConnectionPool {
     pub fn release(&self, mut conn: Connection) {
         if conn.state == ConnectionState::Closed || conn.is_expired(self.idle_timeout) {
             self.stats.total_closed.fetch_add(1, Ordering::Relaxed);
-            self.stats.active_connections.fetch_sub(1, Ordering::Relaxed);
+            self.stats
+                .active_connections
+                .fetch_sub(1, Ordering::Relaxed);
             self.stats.release_count.fetch_add(1, Ordering::Relaxed);
             self.semaphore.add_permits(1);
             return;
         }
 
         conn.mark_idle();
-        
+
         let mut connections = self.connections.write();
         if connections.len() < self.max_connections {
             connections.push_back(conn);
-            self.stats.active_connections.fetch_sub(1, Ordering::Relaxed);
+            self.stats
+                .active_connections
+                .fetch_sub(1, Ordering::Relaxed);
             self.stats.release_count.fetch_add(1, Ordering::Relaxed);
             self.semaphore.add_permits(1);
         } else {
             self.stats.total_closed.fetch_add(1, Ordering::Relaxed);
-            self.stats.active_connections.fetch_sub(1, Ordering::Relaxed);
+            self.stats
+                .active_connections
+                .fetch_sub(1, Ordering::Relaxed);
             self.stats.release_count.fetch_add(1, Ordering::Relaxed);
             self.semaphore.add_permits(1);
         }
@@ -430,9 +445,11 @@ impl ConnectionPool {
         let before = connections.len();
         connections.retain(|conn| !conn.is_expired(self.idle_timeout));
         let removed = before - connections.len();
-        
+
         if removed > 0 {
-            self.stats.total_closed.fetch_add(removed as u64, Ordering::Relaxed);
+            self.stats
+                .total_closed
+                .fetch_add(removed as u64, Ordering::Relaxed);
             self.semaphore.add_permits(removed);
         }
     }
@@ -442,8 +459,10 @@ impl ConnectionPool {
         let mut connections = self.connections.write();
         let count = connections.len();
         connections.clear();
-        
-        self.stats.total_closed.fetch_add(count as u64, Ordering::Relaxed);
+
+        self.stats
+            .total_closed
+            .fetch_add(count as u64, Ordering::Relaxed);
         self.semaphore.add_permits(count);
     }
 }
@@ -561,17 +580,17 @@ mod tests {
             .idle_timeout(Duration::from_secs(60))
             .connection_timeout(Duration::from_secs(10))
             .build();
-        
+
         assert_eq!(pool.max_connections(), 50);
     }
 
     #[tokio::test]
     async fn test_connection_pool_acquire_release() {
         let pool = ConnectionPool::new(2);
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -579,20 +598,20 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         let conn = pool.connect(addr).await.unwrap();
         assert_eq!(conn.state(), ConnectionState::Active);
-        
+
         pool.release(conn);
         assert_eq!(pool.available(), 1);
-        
+
         let conn = pool.acquire().await.unwrap();
         assert_eq!(conn.state(), ConnectionState::Active);
-        
+
         pool.release(conn);
-        
+
         server_task.abort();
     }
 
@@ -600,11 +619,11 @@ mod tests {
     async fn test_connection_pool_basic_operations() {
         // 基本连接池操作
         let pool = ConnectionPool::new(5);
-        
+
         // 初始状态验证
         assert_eq!(pool.max_connections(), 5);
         assert_eq!(pool.available(), 0); // 新池子没有空闲连接
-        
+
         // 验证统计信息初始状态
         let stats = pool.stats();
         assert_eq!(stats.total_created.load(Ordering::Relaxed), 0);
@@ -618,10 +637,10 @@ mod tests {
     async fn test_connection_pool_connect_and_release_cycle() {
         // 连接获取和释放循环
         let pool = ConnectionPool::new(3);
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -629,38 +648,38 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 获取连接1
         let conn1 = pool.connect(addr).await.unwrap();
         assert_eq!(conn1.state(), ConnectionState::Active);
         assert_eq!(pool.available(), 0);
-        
+
         // 获取连接2
         let conn2 = pool.connect(addr).await.unwrap();
         assert_eq!(conn2.state(), ConnectionState::Active);
         assert_eq!(pool.available(), 0);
-        
+
         // 释放连接1
         pool.release(conn1);
         assert_eq!(pool.available(), 1);
-        
+
         // 从池中获取(应该复用)
         let conn3 = pool.acquire().await.unwrap();
         assert_eq!(conn3.state(), ConnectionState::Active);
         assert_eq!(pool.available(), 0);
-        
+
         // 验证复用统计
         let stats = pool.stats();
         assert_eq!(stats.total_created.load(Ordering::Relaxed), 2); // 创建了2个新连接
-        assert_eq!(stats.total_reused.load(Ordering::Relaxed), 1);   // 复用了1个
+        assert_eq!(stats.total_reused.load(Ordering::Relaxed), 1); // 复用了1个
         assert!(stats.reuse_rate() > 0.0);
-        
+
         // 释放剩余连接
         pool.release(conn2);
         pool.release(conn3);
-        
+
         server_task.abort();
     }
 
@@ -668,10 +687,10 @@ mod tests {
     async fn test_connection_pool_exhaustion() {
         // 连接池耗尽测试
         let pool = ConnectionPool::new(2);
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -679,30 +698,33 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 获取所有连接
         let conn1 = pool.connect(addr).await.unwrap();
         let conn2 = pool.connect(addr).await.unwrap();
-        
+
         // 尝试获取第3个连接 - acquire应该返回None(因为没有空闲连接)
         let conn3 = pool.acquire().await;
-        assert!(conn3.is_none(), "Should return None when no connections available");
-        
+        assert!(
+            conn3.is_none(),
+            "Should return None when no connections available"
+        );
+
         // 释放一个连接
         pool.release(conn1);
-        
+
         // 现在应该能获取到
         let conn4 = pool.acquire().await;
         assert!(conn4.is_some(), "Should get connection after release");
-        
+
         // 清理
         pool.release(conn2);
         if let Some(c) = conn4 {
             pool.release(c);
         }
-        
+
         server_task.abort();
     }
 
@@ -712,12 +734,12 @@ mod tests {
         let pool = ConnectionPool::with_options(
             5,
             Duration::from_millis(100), // 100ms空闲超时
-            Duration::from_secs(30)
+            Duration::from_secs(30),
         );
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -725,29 +747,33 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 创建并释放连接
         let conn = pool.connect(addr).await.unwrap();
         let _conn_id = conn.id();
         pool.release(conn);
-        
+
         assert_eq!(pool.available(), 1);
-        
+
         // 等待超时
         tokio::time::sleep(Duration::from_millis(150)).await;
-        
+
         // 清理过期连接
         pool.cleanup_expired().await;
-        
+
         // 连接应该被清理了
-        assert_eq!(pool.available(), 0, "Expired connection should be cleaned up");
-        
+        assert_eq!(
+            pool.available(),
+            0,
+            "Expired connection should be cleaned up"
+        );
+
         // 验证关闭统计
         let stats = pool.stats();
         assert_eq!(stats.total_closed.load(Ordering::Relaxed), 1);
-        
+
         server_task.abort();
     }
 
@@ -755,10 +781,10 @@ mod tests {
     async fn test_connection_stats_tracking() {
         // 连接统计跟踪测试
         let pool = ConnectionPool::new(3);
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -766,36 +792,36 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 创建连接
         let conn1 = pool.connect(addr).await.unwrap();
         let stats = pool.stats().snapshot();
         assert_eq!(stats.total_created, 1);
         assert_eq!(stats.active_connections, 1);
-        
+
         // 再创建一个
         let conn2 = pool.connect(addr).await.unwrap();
         let stats = pool.stats().snapshot();
         assert_eq!(stats.total_created, 2);
         assert_eq!(stats.active_connections, 2);
-        
+
         // 释放第一个
         pool.release(conn1);
         let stats = pool.stats().snapshot();
         assert_eq!(stats.active_connections, 1);
-        
+
         // 复用
         let _conn3 = pool.acquire().await.unwrap();
         let stats = pool.stats().snapshot();
         assert_eq!(stats.total_reused, 1);
         assert_eq!(stats.active_connections, 2);
-        
+
         // 清理
         pool.release(conn2);
         // 注意: conn3 已经被移动,不需要再次release
-        
+
         server_task.abort();
     }
 
@@ -807,9 +833,9 @@ mod tests {
             .idle_timeout(Duration::from_secs(60))
             .connection_timeout(Duration::from_secs(10))
             .build();
-        
+
         assert_eq!(pool.max_connections(), 50);
-        
+
         // 测试默认构建器
         let default_pool = ConnectionBuilder::new().build();
         assert_eq!(default_pool.max_connections(), 100); // 默认值
@@ -819,10 +845,10 @@ mod tests {
     async fn test_connection_state_transitions() {
         // 连接状态转换测试
         let pool = ConnectionPool::new(2);
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -830,28 +856,32 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 创建连接 - 应该是Active状态
         let mut conn = pool.connect(addr).await.unwrap();
         assert_eq!(conn.state(), ConnectionState::Active);
-        
+
         // 释放后变为Idle
         pool.release(conn);
-        
+
         // 再次获取 - 变为Active
         conn = pool.acquire().await.unwrap();
         assert_eq!(conn.state(), ConnectionState::Active);
-        
+
         // 关闭连接
         conn.shutdown().await.unwrap();
         assert_eq!(conn.state(), ConnectionState::Closed);
-        
+
         // 释放已关闭的连接 - 应该被清理而不是放回池中
         pool.release(conn);
-        assert_eq!(pool.available(), 0, "Closed connection should not be returned to pool");
-        
+        assert_eq!(
+            pool.available(),
+            0,
+            "Closed connection should not be returned to pool"
+        );
+
         server_task.abort();
     }
 
@@ -859,10 +889,10 @@ mod tests {
     async fn test_pooled_connection_guard() {
         // 池化连接守卫测试
         let pool = Arc::new(ConnectionPool::new(2));
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -870,23 +900,27 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 创建连接并用守卫包装
         let conn = pool.connect(addr).await.unwrap();
         let guard = PooledConnection::new(conn, &pool);
-        
+
         // 通过守卫访问连接
         assert!(guard.connection().is_some());
         assert_eq!(guard.connection().unwrap().state(), ConnectionState::Active);
-        
+
         // drop守卫应该自动归还连接
         drop(guard);
-        
+
         // 连接应该回到池中
-        assert_eq!(pool.available(), 1, "Connection should be returned to pool after guard drop");
-        
+        assert_eq!(
+            pool.available(),
+            1,
+            "Connection should be returned to pool after guard drop"
+        );
+
         server_task.abort();
     }
 
@@ -894,10 +928,10 @@ mod tests {
     async fn test_connection_close_all() {
         // 关闭所有连接测试
         let pool = ConnectionPool::new(3);
-        
+
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         let server_task = tokio::spawn(async move {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
@@ -905,30 +939,30 @@ mod tests {
                 }
             }
         });
-        
+
         tokio::time::sleep(Duration::from_millis(10)).await;
-        
+
         // 创建多个连接
         let c1 = pool.connect(addr).await.unwrap();
         let c2 = pool.connect(addr).await.unwrap();
         let c3 = pool.connect(addr).await.unwrap();
-        
+
         // 释放所有连接到池中
         pool.release(c1);
         pool.release(c2);
         pool.release(c3);
-        
+
         assert_eq!(pool.available(), 3);
-        
+
         // 关闭所有连接
         pool.close_all().await;
-        
+
         assert_eq!(pool.available(), 0, "All connections should be closed");
-        
+
         // 验证关闭统计
         let stats = pool.stats();
         assert_eq!(stats.total_closed.load(Ordering::Relaxed), 3);
-        
+
         server_task.abort();
     }
 }
