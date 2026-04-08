@@ -1,32 +1,13 @@
 version: '3.8'
 services:
   openmini:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-      args:
-        BUILD_FEATURES: ${BUILD_FEATURES:-}
-    image: ghcr.io/skin1987/openmini:${OPENMINI_VERSION:-latest}
+    build: { context: ., dockerfile: Dockerfile, target: runtime }
+    image: ghcr.io/skin1987/openmini:v1.2.0-beta.1
     container_name: openmini-server
     restart: unless-stopped
-    ports:
-      - ${GRPC_PORT:-50051}:50051
-      - ${HTTP_PORT:-8080}:8080
-    volumes:
-      - ${MODEL_PATH:-./models}:/data/models:ro
-      - ${CONFIG_PATH:-./config}:/etc/openmini:ro
-      - ${LOG_PATH:-./logs}:/data/logs
-    environment:
-      - RUST_LOG=${LOG_LEVEL:-info}
-      - HARDWARE_BACKEND=${HARDWARE_BACKEND:-auto}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - openmini-network
-networks:
-  openmini-network:
-    driver: bridge
+    ports: ["${GRPC_PORT:-50051}:50051", "${HTTP_PORT:-8080}:8080"]
+    volumes: ["${MODEL_PATH:-./models}:/data/models:ro", "${CONFIG_PATH:-./config}:/etc/openmini:ro", "${LOG_PATH:-./logs}:/data/logs"]
+    environment: ["RUST_LOG=${LOG_LEVEL:-info}", "HARDWARE_BACKEND=${HARDWARE_BACKEND:-auto}"]
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:8080/health"], interval: 30s, timeout: 10s, retries: 3 }
+    networks: [openmini-network]
+networks: { openmini-network: { driver: bridge } }
