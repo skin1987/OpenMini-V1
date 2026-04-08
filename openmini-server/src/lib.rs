@@ -12,6 +12,7 @@
 #![allow(dead_code)]
 
 pub mod config;
+pub mod db;
 pub mod hardware;
 pub mod kernel;
 pub mod logging;

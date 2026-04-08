@@ -739,6 +739,7 @@ impl AvxBackend {
 
     #[cfg(target_arch = "x86_64")]
     #[inline]
+    #[allow(clippy::approx_constant)]
     unsafe fn exp_ps256(x: __m256, has_fma: bool) -> __m256 {
         let log2e = _mm256_set1_ps(1.4426950408889634);
         let negln2hi = _mm256_set1_ps(-0.693359375);

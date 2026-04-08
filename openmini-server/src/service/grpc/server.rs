@@ -4,6 +4,8 @@
 //! 集成真实推理引擎，支持流式输出和记忆注入。
 
 use crate::config::settings::ServerConfig;
+use crate::db::pool::create_pool;
+use crate::db::DatabaseConfig;
 use crate::hardware::scheduler::MemoryStrategy;
 use crate::model::inference::inference::{InferenceStats, StreamGenerator};
 use crate::model::inference::memory::MemoryManager;
@@ -17,10 +19,10 @@ use crate::service::grpc::types::{
 
 use futures::Stream;
 use ndarray::Array2;
+use sqlx::SqlitePool;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tonic::Status;
 
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<ChatResponse, Status>> + Send>>;
@@ -43,16 +45,16 @@ pub struct OpenMiniService {
     inference_engine: Arc<InferenceEngine>,
     /// 内存管理器
     memory_manager: Arc<MemoryManager>,
-    /// 会话记忆存储（session_id -> 记忆向量）
-    session_memory: Arc<RwLock<std::collections::HashMap<String, Vec<String>>>>,
+    /// 数据库连接池（用于会话记忆持久化存储）
+    db_pool: Arc<SqlitePool>,
     /// 服务配置
     config: ServerConfig,
 }
 
 impl OpenMiniService {
     /// 创建新的服务实例（使用默认配置）
-    pub fn new() -> Self {
-        Self::with_config(ServerConfig::default())
+    pub async fn new() -> Self {
+        Self::with_config(ServerConfig::default()).await
     }
 
     /// 使用配置创建服务实例
@@ -62,7 +64,7 @@ impl OpenMiniService {
     ///
     /// # 返回
     /// 成功返回服务实例
-    pub fn with_config(config: ServerConfig) -> Self {
+    pub async fn with_config(config: ServerConfig) -> Self {
         let memory_strategy = Self::select_memory_strategy(&config);
         let memory_manager = Arc::new(MemoryManager::with_strategy(
             memory_strategy,
@@ -71,10 +73,25 @@ impl OpenMiniService {
 
         let inference_engine = Arc::new(Self::create_inference_engine(&config));
 
+        // 创建数据库连接池
+        let db_config = DatabaseConfig::default();
+        let db_pool = match create_pool(&db_config).await {
+            Ok(pool) => {
+                tracing::info!("数据库连接池创建成功");
+                Arc::new(pool)
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "数据库连接池创建失败，使用内存模式");
+                // 如果数据库创建失败，可以回退到内存模式或 panic
+                // 这里选择 panic 以确保数据持久化
+                panic!("无法创建数据库连接池: {}", e);
+            }
+        };
+
         Self {
             inference_engine,
             memory_manager,
-            session_memory: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            db_pool,
             config,
         }
     }
@@ -127,24 +144,64 @@ impl OpenMiniService {
 
     /// 注入会话记忆
     ///
+    /// 将记忆内容持久化到 SQLite 数据库。
+    ///
     /// # 参数
     /// - `session_id`: 会话ID
     /// - `memory`: 记忆内容
     pub async fn inject_memory(&self, session_id: &str, memory: Vec<String>) {
-        let mut memories = self.session_memory.write().await;
-        memories.insert(session_id.to_string(), memory);
+        use crate::db::memory::{Memory, NewMemory, MemoryLevel};
+
+        let new_memory = NewMemory {
+            session_id: session_id.to_string(),
+            content: memory,
+            importance: Some(0.5),
+            level: Some(MemoryLevel::ShortTerm),
+            embedding: None,
+            expires_at: None,
+        };
+
+        if let Err(e) = Memory::create(&self.db_pool, new_memory).await {
+            tracing::warn!(error = %e, session_id = %session_id, "写入会话记忆到数据库失败");
+        }
     }
 
     /// 获取会话记忆
+    ///
+    /// 从 SQLite 数据库查询会话的所有记忆。
     pub async fn get_memory(&self, session_id: &str) -> Option<Vec<String>> {
-        let memories = self.session_memory.read().await;
-        memories.get(session_id).cloned()
+        use crate::db::memory::Memory;
+
+        match Memory::find_by_session(&self.db_pool, session_id).await {
+            Ok(memories) if !memories.is_empty() => {
+                let mut all_content = Vec::new();
+                for mem in &memories {
+                    if let Ok(content) = mem.parse_content() {
+                        all_content.extend(content);
+                    }
+                }
+                Some(all_content)
+            }
+            _ => None,
+        }
     }
 
     /// 清除会话记忆
+    ///
+    /// 从 SQLite 数据库删除会话的所有记忆。
     pub async fn clear_memory(&self, session_id: &str) {
-        let mut memories = self.session_memory.write().await;
-        memories.remove(session_id);
+        use crate::db::memory::Memory;
+
+        match Memory::find_by_session(&self.db_pool, session_id).await {
+            Ok(memories) => {
+                for mem in memories {
+                    let _ = mem.delete(&self.db_pool).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, session_id = %session_id, "查询会话记忆失败");
+            }
+        }
     }
 
     /// 构建带记忆的提示词
@@ -209,11 +266,8 @@ impl OpenMiniService {
     }
 }
 
-impl Default for OpenMiniService {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// 注意：由于 with_config() 现在是异步的，Default trait 不再适用
+// 使用 OpenMiniService::new().await 代替
 
 /// 聊天推理（流式输出）
 ///
@@ -231,12 +285,26 @@ pub async fn chat(service: &OpenMiniService, request: ChatRequest) -> Result<Cha
     let messages = request.messages.clone();
     let max_tokens = request.max_tokens as usize;
     let temperature = request.temperature;
-    let session_memory = Arc::clone(&service.session_memory);
+
+    // 克隆 db_pool 用于异步任务中
+    let db_pool = Arc::clone(&service.db_pool);
 
     tokio::spawn(async move {
+        // 从数据库获取会话记忆
         let memory = {
-            let memories = session_memory.read().await;
-            memories.get(&session_id).cloned().unwrap_or_default()
+            use crate::db::memory::Memory;
+            match Memory::find_by_session(&db_pool, &session_id).await {
+                Ok(memories) if !memories.is_empty() => {
+                    let mut all_content = Vec::new();
+                    for mem in &memories {
+                        if let Ok(content) = mem.parse_content() {
+                            all_content.extend(content);
+                        }
+                    }
+                    all_content
+                }
+                _ => Vec::new(),
+            }
         };
 
         let mut prompt_parts = Vec::new();
@@ -1424,14 +1492,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_creation() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
         assert!(Arc::strong_count(&service.inference_engine) >= 1);
         assert!(Arc::strong_count(&service.memory_manager) >= 1);
     }
 
     #[tokio::test]
     async fn test_memory_injection() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
 
         service
             .inject_memory("test-session", vec!["记忆1".to_string()])
@@ -1534,7 +1602,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_with_default_config() {
         let config = ServerConfig::default();
-        let service = OpenMiniService::with_config(config);
+        let service = OpenMiniService::with_config(config).await;
 
         // 验证服务组件存在
         assert!(Arc::strong_count(&service.inference_engine) >= 1);
@@ -1555,7 +1623,7 @@ mod tests {
     /// 测试健康检查函数 - 独立函数测试
     #[tokio::test]
     async fn test_health_check_function() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
         let request = HealthRequest {};
         let result = health_check(&service, request).await;
 
@@ -1568,7 +1636,7 @@ mod tests {
     /// 测试text_to_speech - 未实现功能
     #[tokio::test]
     async fn test_text_to_speech_unimplemented() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
         let request = TextToSpeechRequest {
             session_id: "test".to_string(),
             text: "Hello".to_string(),
@@ -1592,7 +1660,7 @@ mod tests {
     /// 测试会话记忆并发安全性
     #[tokio::test]
     async fn test_concurrent_memory_access() {
-        let service = Arc::new(OpenMiniService::new());
+        let service = Arc::new(OpenMiniService::new().await);
         let mut handles = vec![];
 
         // 并发写入多个会话
@@ -1817,7 +1885,7 @@ mod tests {
     /// 测试：OpenMiniService::engine() 和 memory() 方法访问（覆盖公开API）
     #[tokio::test]
     async fn test_service_engine_and_memory_access() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
 
         // 获取推理引擎引用
         let engine = service.engine();
@@ -1862,7 +1930,7 @@ mod tests {
     /// 测试：会话记忆的多次注入和清除（覆盖完整CRUD操作）
     #[tokio::test]
     async fn test_memory_crud_operations() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
 
         let session_id = "crud-test-session";
 
@@ -1921,7 +1989,7 @@ mod tests {
     /// 测试：text_to_speech 错误消息的内容验证（覆盖未实现错误信息）
     #[tokio::test]
     async fn test_text_to_speech_error_message_content() {
-        let service = OpenMiniService::new();
+        let service = OpenMiniService::new().await;
         let request = TextToSpeechRequest {
             session_id: "tts-test".to_string(),
             text: "Hello World".to_string(),

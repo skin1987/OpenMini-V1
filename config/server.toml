@@ -28,3 +28,8 @@ health_check_interval_ms = 5000
 max_message_size_mb = 100
 keepalive_time_ms = 30000
 keepalive_timeout_ms = 10000
+
+[database]
+path = "data/openmini.db"
+pool_size = 10
+busy_timeout_ms = 5000

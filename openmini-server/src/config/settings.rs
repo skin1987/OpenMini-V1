@@ -25,6 +25,9 @@ pub struct ServerConfig {
     pub worker: WorkerSettings,
     /// gRPC 通信设置
     pub grpc: GrpcSettings,
+    /// 数据库设置
+    #[serde(default)]
+    pub database: DatabaseSettings,
 }
 
 /// 服务器基础设置
@@ -95,6 +98,27 @@ pub struct GrpcSettings {
     pub keepalive_timeout_ms: u64,
 }
 
+/// 数据库设置
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
+pub struct DatabaseSettings {
+    /// 数据库文件路径
+    pub path: PathBuf,
+    /// 连接池大小
+    #[serde(default = "default_pool_size")]
+    pub pool_size: u32,
+    /// 忙等待超时时间(毫秒)
+    #[serde(default = "default_busy_timeout")]
+    pub busy_timeout_ms: u64,
+}
+
+fn default_pool_size() -> u32 {
+    10
+}
+
+fn default_busy_timeout() -> u64 {
+    5000
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -128,6 +152,11 @@ impl Default for ServerConfig {
                 max_message_size_mb: 100,
                 keepalive_time_ms: 30000,
                 keepalive_timeout_ms: 10000,
+            },
+            database: DatabaseSettings {
+                path: PathBuf::from("data/openmini.db"),
+                pool_size: 10,
+                busy_timeout_ms: 5000,
             },
         }
     }

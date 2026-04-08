@@ -67,6 +67,7 @@ async-stream = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 sysinfo = "0.30"
 reqwest = { version = "0.12", features = ["json"], optional = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 
 [build-dependencies]
 prost-build = "0.12"

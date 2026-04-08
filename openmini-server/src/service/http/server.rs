@@ -314,7 +314,7 @@ mod tests {
         let server_config = ServerConfig::default();
         let http_config = HttpConfig::from(&server_config);
         assert_eq!(http_config.host, server_config.server.host);
-        assert_eq!(http_config.port, server_config.port + 1000);
+        assert_eq!(http_config.port, server_config.server.port + 1000);
         assert_eq!(
             http_config.request_timeout_ms,
             server_config.server.request_timeout_ms

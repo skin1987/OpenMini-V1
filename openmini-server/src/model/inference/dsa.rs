@@ -974,6 +974,16 @@ pub fn sparse_attention_forward(
                         scores_vec[j_idx] = f32::NEG_INFINITY;
                     }
                 }
+
+                // 数值稳定性：如果所有分数都是 -∞（如查询位置 i=0 时所有 j>i），
+                // 回退到均匀分布避免 softmax(全-∞) = NaN
+                let all_masked = scores_vec.iter().all(|&s| s == f32::NEG_INFINITY);
+                if all_masked && !scores_vec.is_empty() {
+                    let uniform_prob = 1.0 / scores_vec.len() as f32;
+                    for s in scores_vec.iter_mut() {
+                        *s = uniform_prob.ln(); // log(1/n) 作为均匀 log-probability
+                    }
+                }
             }
 
             // Softmax (使用 SIMD 优化)

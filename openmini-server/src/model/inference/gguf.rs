@@ -905,8 +905,9 @@ impl GgufFile {
             return Err(anyhow!("File too small to be a valid GGUF file"));
         }
 
-        // 检查文件大小是否超过 usize 上限（32位系统兼容性）
-        if mmap.len() > usize::MAX {
+        // 检查文件大小是否合理（文档性检查，实际在 usize 范围内）
+        #[allow(clippy::absurd_extreme_comparisons)]
+        if mmap.len() > usize::MAX / 2 {
             return Err(anyhow!(
                 "File too large to map on this platform ({} bytes)",
                 mmap.len()
