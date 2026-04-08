@@ -1,34 +1,384 @@
 <script setup lang="ts">
-// 监控仪表盘 - 占位页面
-// TODO: 实现监控仪表盘功能，展示系统概览、实时指标、图表等
+import { ref, onMounted, onUnmounted } from 'vue'
+import { Monitor, Cpu, MemoryCard, DataLine } from '@element-plus/icons-vue'
+
+const loading = ref(false)
+let refreshTimer: number | null = null
+
+const gpuStats = ref({
+  utilization: 78.5,
+  memoryUsed: 18.6,
+  memoryTotal: 24.0,
+  temperature: 72
+})
+
+const cpuStats = ref({
+  usage: 45.2,
+  cores: 16,
+  loadAvg: [2.34, 2.12, 1.98]
+})
+
+const memoryStats = ref({
+  used: 52.3,
+  total: 64.0,
+  swapUsed: 8.2
+})
+
+const inferenceStats = ref({
+  qps: 156,
+  tokenThroughput: 12400,
+  activeConnections: 42,
+  batchSize: 8,
+  avgLatency: 123,
+  p50: 98,
+  p95: 234,
+  p99: 567
+})
+
+const componentHealth = ref([
+  { name: 'GPU', status: 'success' as const },
+  { name: 'Memory', status: 'warning' as const },
+  { name: 'CPU', status: 'success' as const },
+  { name: 'Scheduler', status: 'success' as const },
+  { name: 'Model', status: 'success' as const }
+])
+
+const recentAlerts = ref([
+  { id: 1, level: 'warning', message: 'GPU温度超过70°C阈值', time: '2分钟前' },
+  { id: 2, level: 'info', message: '模型Qwen-14B加载完成', time: '15分钟前' },
+  { id: 3, level: 'danger', message: '内存使用率超过80%', time: '30分钟前' },
+  { id: 4, level: 'success', message: 'Worker-2重启成功', time: '1小时前' },
+  { id: 5, level: 'info', message: '配置热重载完成', time: '2小时前' }
+])
+
+const chartData = ref({
+  xAxis: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+  series: [
+    {
+      name: 'GPU利用率',
+      data: [65, 58, 72, 85, 78, 82, 76],
+      color: '#409EFF'
+    },
+    {
+      name: 'CPU使用率',
+      data: [35, 38, 52, 48, 45, 55, 42],
+      color: '#67C23A'
+    }
+  ]
+})
+
+const memoryChartData = ref({
+  xAxis: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+  series: [
+    {
+      name: '内存使用',
+      data: [40, 42, 48, 55, 52, 58, 50],
+      color: '#E6A23C'
+    }
+  ]
+})
+
+function generateMockData() {
+  gpuStats.value.utilization = Math.random() * 30 + 60
+  cpuStats.value.usage = Math.random() * 30 + 35
+  memoryStats.value.used = Math.random() * 15 + 45
+  inferenceStats.value.qps = Math.floor(Math.random() * 100 + 100)
+  inferenceStats.value.avgLatency = Math.floor(Math.random() * 80 + 90)
+
+  chartData.value.series[0].data = Array.from({ length: 7 }, () =>
+    Math.floor(Math.random() * 30 + 60)
+  )
+  chartData.value.series[1].data = Array.from({ length: 7 }, () =>
+    Math.floor(Math.random() * 25 + 35)
+  )
+}
+
+onMounted(() => {
+  refreshTimer = window.setInterval(generateMockData, 10000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+  }
+})
 </script>
 
 <template>
-  <div class="page-container">
-    <el-card>
+  <div class="dashboard-container">
+    <!-- 统计卡片区域 -->
+    <el-row :gutter="20" class="stat-row">
+      <el-col :xs="24" :sm="12" :md="6">
+        <StatCard
+          title="GPU利用率"
+          :value="gpuStats.utilization.toFixed(1)"
+          suffix="%"
+          :icon="Monitor"
+          color="default"
+          :trend="{ value: 2.3, isUp: true }"
+        >
+          <div class="progress-wrapper">
+            <el-progress
+              :percentage="gpuStats.utilization"
+              :color="'#409EFF'"
+              :stroke-width="8"
+            />
+            <span class="detail-text">显存: {{ gpuStats.memoryUsed }}GB / {{ gpuStats.memoryTotal }}GB</span>
+          </div>
+        </StatCard>
+      </el-col>
+
+      <el-col :xs="24" :sm="12" :md="6">
+        <StatCard
+          title="GPU显存"
+          :value="gpuStats.memoryUsed.toFixed(1)"
+          suffix="GB"
+          :icon="MemoryCard"
+          color="success"
+          :trend="{ value: 1.5, isUp: true }"
+        >
+          <div class="progress-wrapper">
+            <el-progress
+              :percentage="(gpuStats.memoryUsed / gpuStats.memoryTotal) * 100"
+              :color="'#67C23A'"
+              :stroke-width="8"
+            />
+            <span class="detail-text">温度: {{ gpuStats.temperature }}°C</span>
+          </div>
+        </StatCard>
+      </el-col>
+
+      <el-col :xs="24" :sm="12" :md="6">
+        <StatCard
+          title="CPU使用率"
+          :value="cpuStats.usage.toFixed(1)"
+          suffix="%"
+          :icon="Cpu"
+          color="warning"
+          :trend="{ value: 0.8, isUp: false }"
+        >
+          <div class="progress-wrapper">
+            <el-progress
+              :percentage="cpuStats.usage"
+              :color="'#E6A23C'"
+              :stroke-width="8"
+            />
+            <span class="detail-text">核心数: {{ cpuStats.cores }}</span>
+          </div>
+        </StatCard>
+      </el-col>
+
+      <el-col :xs="24" :sm="12" :md="6">
+        <StatCard
+          title="内存使用量"
+          :value="memoryStats.used.toFixed(1)"
+          suffix="GB"
+          :icon="DataLine"
+          color="danger"
+          :trend="{ value: 3.2, isUp: true }"
+        >
+          <div class="progress-wrapper">
+            <el-progress
+              :percentage="(memoryStats.used / memoryStats.total) * 100"
+              :color="'#F56C6C'"
+              :stroke-width="8"
+            />
+            <span class="detail-text">总计: {{ memoryStats.total }}GB</span>
+          </div>
+        </StatCard>
+      </el-col>
+    </el-row>
+
+    <!-- 趋势图表区域 -->
+    <el-row :gutter="20" class="chart-row">
+      <el-col :span="16">
+        <el-card shadow="hover">
+          <template #header>
+            <span>GPU & CPU 趋势</span>
+          </template>
+          <LineChart :data="chartData" :height="320" :area-style="true" />
+        </el-card>
+      </el-col>
+
+      <el-col :span="8">
+        <el-card shadow="hover">
+          <template #header>
+            <span>内存趋势</span>
+          </template>
+          <LineChart :data="memoryChartData" :height="320" :show-legend="false" :area-style="true" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 推理性能面板 -->
+    <el-card shadow="hover" class="inference-panel">
       <template #header>
-        <span class="page-title">监控仪表盘</span>
+        <span>推理性能面板</span>
       </template>
-      <div class="placeholder-content">
-        <el-empty description="模块开发中..." />
-      </div>
+      <el-row :gutter="20">
+        <el-col :span="6">
+          <div class="metric-item">
+            <div class="metric-label">QPS</div>
+            <div class="metric-value">{{ inferenceStats.qps }}</div>
+            <div class="metric-unit">请求/秒</div>
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="metric-item">
+            <div class="metric-label">Token吞吐量</div>
+            <div class="metric-value">{{ (inferenceStats.tokenThroughput / 1000).toFixed(1) }}K</div>
+            <div class="metric-unit">tokens/秒</div>
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="metric-item">
+            <div class="metric-label">活跃连接</div>
+            <div class="metric-value">{{ inferenceStats.activeConnections }}</div>
+            <div class="metric-unit">个连接</div>
+          </div>
+        </el-col>
+        <el-col :span="6">
+          <div class="metric-item">
+            <div class="metric-label">批处理大小</div>
+            <div class="metric-value">{{ inferenceStats.batchSize }}</div>
+            <div class="metric-unit">平均</div>
+          </div>
+        </el-col>
+      </el-row>
+
+      <el-divider />
+
+      <el-row :gutter="20">
+        <el-col :span="8">
+          <div class="latency-item">
+            <span>P50 延迟</span>
+            <strong>{{ inferenceStats.p50 }}ms</strong>
+          </div>
+        </el-col>
+        <el-col :span="8">
+          <div class="latency-item">
+            <span>P95 延迟</span>
+            <strong>{{ inferenceStats.p95 }}ms</strong>
+          </div>
+        </el-col>
+        <el-col :span="8">
+          <div class="latency-item">
+            <span>P99 延迟</span>
+            <strong>{{ inferenceStats.p99 }}ms</strong>
+          </div>
+        </el-col>
+      </el-row>
     </el-card>
+
+    <!-- 底部信息区 -->
+    <el-row :gutter="20" class="bottom-row">
+      <el-col :span="10">
+        <el-card shadow="hover">
+          <template #header>
+            <span>健康状态总览</span>
+          </template>
+          <div class="health-list">
+            <div v-for="item in componentHealth" :key="item.name" class="health-item">
+              <StatusBadge :status="item.status" :text="item.name" />
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+
+      <el-col :span="14">
+        <el-card shadow="hover">
+          <template #header>
+            <span>最近告警</span>
+          </template>
+          <el-table :data="recentAlerts" size="small" stripe>
+            <el-table-column prop="level" label="级别" width="80">
+              <template #default="{ row }">
+                <StatusBadge
+                  :status="row.level === 'danger' ? 'danger' : row.level === 'warning' ? 'warning' : 'info'"
+                  :text="row.level === 'danger' ? '严重' : row.level === 'warning' ? '警告' : '提示'"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column prop="message" label="消息" show-overflow-tooltip />
+            <el-table-column prop="time" label="时间" width="100" />
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <style lang="scss" scoped>
-.page-container {
-  .page-title {
-    font-size: $font-size-lg;
-    font-weight: bold;
-    color: $text-primary;
+.dashboard-container {
+  .stat-row {
+    margin-bottom: $spacing-lg;
   }
 
-  .placeholder-content {
-    min-height: 400px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .chart-row {
+    margin-bottom: $spacing-lg;
+  }
+
+  .inference-panel {
+    margin-bottom: $spacing-lg;
+
+    .metric-item {
+      text-align: center;
+      padding: $spacing-md;
+
+      .metric-label {
+        font-size: $font-size-sm;
+        color: $text-secondary;
+        margin-bottom: $spacing-xs;
+      }
+
+      .metric-value {
+        font-size: 28px;
+        font-weight: bold;
+        color: $primary-color;
+        line-height: 1.2;
+      }
+
+      .metric-unit {
+        font-size: $font-size-xs;
+        color: $text-placeholder;
+        margin-top: 4px;
+      }
+    }
+
+    .latency-item {
+      text-align: center;
+      padding: $spacing-sm;
+
+      span {
+        display: block;
+        font-size: $font-size-sm;
+        color: $text-secondary;
+        margin-bottom: 4px;
+      }
+
+      strong {
+        font-size: 22px;
+        color: $primary-color;
+      }
+    }
+  }
+
+  .bottom-row {
+    .health-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: $spacing-md;
+      padding: $spacing-md 0;
+    }
+  }
+
+  .progress-wrapper {
+    .detail-text {
+      display: block;
+      margin-top: $spacing-sm;
+      font-size: $font-size-xs;
+      color: $text-secondary;
+    }
   }
 }
 </style>

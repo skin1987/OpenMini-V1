@@ -1,0 +1,89 @@
+---
+name: 📖 Documentation Request
+about: Request improvements to documentation or examples
+title: '[DOC] <what needs documentation>'
+labels: 'documentation'
+assignees: ''
+---
+
+## 📖 Documentation Request
+
+**What part of the project needs better documentation?**
+
+- [ ] README.md (general overview)
+- [ ] API Reference (rustdoc)
+- [ ] Installation Guide
+- [ ] Configuration Options
+- [ ] Usage Examples / Tutorials
+- [ ] Architecture Documentation
+- [ ] Troubleshooting Guide
+- [ ] Migration Guides
+- [ ] Contributing Guidelines
+- [ ] Other: ___________
+
+## ❓ What's Missing or Unclear?
+
+**Describe what information you couldn't find or found confusing:**
+
+*I was trying to... but I couldn't figure out how to... because...*
+
+## 🎯 Target Audience
+
+**Who would benefit from this documentation?**
+
+- [ ] New users getting started
+- [ ] Developers contributing code
+- [ ] System administrators deploying
+- [ ] Advanced users optimizing performance
+- [ ] Researchers understanding algorithms
+
+## 💡 Proposed Content (optional)
+
+**If you have suggestions for what should be documented:**
+
+### Outline Structure
+
+```markdown
+# Title
+
+## Section 1
+- Point 1
+- Point 2
+
+## Section 2
+- ...
+```
+
+### Code Examples Needed
+
+```rust
+// Example code that should be included
+```
+
+### Diagrams/Screenshots Needed
+
+- [ ] Architecture diagram
+- [ ] Flow chart
+- [ ] Screenshot of UI
+- [ ] CLI usage example
+
+## 🔗 References
+
+**Link to relevant code, issues, or discussions:**
+
+- Source file: `path/to/file.rs`
+- Related issue: #...
+- Discussion link: ...
+
+## ✅ Acceptance Criteria
+
+**When would this documentation request be considered complete?**
+
+- [ ] New users can successfully complete task X
+- [ ] No ambiguity in configuration option Y
+- [ ] Examples run without modification
+- [ ] All edge cases are documented
+
+---
+
+**Thank you for helping improve our documentation! 📚**

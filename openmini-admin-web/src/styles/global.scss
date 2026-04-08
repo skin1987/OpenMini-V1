@@ -1,0 +1,29 @@
+@use './variables' as *;
+
+*,
+*::before,
+*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; line-height: 1.5; }
+
+body {
+  font-family: $font-family;
+  color: #303133;
+  background-color: #f5f7fa;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #c0c4cc; border-radius: 3px; }
+
+.fade-enter-active, .fade-leave-active { transition: opacity $transition-normal; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.text-center { text-align: center; }
+.text-muted { color: #909399; }
+.flex { display: flex; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.mt-md { margin-top: $spacing-md; }
+.mb-md { margin-bottom: $spacing-md; }
+.p-md { padding: $spacing-md; }

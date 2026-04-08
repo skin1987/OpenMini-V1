@@ -1,0 +1,16 @@
+@use './variables' as *;
+[data-theme='dark'] {
+  body { background-color: $dark-bg-primary; color: $dark-text-primary; }
+  --el-bg-color: $dark-bg-secondary;
+  --el-bg-color-overlay: #2d2d2d;
+  --el-text-color-primary: $dark-text-primary;
+  --el-text-color-regular: #a1a1aa;
+  --el-border-color: $dark-border-color;
+  .el-card { --el-card-bg-color: $dark-bg-secondary; border-color: $dark-border-color; }
+  .el-table {
+    --el-table-bg-color: $dark-bg-secondary;
+    --el-table-tr-bg-color: $dark-bg-secondary;
+    --el-table-header-bg-color: #2d2d2d;
+    th.el-table__cell { color: $dark-text-primary; }
+  }
+}
