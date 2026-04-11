@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, ArrowDown } from '@element-plus/icons-vue'
 import {
   getAlertRules,
   createAlertRule,
@@ -116,6 +116,13 @@ const templates = [
   }
 ]
 
+const filteredRules = computed(() => {
+  if (!statusFilter.value) return ruleList.value
+  return ruleList.value.filter(r =>
+    statusFilter.value === 'enabled' ? r.enabled : !r.enabled
+  )
+})
+
 onMounted(() => {
   fetchRules()
 })
@@ -123,7 +130,8 @@ onMounted(() => {
 async function fetchRules() {
   loading.value = true
   try {
-    ruleList.value = await getAlertRules()
+    const res = await getAlertRules()
+    ruleList.value = Array.isArray(res) ? res : []
   } catch (error) {
     ElMessage.error('获取告警规则失败')
   } finally {
@@ -131,9 +139,7 @@ async function fetchRules() {
   }
 }
 
-function handleStatusFilter() {
-  // 前端筛选
-}
+function handleStatusFilter() {}
 
 function openCreateDialog() {
   isEdit.value = false
@@ -208,7 +214,7 @@ async function handleSubmit() {
       },
       notification_channels: form.notification_channels.map(type => ({
         type: type as any,
-        config: type === 'webhook' ? { url: form.webhook_url } : {},
+        config: type === 'webhook' ? { url: form.webhook_url || '' } : {} as Record<string, string>,
         enabled: true
       })),
       cooldown_seconds: form.duration_seconds || undefined
@@ -232,7 +238,7 @@ async function handleSubmit() {
 
 async function handleToggleEnabled(rule: AlertRule) {
   try {
-    const result = await toggleAlertRule(rule.id, !rule.enabled)
+    const result = await toggleAlertRule(rule.id)
     ElMessage.success(`已${result.new_enabled_state ? '启用' : '禁用'}该规则`)
     fetchRules()
   } catch (error) {
@@ -312,12 +318,10 @@ function formatTime(time: string) {
 
 <template>
   <div class="page-container">
-    <!-- 页面标题 -->
     <div class="page-header">
       <h2>告警规则</h2>
     </div>
 
-    <!-- 工具栏 -->
     <el-card class="toolbar-card" shadow="never">
       <div class="toolbar">
         <el-select
@@ -361,10 +365,9 @@ function formatTime(time: string) {
       </div>
     </el-card>
 
-    <!-- 规则列表表格 -->
     <el-card shadow="never" class="table-card">
       <el-table
-        :data="ruleList.filter(r => !statusFilter || (statusFilter === 'enabled' ? r.enabled : !r.enabled))"
+        :data="filteredRules"
         v-loading="loading"
         stripe
         border
@@ -453,7 +456,6 @@ function formatTime(time: string) {
       </el-table>
     </el-card>
 
-    <!-- 创建/编辑规则弹窗 -->
     <el-dialog
       v-model="dialogVisible"
       :title="dialogTitle"

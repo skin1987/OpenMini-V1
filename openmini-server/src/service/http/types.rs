@@ -1,11 +1,14 @@
 //! HTTP REST API 类型定义
 //!
 //! 定义 HTTP API 的请求和响应结构体，与 gRPC 类型保持一致的风格。
+//! 使用 ts-rs 自动生成 TypeScript 类型定义，确保前后端类型一致性。
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// 聊天完成请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatCompletionRequest {
     /// 会话ID（可选，用于上下文管理）
     #[serde(default)]
@@ -17,14 +20,17 @@ pub struct ChatCompletionRequest {
     pub stream: bool,
     /// 最大生成 token 数
     #[serde(default = "default_max_tokens")]
+    #[ts(skip)]
     pub max_tokens: i32,
     /// 采样温度 (0.0-2.0)
     #[serde(default = "default_temperature")]
+    #[ts(skip)]
     pub temperature: f32,
 }
 
 /// 聊天消息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatMessage {
     /// 角色: system/user/assistant
     pub role: String,
@@ -33,7 +39,8 @@ pub struct ChatMessage {
 }
 
 /// 聊天完成响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatCompletionResponse {
     /// 唯一请求ID
     pub id: String,
@@ -50,7 +57,8 @@ pub struct ChatCompletionResponse {
 }
 
 /// 聊天选择项
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatChoice {
     /// 索引
     pub index: i32,
@@ -61,7 +69,8 @@ pub struct ChatChoice {
 }
 
 /// 流式聊天 chunk
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatCompletionChunk {
     /// 唯一请求ID
     pub id: String,
@@ -76,7 +85,8 @@ pub struct ChatCompletionChunk {
 }
 
 /// 流式增量选择
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DeltaChoice {
     /// 索引
     pub index: i32,
@@ -87,7 +97,8 @@ pub struct DeltaChoice {
 }
 
 /// 增量内容
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DeltaContent {
     /// 角色流（仅第一个chunk）
     pub role: Option<String>,
@@ -96,7 +107,8 @@ pub struct DeltaContent {
 }
 
 /// 图像理解请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ImageUnderstandRequest {
     /// 会话ID
     #[serde(default)]
@@ -109,7 +121,8 @@ pub struct ImageUnderstandRequest {
 }
 
 /// 图像理解响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ImageUnderstandResponse {
     /// 唯一请求ID
     pub id: String,
@@ -118,18 +131,22 @@ pub struct ImageUnderstandResponse {
 }
 
 /// TTS 请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TtsRequest {
     /// 要转换的文本
     pub text: String,
     /// 语音ID
     #[serde(default = "default_voice")]
+    #[ts(skip)]
     pub voice: String,
     /// 语言代码
     #[serde(default = "default_language")]
+    #[ts(skip)]
     pub language: String,
     /// 语速 (0.25-4.0)
     #[serde(default = "default_speed")]
+    #[ts(skip)]
     pub speed: f32,
     /// 音调 (-20.0 到 20.0)
     #[serde(default)]
@@ -137,24 +154,28 @@ pub struct TtsRequest {
 }
 
 /// TTS 响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TtsResponse {
     /// 音频数据（Base64编码）
     pub audio_data: String,
 }
 
 /// STT 请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SttRequest {
     /// 音频数据（Base64编码）
     pub audio_data: String,
     /// 语言代码
     #[serde(default = "default_language")]
+    #[ts(skip)]
     pub language: String,
 }
 
 /// STT 响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SttResponse {
     /// 识别的文本
     pub text: String,
@@ -163,7 +184,8 @@ pub struct SttResponse {
 }
 
 /// 使用统计信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct UsageInfo {
     /// 提示 token 数
     pub prompt_tokens: i32,
@@ -174,7 +196,8 @@ pub struct UsageInfo {
 }
 
 /// 模型信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ModelInfo {
     /// 模型ID
     pub id: String,
@@ -187,7 +210,8 @@ pub struct ModelInfo {
 }
 
 /// API 错误响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ApiError {
     /// 错误类型
     pub error_type: String,
@@ -198,7 +222,8 @@ pub struct ApiError {
 }
 
 /// 健康检查响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct HealthCheckResponse {
     /// 服务状态
     pub status: String,

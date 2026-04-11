@@ -16,10 +16,14 @@ pub mod flash_attention_3;
 pub mod generator;
 pub mod gguf;
 pub mod image_preprocess;
+pub mod kascade;
+pub mod native_top_k;
+#[allow(clippy::module_inception)]
 pub mod inference;
 pub mod memory;
 pub mod model;
 pub mod mtp;
+pub mod nsa;
 pub mod quant;
 pub mod quant_loader;
 pub mod quant_simd;
@@ -28,7 +32,4 @@ pub mod speculative_decoding_v2;
 pub mod tokenizer;
 
 // 重导出常用类型
-pub use error::{InferenceError, InferenceResult};
-pub use image_preprocess::{ImagePreprocessor, ImagePreprocessorConfig};
-
 pub use inference::InferenceEngine;

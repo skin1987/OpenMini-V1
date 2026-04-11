@@ -223,7 +223,7 @@ pub fn policy_loss(
 /// # 返回
 /// 平均熵值（非负）
 pub fn entropy_loss(log_probs: &Tensor) -> f32 {
-    if log_probs.len() == 0 {
+    if log_probs.is_empty() {
         return 0.0;
     }
 

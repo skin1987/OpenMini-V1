@@ -5,10 +5,9 @@ import * as echarts from 'echarts'
 import {
   getAlertRecords,
   acknowledgeAlert,
-  resolveAlert,
-  getAlertSummary
+  resolveAlert
 } from '@/api/alert'
-import type { AlertRecord, AlertQueryParams, AcknowledgeAlertRequest, ResolveAlertRequest } from '@/types/api/alert'
+import type { AlertRecord, AlertQueryParams } from '@/types/api/alert'
 import type { AlertSeverity, AlertStatus } from '@/types'
 
 const loading = ref(false)
@@ -78,15 +77,25 @@ async function fetchRecords() {
   loading.value = true
   try {
     const res = await getAlertRecords(queryParams.value)
-    recordList.value = res.items
-    total.value = res.total
+    let items: AlertRecord[]
+    let totalCount: number
 
-    // 计算统计摘要
+    if (Array.isArray(res)) {
+      items = res
+      totalCount = res.length
+    } else {
+      items = res.items || []
+      totalCount = res.total || 0
+    }
+
+    recordList.value = items
+    total.value = totalCount
+
     summaryData.value = {
-      firing: res.items.filter(r => r.status === 'firing').length,
-      acknowledged: res.items.filter(r => r.status === 'acknowledged').length,
-      resolved: res.items.filter(r => r.status === 'resolved').length,
-      total: res.total
+      firing: items.filter(r => r.status as string === 'firing').length,
+      acknowledged: items.filter(r => r.status as string === 'acknowledged').length,
+      resolved: items.filter(r => r.status as string === 'resolved').length,
+      total: totalCount
     }
   } catch (error) {
     ElMessage.error('获取告警记录失败')
@@ -118,11 +127,7 @@ function handleCurrentChange(val: number) {
 
 async function handleAcknowledge(record: AlertRecord) {
   try {
-    const data: AcknowledgeAlertRequest = {
-      acknowledged_by: 'current_user',
-      comment: ''
-    }
-    await acknowledgeAlert(record.id, data)
+    await acknowledgeAlert(record.id)
     ElMessage.success('已确认该告警')
     fetchRecords()
   } catch (error) {
@@ -132,11 +137,7 @@ async function handleAcknowledge(record: AlertRecord) {
 
 async function handleResolve(record: AlertRecord) {
   try {
-    const data: ResolveAlertRequest = {
-      resolved_by: 'current_user',
-      resolution_comment: ''
-    }
-    await resolveAlert(record.id, data)
+    await resolveAlert(record.id)
     ElMessage.success('已解决该告警')
     fetchRecords()
   } catch (error) {
@@ -199,8 +200,8 @@ function calcDuration(triggeredAt: string): string {
 }
 
 function getRowClassName({ row }: { row: AlertRecord }) {
-  if (row.status === 'firing') return 'row-firing'
-  if (row.status === 'acknowledged') return 'row-acknowledged'
+  if (row.status as string === 'firing') return 'row-firing'
+  if (row.status as string === 'acknowledged') return 'row-acknowledged'
   return 'row-resolved'
 }
 

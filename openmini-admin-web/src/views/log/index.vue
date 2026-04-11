@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Download, VideoPause, VideoPlay, Delete, Lock } from '@element-plus/icons-vue'
+import { Download } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const keyword = ref('')

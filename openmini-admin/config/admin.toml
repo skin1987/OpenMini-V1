@@ -1,0 +1,14 @@
+[server]
+host = "0.0.0.0"
+port = 9000
+
+[database]
+url = "sqlite:data/admin.db?mode=rwc"
+
+[jwt]
+secret = "openmini-admin-jwt-secret-key-change-in-production"
+expiration_hours = 24
+
+[upstream]
+base_url = "http://localhost:8080/api/v1"
+timeout_secs = 10

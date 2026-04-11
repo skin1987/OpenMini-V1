@@ -5,7 +5,7 @@
 //! # 核心组件
 //!
 //! - [`DSATopKConfig`]: DSA Top-K 配置
-//! - [`lightning_indexer`]: 快速相关性评分（并行）
+//! - [`lightning_indexer`][]: 快速相关性评分（并行）
 //! - [`top_k_selection`]: Top-K 位置选择（并行）
 //! - [`calculate_dynamic_k`]: 动态 K 值计算
 //! - [`sparse_attention_forward`]: 稀疏注意力前向传播（并行 + SIMD）
@@ -365,6 +365,7 @@ where
 ///
 /// 记录每次 GPU 计算的详细时间分解，用于性能分析和优化。
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct GpuIndexerStats {
     /// 总耗时（微秒），包括数据传输 + GPU计算 + 结果读取
     pub total_time_us: u64,
@@ -399,20 +400,6 @@ impl std::fmt::Display for GpuIndexerStats {
     }
 }
 
-impl Default for GpuIndexerStats {
-    fn default() -> Self {
-        Self {
-            total_time_us: 0,
-            upload_time_us: 0,
-            compute_time_us: 0,
-            download_time_us: 0,
-            input_dims: (0, 0, 0),
-            output_dims: (0, 0),
-            used_chunking: false,
-            chunk_count: None,
-        }
-    }
-}
 
 // ============================================================================
 // 增强版 GPU Lightning Indexer
@@ -920,7 +907,7 @@ pub fn sparse_attention_forward(
     }
     if k_len != v_len {
         return Err(DSAError::DimensionMismatch {
-            expected: format!("k_full.dim().0 == v_full.dim().0"),
+            expected: "k_full.dim().0 == v_full.dim().0".to_string(),
             actual: format!("k_full.dim().0 = {}, v_full.dim().0 = {}", k_len, v_len),
         });
     }
@@ -1084,7 +1071,7 @@ pub fn sparse_attention_forward_optimized(
     }
     if k_len != v_len {
         return Err(DSAError::DimensionMismatch {
-            expected: format!("k_full.dim().0 == v_full.dim().0"),
+            expected: "k_full.dim().0 == v_full.dim().0".to_string(),
             actual: format!("k_full.dim().0 = {}, v_full.dim().0 = {}", k_len, v_len),
         });
     }
@@ -1219,7 +1206,7 @@ pub fn sparse_attention_forward_optimized_with_buffers(
     }
     if k_len != v_len {
         return Err(DSAError::DimensionMismatch {
-            expected: format!("k_full.dim().0 == v_full.dim().0"),
+            expected: "k_full.dim().0 == v_full.dim().0".to_string(),
             actual: format!("k_full.dim().0 = {}, v_full.dim().0 = {}", k_len, v_len),
         });
     }
@@ -1626,7 +1613,6 @@ pub fn multihead_sparse_attention_3d(
 // ============================================================================
 
 /// DSA 临时缓冲区内存池
-///
 // ============================================================================
 // Phase 3: Memory Optimization — 内存池与缓冲区管理
 // ============================================================================
@@ -1676,7 +1662,6 @@ impl std::fmt::Display for MemoryPoolStats {
 /// - [`PoolGuardUsize`]: usize 缓冲区守卫
 ///
 /// 通过 [`DSAMemoryPool::acquire_f32_guarded`] / [`DSAMemoryPool::acquire_usize_guarded`] 获取。
-
 /// DSA 专用线程安全内存池
 ///
 /// 通过预分配和复用缓冲区减少频繁的堆分配/释放开销。
@@ -2381,7 +2366,7 @@ impl Eq for RevTopK {}
 
 impl PartialOrd for RevTopK {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        other.value.partial_cmp(&self.value)
+        Some(self.cmp(other))
     }
 }
 

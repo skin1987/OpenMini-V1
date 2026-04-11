@@ -597,8 +597,8 @@ impl SimdOps for PhytiumOps {
             sum = vaddvq_f32(vsum);
         }
 
-        for i in (len - remainder)..len {
-            sum += a[i];
+        for &val in &a[(len - remainder)..] {
+            sum += val;
         }
 
         sum
@@ -629,8 +629,8 @@ impl SimdOps for PhytiumOps {
             max_val = vmaxvq_f32(vmax);
         }
 
-        for i in (len - remainder)..len {
-            max_val = max_val.max(a[i]);
+        for &val in &a[(len - remainder)..] {
+            max_val = max_val.max(val);
         }
 
         max_val
@@ -661,8 +661,8 @@ impl SimdOps for PhytiumOps {
             min_val = vminvq_f32(vmin);
         }
 
-        for i in (len - remainder)..len {
-            min_val = min_val.min(a[i]);
+        for &val in &a[(len - remainder)..] {
+            min_val = min_val.min(val);
         }
 
         min_val
@@ -700,8 +700,9 @@ impl SimdOps for PhytiumOps {
             }
         }
 
-        for i in (len - remainder)..len {
-            exp_vals[i] = (a[i] - max_val).exp();
+        for (i, exp_val) in exp_vals[(len - remainder)..].iter_mut().enumerate() {
+            let i = (len - remainder) + i;
+            *exp_val = (a[i] - max_val).exp();
         }
 
         let sum_exp = self.sum(&exp_vals);
@@ -765,8 +766,9 @@ impl SimdOps for PhytiumOps {
             }
         }
 
-        for i in (len - remainder)..len {
-            result[i] = a[i] / (1.0 + (-a[i]).exp());
+        for (i, result_val) in result[(len - remainder)..].iter_mut().enumerate() {
+            let i = (len - remainder) + i;
+            *result_val = a[i] / (1.0 + (-a[i]).exp());
         }
 
         result
@@ -867,12 +869,14 @@ impl SimdOps for PhytiumOps {
                         let vsilu = vdivq_f32(vsum, vdenom);
                         vst1q_f32(output_row.as_mut_ptr().add(j), vsilu);
                     } else {
-                        for jj in j..j + remaining {
+                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                            let jj = j + jj;
                             let mut sum = 0.0f32;
+                            #[allow(clippy::needless_range_loop)]
                             for p in 0..k {
                                 sum += input_row[p] * weight[p * n + jj];
                             }
-                            output_row[jj] = sum / (1.0 + (-sum).exp());
+                            *output_val = sum / (1.0 + (-sum).exp());
                         }
                     }
                 }
@@ -1364,8 +1368,8 @@ impl SimdOps for HygonOps {
 
                 let mut temp = [0.0f32; 8];
                 _mm256_storeu_ps(temp.as_mut_ptr(), vshifted);
-                for j in 0..8 {
-                    temp[j] = temp[j].exp();
+                for val in temp.iter_mut() {
+                    *val = val.exp();
                 }
                 let vexp = _mm256_loadu_ps(temp.as_ptr());
                 _mm256_storeu_ps(exp_vals.as_mut_ptr().add(offset), vexp);
@@ -1426,8 +1430,8 @@ impl SimdOps for HygonOps {
 
                 let mut temp = [0.0f32; 8];
                 _mm256_storeu_ps(temp.as_mut_ptr(), vneg_x);
-                for j in 0..8 {
-                    temp[j] = temp[j].exp();
+                for val in temp.iter_mut() {
+                    *val = val.exp();
                 }
                 let vexp = _mm256_loadu_ps(temp.as_ptr());
 
@@ -1470,6 +1474,7 @@ impl SimdOps for HygonOps {
                     if remaining == 8 {
                         let mut vsum = _mm256_loadu_ps(bias.as_ptr().add(j));
 
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             let vinput = _mm256_set1_ps(input_row[p]);
                             let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
@@ -1480,12 +1485,14 @@ impl SimdOps for HygonOps {
                         let vrelu = _mm256_max_ps(vsum, vzero);
                         _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vrelu);
                     } else {
-                        for jj in j..j + remaining {
+                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                            let jj = j + jj;
                             let mut sum = bias[jj];
+                            #[allow(clippy::needless_range_loop)]
                             for p in 0..k {
                                 sum += input_row[p] * weight[p * n + jj];
                             }
-                            output_row[jj] = if sum > 0.0 { sum } else { 0.0 };
+                            *output_val = if sum > 0.0 { sum } else { 0.0 };
                         }
                     }
                 }
@@ -1530,8 +1537,8 @@ impl SimdOps for HygonOps {
                         let vneg = _mm256_sub_ps(_mm256_setzero_ps(), vsum);
                         let mut temp = [0.0f32; 8];
                         _mm256_storeu_ps(temp.as_mut_ptr(), vneg);
-                        for jj in 0..8 {
-                            temp[jj] = temp[jj].exp();
+                        for val in temp.iter_mut() {
+                            *val = val.exp();
                         }
                         let vexp = _mm256_loadu_ps(temp.as_ptr());
 
@@ -1579,6 +1586,7 @@ impl SimdOps for HygonOps {
                     if remaining == 8 {
                         let mut vsum = _mm256_setzero_ps();
 
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             let vinput = _mm256_set1_ps(input_row[p]);
                             let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
@@ -1590,12 +1598,14 @@ impl SimdOps for HygonOps {
                         let vresult = _mm256_add_ps(vsum, vresidual);
                         _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vresult);
                     } else {
-                        for jj in j..j + remaining {
+                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                            let jj = j + jj;
                             let mut sum = 0.0f32;
+                            #[allow(clippy::needless_range_loop)]
                             for p in 0..k {
                                 sum += input_row[p] * weight[p * n + jj];
                             }
-                            output_row[jj] = sum + residual_row[jj];
+                            *output_val = sum + residual_row[jj];
                         }
                     }
                 }

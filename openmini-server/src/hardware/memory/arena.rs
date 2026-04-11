@@ -145,10 +145,7 @@ impl Arena {
 
             // 防止整数溢出：检查 size > capacity - current
             // 而不是 current + size > capacity
-            let available = match self.capacity.checked_sub(current) {
-                Some(avail) => avail,
-                None => return None, // current > capacity，不应该发生
-            };
+            let available = self.capacity.checked_sub(current)?;
 
             if aligned_size > available {
                 return None;

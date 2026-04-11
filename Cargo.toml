@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = [ "openmini-admin",
     "openmini-proto",
     "openmini-server",
 ]
@@ -16,11 +16,11 @@ authors = ["OpenMini Team"]
 license = "MIT"
 
 [workspace.dependencies]
-candle-core = "0.4"
-candle-transformers = "0.4"
+candle-core = "0.7"
+candle-transformers = "0.7"
 tokio = { version = "1", features = ["full"] }
-tonic = "0.10"
-prost = "0.12"
+tonic = "0.12"
+prost = "0.13"
 memmap2 = "0.9"
 rayon = "1"
 crossbeam = "0.8"

@@ -1,0 +1,33 @@
+[package]
+name = "openmini_admin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "openmini_admin"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+jsonwebtoken = "9"
+bcrypt = "0.15"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+anyhow = "1"
+thiserror = "1"
+toml = "0.8"
+prometheus = "0.13"
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+tower = { version = "0.4", features = ["util"] }
+http = "1"
+time = "=0.3.36"

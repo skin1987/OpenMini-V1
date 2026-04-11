@@ -4,6 +4,4 @@
 
 pub mod quantized;
 pub mod simd;
-
-pub use quantized::*;
-pub use simd::*;
+pub mod simd_softmax;

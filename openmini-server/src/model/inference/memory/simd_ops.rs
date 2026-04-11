@@ -976,7 +976,7 @@ impl SimdVectorOps {
         #[cfg(target_arch = "x86_64")]
         {
             if self.caps.has_avx2 {
-                unsafe { self.compute_embedding_mean_avx2(&embeddings, &mut sum) };
+                unsafe { self.compute_embedding_mean_avx2(embeddings, &mut sum) };
                 let n = embeddings.len() as f32;
                 return self.mul_scalar(&sum, 1.0 / n);
             }

@@ -4,6 +4,7 @@
 
 pub mod adaptive;
 pub mod arena;
+#[allow(clippy::module_inception)]
 pub mod memory;
 pub mod mmap;
 pub mod monitor;
@@ -11,5 +12,4 @@ pub mod pool;
 
 #[allow(unused_imports)]
 pub use adaptive::AdaptiveMemoryManager;
-pub use memory::MemoryManager;
 pub use monitor::MemoryMonitor;

@@ -123,6 +123,7 @@ impl GenerationRequest {
 
 /// 批处理调度策略
 #[derive(Debug, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum SchedulingStrategy {
     /// 先进先出
     FIFO,

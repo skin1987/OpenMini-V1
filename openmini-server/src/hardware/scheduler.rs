@@ -327,6 +327,7 @@ impl AdaptiveScheduler {
         level: HardwareLevel,
         _device_type: DeviceType,
     ) -> InferenceConfig {
+        #[allow(clippy::field_reassign_with_default)]
         let mut config = InferenceConfig::default();
 
         config.num_threads = hardware.cpu.physical_cores.min(hardware.cpu.logical_cores);

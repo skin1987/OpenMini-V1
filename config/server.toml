@@ -1,11 +1,24 @@
 [server]
 host = "0.0.0.0"
 port = 50051
-max_connections = 100
+max_connections = 10000
 request_timeout_ms = 60000
 
+# ============================================
+# 统一任务调度器配置 (TaskScheduler)
+# 推荐使用此配置替代下方的 [thread_pool] 和 [worker]
+# 详见: docs/architecture/001-simplify-worker-pool.md
+# ============================================
+[scheduler]
+max_concurrent = 4              # 最大并发任务数 (默认 = CPU 核心数)
+queue_capacity = 1000           # 任务队列容量
+worker_type = "auto"            # "blocking" | "async" | "auto"
+batch_size = 8                  # 批处理大小
+batch_timeout_ms = 5            # 批处理超时 (ms)
+
 [thread_pool]
-size = 4
+# DEPRECATED: 请使用上方 [scheduler].max_concurrent 替代
+size = 1
 stack_size_kb = 8192
 
 [memory]
@@ -20,9 +33,20 @@ quantization = "Q4_K_M"
 context_length = 4096
 
 [worker]
-count = 3
+# DEPRECATED: TaskScheduler 已替代 WorkerPool 多进程架构
+# 此配置将在 v2.0.0 移除，详见迁移指南: docs/migration_worker_pool_to_scheduler.md
+count = 1
 restart_on_failure = true
 health_check_interval_ms = 5000
+
+[core]
+count = 2
+binding = true
+strategy = "round_robin"
+
+[core.per_core]
+max_concurrent = 5000
+kv_cache_mb = 2048
 
 [grpc]
 max_message_size_mb = 100
@@ -33,3 +57,64 @@ keepalive_timeout_ms = 10000
 path = "data/openmini.db"
 pool_size = 10
 busy_timeout_ms = 5000
+
+# ============================================
+# 大模型训练配置 (Training Module)
+# ============================================
+[training]
+enable = true
+mode = "causal_lm"  # causal_lm | continue_pretrain | sft
+
+[training.model]
+name_or_path = "./models/base_model"  # 预训练模型路径
+dtype = "fp32"                        # fp32 | bf16 | fp16
+
+[training.hyperparams]
+num_train_epochs = 10
+per_device_train_batch_size = 8
+gradient_accumulation_steps = 4       # 有效 batch = 8 * 4 = 32
+learning_rate = 1e-4
+weight_decay = 0.01
+max_grad_norm = 1.0
+max_seq_length = 2048
+label_smoothing_factor = 0.0
+
+[training.optimizer]
+type = "adamw"                        # adamw | sgd
+beta1 = 0.9
+beta2 = 0.999
+epsilon = 1e-8
+
+[training.scheduler]
+type = "cosine"                       # cosine | linear | constant
+warmup_ratio = 0.1                    # 前 10% steps 线性 warmup
+
+[training.data]
+train_path = "./data/train.jsonl"
+validation_path = ""                  # 留空则自动从 train_path 拆分
+format = "jsonl"                      # jsonl | text
+validation_split = 0.1                 # 无验证集时自动拆分
+shuffle = true
+num_workers = 4
+
+[training.checkpoint]
+output_dir = "./checkpoints"
+save_strategy = "steps"               # steps | epoch | best
+save_steps = 500
+save_total_limit = 5                  # 最多保留 5 个 checkpoint
+resume_from_checkpoint = ""           # 断点续训路径
+
+[training.logging]
+log_every_n_steps = 10
+logging_dir = "./logs"
+save_metrics_history = true
+
+[training.early_stopping]
+enabled = true
+patience = 5                          # 连续 5 个 epoch 不改善则停止
+min_delta = 0.001
+
+# SFT 专用配置（仅 mode=sft 时生效）
+[training.sft]
+prompt_template = "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n"
+mask_prompt_loss = true               # 只计算 response 部分 loss

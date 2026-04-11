@@ -92,6 +92,7 @@ impl Default for MemoryConfig {
 
 /// 驱逐策略枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum EvictionStrategy {
     /// 最近最少使用
     LRU,
@@ -178,12 +179,10 @@ pub(crate) mod engine_bridge;
 /// 提供 KV Cache 与记忆系统之间的映射和同步接口
 pub(crate) mod cache_bridge;
 
-pub use hnsw::{HNSWConfig, HNSWIndex, Layer, Node, SearchResult as HNSWSearchResult};
+#[allow(unused_imports)]
+pub use hnsw::HNSWIndex;
 pub use instant::InstantMemory;
 pub use long_term::LongTermMemory;
-pub use manager::{DMNMetrics, DMNStats, MemoryManager, SearchQuery, SearchResult};
-pub use persistence::{
-    AsyncWriter, IndexEntry, Persistence, PersistenceConfig, PersistenceStats, VerifyResult,
-};
+#[allow(unused_imports)]
+pub use manager::{DMNMetrics, MemoryManager};
 pub use short_term::ShortTermMemory;
-pub use simd_ops::{SimdCapabilities, SimdLevel, SimdVectorOps, SimilarityResult};

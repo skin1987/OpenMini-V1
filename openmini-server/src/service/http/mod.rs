@@ -31,6 +31,7 @@ pub mod types;
 pub mod handlers;
 pub mod middleware;
 pub mod server;
+pub mod sensitive_filter;
 
 // 重新导出常用类型和函数
 pub use types::*;

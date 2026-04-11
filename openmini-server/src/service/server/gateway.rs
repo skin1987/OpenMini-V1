@@ -9,17 +9,16 @@
 #![allow(dead_code)]
 
 use crate::service::thread::ThreadPool;
+use crate::service::worker::{AsyncInferencePool, InferenceTask};
 use bytes::{Bytes, BytesMut};
-use parking_lot::RwLock;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::{self, Sender};
-use tokio::sync::Semaphore;
+use tokio::sync::mpsc::Sender;
 use tokio::time::timeout;
 
 use super::connection::ConnectionPool;
@@ -162,6 +161,39 @@ impl Response {
     }
 }
 
+/// 基于原子计数器的连接限制器（替代 Semaphore）
+struct ConnectionLimiter {
+    current: AtomicU64,
+    max_connections: usize,
+}
+
+impl ConnectionLimiter {
+    fn new(max: usize) -> Self {
+        Self {
+            current: AtomicU64::new(0),
+            max_connections: max,
+        }
+    }
+
+    fn try_acquire(&self) -> std::result::Result<(), ()> {
+        let current = self.current.fetch_add(1, Ordering::Relaxed);
+        if current >= self.max_connections as u64 {
+            self.current.fetch_sub(1, Ordering::Relaxed);
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn release(&self) {
+        self.current.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    fn count(&self) -> u64 {
+        self.current.load(Ordering::Relaxed)
+    }
+}
+
 /// 网关统计信息
 pub struct GatewayStats {
     /// 总连接数
@@ -249,22 +281,27 @@ pub struct Gateway {
     shutdown_flag: Arc<AtomicBool>,
     /// 最大并发连接数
     max_concurrent_connections: usize,
-    /// 连接信号量
-    connection_semaphore: Arc<Semaphore>,
+    /// 连接限制器
+    connection_limiter: Arc<ConnectionLimiter>,
     /// 会话映射
-    sessions: Arc<RwLock<HashMap<String, Sender<Response>>>>,
+    sessions: Arc<DashMap<String, Sender<Response>>>,
+    /// 缓冲区池
+    buffer_pool: Arc<BufferPool>,
+    /// 异步推理任务池
+    inference_pool: Arc<AsyncInferencePool>,
 }
 
 impl Gateway {
     /// 创建新的网关
-    pub fn new(addr: SocketAddr, worker_pool: Arc<ThreadPool>) -> Self {
-        Self::with_options(addr, worker_pool, 100, 100)
+    pub fn new(addr: SocketAddr, worker_pool: Arc<ThreadPool>, inference_pool: Arc<AsyncInferencePool>) -> Self {
+        Self::with_options(addr, worker_pool, inference_pool, 100, 100)
     }
 
     /// 使用自定义选项创建网关
     pub fn with_options(
         addr: SocketAddr,
         worker_pool: Arc<ThreadPool>,
+        inference_pool: Arc<AsyncInferencePool>,
         max_connections: usize,
         max_concurrent: usize,
     ) -> Self {
@@ -275,8 +312,10 @@ impl Gateway {
             stats: Arc::new(GatewayStats::new()),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             max_concurrent_connections: max_concurrent,
-            connection_semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            sessions: Arc::new(RwLock::new(HashMap::new())),
+            connection_limiter: Arc::new(ConnectionLimiter::new(max_concurrent)),
+            sessions: Arc::new(DashMap::new()),
+            buffer_pool: Arc::new(BufferPool::new(DEFAULT_BUFFER_SIZE)),
+            inference_pool,
         }
     }
 
@@ -296,16 +335,15 @@ impl Gateway {
 
             match accept_result {
                 Ok(Ok((stream, peer_addr))) => {
-                    let permit = match self.connection_semaphore.clone().try_acquire_owned() {
-                        Ok(permit) => permit,
-                        Err(_) => {
-                            tracing::warn!(
-                                "Connection limit reached, rejecting connection from {}",
-                                peer_addr
-                            );
-                            continue;
-                        }
-                    };
+                    if self.connection_limiter.try_acquire().is_err() {
+                        tracing::warn!(
+                            "Connection limit reached ({}/{}), rejecting from {}",
+                            self.connection_limiter.count(),
+                            self.max_concurrent_connections,
+                            peer_addr
+                        );
+                        continue;
+                    }
 
                     self.stats.total_connections.fetch_add(1, Ordering::Relaxed);
                     self.stats
@@ -316,6 +354,9 @@ impl Gateway {
                     let shutdown_flag = Arc::clone(&self.shutdown_flag);
                     let sessions = self.sessions.clone();
                     let worker_pool = Arc::clone(&self.worker_pool);
+                    let connection_limiter = Arc::clone(&self.connection_limiter);
+                    let buffer_pool = Arc::clone(&self.buffer_pool);
+                    let inference_pool = Arc::clone(&self.inference_pool);
 
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_connection(
@@ -325,12 +366,14 @@ impl Gateway {
                             shutdown_flag,
                             sessions,
                             worker_pool,
+                            connection_limiter,
+                            buffer_pool,
+                            inference_pool,
                         )
                         .await
                         {
                             tracing::error!("Connection error from {}: {}", peer_addr, e);
                         }
-                        drop(permit);
                     });
                 }
                 Ok(Err(e)) => {
@@ -351,12 +394,15 @@ impl Gateway {
         peer_addr: SocketAddr,
         stats: Arc<GatewayStats>,
         shutdown_flag: Arc<AtomicBool>,
-        sessions: Arc<RwLock<HashMap<String, Sender<Response>>>>,
-        worker_pool: Arc<ThreadPool>,
+        sessions: Arc<DashMap<String, Sender<Response>>>,
+        _worker_pool: Arc<ThreadPool>,
+        connection_limiter: Arc<ConnectionLimiter>,
+        buffer_pool: Arc<BufferPool>,
+        inference_pool: Arc<AsyncInferencePool>,
     ) -> Result<()> {
         tracing::debug!("New connection from {}", peer_addr);
 
-        let mut buffer = BytesMut::with_capacity(DEFAULT_BUFFER_SIZE);
+        let mut buffer = buffer_pool.acquire();
         let mut session_id: Option<String> = None;
 
         loop {
@@ -387,7 +433,7 @@ impl Gateway {
                             session_id = Some(request.session_id.clone());
                         }
 
-                        match Self::dispatch_request(request, &worker_pool).await {
+                        match Self::dispatch_request(request, &inference_pool).await {
                             Ok(response) => {
                                 let write_result = timeout(WRITE_TIMEOUT, async {
                                     stream.write_all(&response.payload).await
@@ -433,11 +479,12 @@ impl Gateway {
         }
 
         if let Some(sid) = session_id {
-            let mut sessions_guard = sessions.write();
-            sessions_guard.remove(&sid);
+            sessions.remove(&sid);
         }
 
+        connection_limiter.release();
         stats.active_connections.fetch_sub(1, Ordering::Relaxed);
+        buffer_pool.release(buffer);
         tracing::debug!("Connection from {} closed", peer_addr);
 
         Ok(())
@@ -504,14 +551,14 @@ impl Gateway {
     }
 
     /// 分发请求到处理器
-    async fn dispatch_request(request: Request, worker_pool: &Arc<ThreadPool>) -> Result<Response> {
+    async fn dispatch_request(request: Request, inference_pool: &Arc<AsyncInferencePool>) -> Result<Response> {
         match request.request_type {
-            RequestType::Chat => Self::handle_chat_request(request, worker_pool).await,
+            RequestType::Chat => Self::handle_chat_request(request, inference_pool).await,
             RequestType::ImageUnderstanding => {
-                Self::handle_image_request(request, worker_pool, false).await
+                Self::handle_image_request(request, inference_pool, false).await
             }
             RequestType::ImageUnderstandingStream => {
-                Self::handle_image_request(request, worker_pool, true).await
+                Self::handle_image_request(request, inference_pool, true).await
             }
             RequestType::HealthCheck => Ok(Response::new(
                 request.session_id,
@@ -527,58 +574,44 @@ impl Gateway {
     /// 处理聊天请求
     async fn handle_chat_request(
         request: Request,
-        worker_pool: &Arc<ThreadPool>,
+        inference_pool: &Arc<AsyncInferencePool>,
     ) -> Result<Response> {
-        let (tx, mut rx) = mpsc::channel::<Response>(1);
-
         let session_id = request.session_id.clone();
-        let payload = request.payload.clone();
-        let pool = Arc::clone(worker_pool);
+        let prompt = String::from_utf8_lossy(&request.payload).to_string();
 
-        pool.execute(move || {
-            let response = Self::process_chat_sync(session_id, payload);
-            let _ = futures::executor::block_on(async { tx.send(response).await });
-        });
+        let task = InferenceTask {
+            prompt,
+            session_id: session_id.clone(),
+            max_tokens: Some(2048),
+            temperature: None,
+        };
 
-        match timeout(REQUEST_TIMEOUT, rx.recv()).await {
-            Ok(Some(response)) => Ok(response),
-            Ok(None) => Err(GatewayError::Internal("Channel closed".to_string())),
-            Err(_) => Err(GatewayError::Timeout("Request timeout".to_string())),
+        match inference_pool.submit(task).await {
+            Ok(result) => Ok(Response::new(session_id, Bytes::from(result.text), result.finished)),
+            Err(e) => Ok(Response::with_error(session_id, e)),
         }
-    }
-
-    /// 同步处理聊天请求
-    fn process_chat_sync(session_id: String, _payload: Bytes) -> Response {
-        Response::new(session_id, Bytes::from_static(b"Chat response"), false)
     }
 
     /// 处理图像理解请求
     async fn handle_image_request(
         request: Request,
-        worker_pool: &Arc<ThreadPool>,
+        inference_pool: &Arc<AsyncInferencePool>,
         _stream: bool,
     ) -> Result<Response> {
-        let (tx, mut rx) = mpsc::channel::<Response>(1);
-
         let session_id = request.session_id.clone();
-        let payload = request.payload.clone();
-        let pool = Arc::clone(worker_pool);
+        let prompt = String::from_utf8_lossy(&request.payload).to_string();
 
-        pool.execute(move || {
-            let response = Self::process_image_sync(session_id, payload);
-            let _ = futures::executor::block_on(async { tx.send(response).await });
-        });
+        let task = InferenceTask {
+            prompt,
+            session_id: session_id.clone(),
+            max_tokens: Some(2048),
+            temperature: None,
+        };
 
-        match timeout(REQUEST_TIMEOUT, rx.recv()).await {
-            Ok(Some(response)) => Ok(response),
-            Ok(None) => Err(GatewayError::Internal("Channel closed".to_string())),
-            Err(_) => Err(GatewayError::Timeout("Request timeout".to_string())),
+        match inference_pool.submit(task).await {
+            Ok(result) => Ok(Response::new(session_id, Bytes::from(result.text), result.finished)),
+            Err(e) => Ok(Response::with_error(session_id, e)),
         }
-    }
-
-    /// 同步处理图像请求
-    fn process_image_sync(session_id: String, _payload: Bytes) -> Response {
-        Response::new(session_id, Bytes::from_static(b"Image response"), true)
     }
 
     /// 关闭网关
@@ -653,10 +686,11 @@ impl GatewayBuilder {
     }
 
     /// 构建网关
-    pub fn build(self, worker_pool: Arc<ThreadPool>) -> Gateway {
+    pub fn build(self, worker_pool: Arc<ThreadPool>, inference_pool: Arc<AsyncInferencePool>) -> Gateway {
         Gateway::with_options(
             self.addr,
             worker_pool,
+            inference_pool,
             self.max_connections,
             self.max_concurrent,
         )
@@ -693,6 +727,38 @@ impl ZeroCopyBuffer {
     /// 检查是否为空
     pub fn is_empty(&self) -> bool {
         self.position >= self.data.len()
+    }
+}
+
+/// 全局复用缓冲区池，减少每连接内存分配开销
+struct BufferPool {
+    free_list: std::sync::Mutex<Vec<BytesMut>>,
+    buffer_size: usize,
+}
+
+impl BufferPool {
+    fn new(buffer_size: usize) -> Self {
+        Self {
+            free_list: std::sync::Mutex::new(Vec::new()),
+            buffer_size,
+        }
+    }
+
+    fn acquire(&self) -> BytesMut {
+        self.free_list.lock().unwrap_or_else(|e| e.into_inner())
+            .pop()
+            .unwrap_or_else(|| BytesMut::with_capacity(self.buffer_size))
+    }
+
+    fn release(&self, mut buf: BytesMut) {
+        if buf.capacity() <= self.buffer_size * 2 {
+            buf.clear();
+            if let Ok(mut list) = self.free_list.lock() {
+                if list.len() < 1024 {
+                    list.push(buf);
+                }
+            }
+        }
     }
 }
 

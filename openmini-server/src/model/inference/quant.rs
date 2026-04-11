@@ -34,6 +34,7 @@
 //! - K-量化：更复杂的量化方案，提供更好的精度-压缩比
 
 #![allow(dead_code)]
+#![allow(clippy::needless_range_loop)] // 性能关键的量化代码：使用索引循环以优化内存访问模式
 
 use super::gguf::GgufTensorType;
 
@@ -570,7 +571,7 @@ pub fn dequantize_q6_k(data: &[u8], n: usize) -> Vec<f32> {
                 0
             };
 
-            let q = ql_low | (qh_high << 4) - 32;
+            let q = ql_low | ((qh_high << 4) - 32);
 
             result[idx] = q as f32 * d * scale;
         }

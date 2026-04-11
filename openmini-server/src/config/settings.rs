@@ -2,16 +2,19 @@
 //!
 //! 提供完整的服务器配置结构，支持从 TOML 文件加载配置。
 //! 包含服务器、线程池、内存、模型、Worker 和 gRPC 等配置项。
+//! 使用 ts-rs 自动生成 TypeScript 类型定义，确保前后端类型一致性。
 
 #![allow(dead_code)]
 
 use serde::Deserialize;
 use std::path::PathBuf;
+use ts_rs::TS;
 
 /// 服务器完整配置
 ///
 /// 包含所有子系统配置的顶层结构
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ServerConfig {
     /// 服务器基础设置
     pub server: ServerSettings,
@@ -23,6 +26,9 @@ pub struct ServerConfig {
     pub model: ModelSettings,
     /// Worker 进程设置
     pub worker: WorkerSettings,
+    /// Per-Core Actor 设置
+    #[serde(default)]
+    pub core: CoreSettings,
     /// gRPC 通信设置
     pub grpc: GrpcSettings,
     /// 数据库设置
@@ -30,8 +36,38 @@ pub struct ServerConfig {
     pub database: DatabaseSettings,
 }
 
+/// Per-Core Actor 设置
+#[derive(Debug, Clone, Default, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
+pub struct CoreSettings {
+    /// 使用的 CPU 核心数
+    pub count: usize,
+    /// 是否启用 CPU 亲和性绑定
+    #[serde(default = "default_core_binding")]
+    #[ts(skip)]
+    pub binding: bool,
+    /// 负载均衡策略: round_robin / least_conn / hash
+    #[serde(default = "default_core_strategy")]
+    #[ts(skip)]
+    pub strategy: String,
+    /// 每个 Core 最大并发连接数
+    #[serde(default = "default_max_concurrent")]
+    #[ts(skip)]
+    pub max_concurrent: usize,
+    /// 每个 Core KV Cache 大小(MB)
+    #[serde(default = "default_kv_cache_mb")]
+    #[ts(skip)]
+    pub kv_cache_mb: usize,
+}
+
+fn default_core_binding() -> bool { true }
+fn default_core_strategy() -> String { "round_robin".to_string() }
+fn default_max_concurrent() -> usize { 5000 }
+fn default_kv_cache_mb() -> usize { 2048 }
+
 /// 服务器基础设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ServerSettings {
     /// 监听主机地址
     pub host: String,
@@ -44,7 +80,8 @@ pub struct ServerSettings {
 }
 
 /// 线程池设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ThreadPoolSettings {
     /// 线程池大小
     pub size: usize,
@@ -53,7 +90,8 @@ pub struct ThreadPoolSettings {
 }
 
 /// 内存管理设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct MemorySettings {
     /// 最大可用内存(GB)
     pub max_memory_gb: usize,
@@ -66,7 +104,8 @@ pub struct MemorySettings {
 }
 
 /// 模型加载设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct ModelSettings {
     /// 模型文件路径
     pub path: PathBuf,
@@ -77,7 +116,8 @@ pub struct ModelSettings {
 }
 
 /// Worker 进程设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct WorkerSettings {
     /// Worker 进程数量
     pub count: usize,
@@ -88,7 +128,8 @@ pub struct WorkerSettings {
 }
 
 /// gRPC 通信设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct GrpcSettings {
     /// 最大消息大小(MB)
     pub max_message_size_mb: usize,
@@ -99,15 +140,18 @@ pub struct GrpcSettings {
 }
 
 /// 数据库设置
-#[derive(Debug, Clone, Deserialize, serde::Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default, TS)]
+#[ts(export)]
 pub struct DatabaseSettings {
     /// 数据库文件路径
     pub path: PathBuf,
     /// 连接池大小
     #[serde(default = "default_pool_size")]
+    #[ts(skip)]
     pub pool_size: u32,
     /// 忙等待超时时间(毫秒)
     #[serde(default = "default_busy_timeout")]
+    #[ts(skip)]
     pub busy_timeout_ms: u64,
 }
 
@@ -125,7 +169,7 @@ impl Default for ServerConfig {
             server: ServerSettings {
                 host: "0.0.0.0".to_string(),
                 port: 50051,
-                max_connections: 100,
+                max_connections: 10000,
                 request_timeout_ms: 60000,
             },
             thread_pool: ThreadPoolSettings {
@@ -144,9 +188,16 @@ impl Default for ServerConfig {
                 context_length: 4096,
             },
             worker: WorkerSettings {
-                count: 3,
+                count: 1,
                 restart_on_failure: true,
                 health_check_interval_ms: 5000,
+            },
+            core: CoreSettings {
+                count: 2,
+                binding: true,
+                strategy: "round_robin".to_string(),
+                max_concurrent: 5000,
+                kv_cache_mb: 2048,
             },
             grpc: GrpcSettings {
                 max_message_size_mb: 100,
@@ -175,7 +226,7 @@ mod tests {
         // 验证服务器设置
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 50051);
-        assert_eq!(config.server.max_connections, 100);
+        assert_eq!(config.server.max_connections, 10000);
         assert_eq!(config.server.request_timeout_ms, 60000);
 
         // 验证模型设置
@@ -194,7 +245,7 @@ mod tests {
         assert_eq!(config.memory.arena_size_mb, 256);
 
         // 验证 Worker 设置
-        assert_eq!(config.worker.count, 3);
+        assert_eq!(config.worker.count, 1);
         assert!(config.worker.restart_on_failure);
         assert_eq!(config.worker.health_check_interval_ms, 5000);
 

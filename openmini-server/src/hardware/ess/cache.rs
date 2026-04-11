@@ -22,6 +22,7 @@ use super::eviction::EvictionPolicy;
 
 /// 内存层级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum MemoryTier {
     GPU,
     CPU,

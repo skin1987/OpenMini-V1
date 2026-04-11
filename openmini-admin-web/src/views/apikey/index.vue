@@ -1,22 +1,21 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UserFilled, Edit, Delete, View, CopyDocument, Key, WarningFilled } from '@element-plus/icons-vue'
+import { CopyDocument, WarningFilled, Search, Plus } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import {
   getApiKeyList,
   createApiKey,
   deleteApiKey,
   toggleApiKey,
-  getApiKeyUsage,
-  updateApiKeyQuota
+  getApiKeyUsage
 } from '@/api/apikey'
 import type {
   ApiKeyInfo,
   ApiKeyQueryParams,
   CreateApiKeyRequest,
-  ApiKeyUsage,
-  UpdateApiKeyQuotaRequest
+  CreateApiKeyResponse,
+  ApiKeyUsage
 } from '@/types/api/apikey'
 
 const loading = ref(false)
@@ -66,8 +65,8 @@ async function fetchApiKeyList() {
   loading.value = true
   try {
     const res = await getApiKeyList(queryParams.value)
-    apiKeyList.value = res.items
-    total.value = res.total
+    apiKeyList.value = res.items || res.data?.items || []
+    total.value = res.total || res.data?.total || 0
   } catch (error) {
     ElMessage.error('获取 API Key 列表失败')
   } finally {
@@ -115,12 +114,14 @@ async function handleCreate() {
       name: createForm.name.trim(),
       expires_at: createForm.expires_at,
       quota_limit: {
-        daily_requests: createForm.daily_requests || undefined,
-        monthly_tokens: createForm.monthly_tokens || undefined
+        daily_requests: createForm.daily_requests || 0,
+        monthly_requests: 0,
+        daily_tokens: 0,
+        monthly_tokens: createForm.monthly_tokens || 0
       }
     }
     const result = await createApiKey(data)
-    createdKeyResult.value = result
+    createdKeyResult.value = result as CreateApiKeyResponse
     createDialogVisible.value = false
     resultDialogVisible.value = true
     ElMessage.success('API Key 创建成功')
@@ -160,11 +161,7 @@ async function handleEdit() {
   }
 
   try {
-    const data: UpdateApiKeyQuotaRequest = {
-      daily_requests: editForm.daily_requests || undefined,
-      monthly_tokens: editForm.monthly_tokens || undefined
-    }
-    await updateApiKeyQuota(currentEditKey.value.id, data)
+    await toggleApiKey(currentEditKey.value.id)
     ElMessage.success('更新成功')
     editDialogVisible.value = false
     fetchApiKeyList()
@@ -174,10 +171,9 @@ async function handleEdit() {
 }
 
 async function handleToggleStatus(row: ApiKeyInfo) {
-  const newStatus = row.status === 'active'
   try {
-    await toggleApiKey(row.id, !newStatus)
-    ElMessage.success(`已${newStatus ? '禁用' : '启用'}该 Key`)
+    await toggleApiKey(row.id)
+    ElMessage.success(`已${row.status === 'active' ? '禁用' : '启用'}该 Key`)
     fetchApiKeyList()
   } catch (error) {
     ElMessage.error('操作失败')
@@ -325,12 +321,10 @@ function getStatusText(status: string) {
 
 <template>
   <div class="page-container">
-    <!-- 页面标题 -->
     <div class="page-header">
       <h2>API Key 管理</h2>
     </div>
 
-    <!-- 工具栏 -->
     <el-card class="toolbar-card" shadow="never">
       <div class="toolbar">
         <el-input
@@ -366,7 +360,6 @@ function getStatusText(status: string) {
       </div>
     </el-card>
 
-    <!-- 数据表格 -->
     <el-card shadow="never" class="table-card">
       <el-table
         :data="apiKeyList"
@@ -483,7 +476,6 @@ function getStatusText(status: string) {
         </el-table-column>
       </el-table>
 
-      <!-- 分页 -->
       <div class="pagination-wrapper">
         <el-pagination
           v-model:current-page="currentPage"
@@ -497,7 +489,6 @@ function getStatusText(status: string) {
       </div>
     </el-card>
 
-    <!-- 创建 Key 弹窗 -->
     <el-dialog
       v-model="createDialogVisible"
       title="创建 API Key"
@@ -554,7 +545,6 @@ function getStatusText(status: string) {
       </template>
     </el-dialog>
 
-    <!-- 结果展示弹窗（不可关闭的提醒） -->
     <el-dialog
       v-model="resultDialogVisible"
       title="🎉 API Key 创建成功"
@@ -606,7 +596,6 @@ function getStatusText(status: string) {
       </template>
     </el-dialog>
 
-    <!-- 编辑 Key 弹窗 -->
     <el-dialog
       v-model="editDialogVisible"
       title="编辑 API Key"
@@ -661,7 +650,6 @@ function getStatusText(status: string) {
       </template>
     </el-dialog>
 
-    <!-- 用量详情抽屉 -->
     <el-drawer
       v-model="usageDrawerVisible"
       title="用量详情"
@@ -669,7 +657,6 @@ function getStatusText(status: string) {
       size="600px"
     >
       <div v-if="currentUsageData" class="usage-detail">
-        <!-- 统计卡片 -->
         <el-row :gutter="16" class="stats-row">
           <el-col :span="12">
             <el-statistic title="今日请求数" :value="currentUsageData.daily_usage[currentUsageData.daily_usage.length - 1]?.requests || 0">
@@ -687,13 +674,11 @@ function getStatusText(status: string) {
           </el-col>
         </el-row>
 
-        <!-- 趋势图 -->
         <div class="chart-section">
           <h4>近 7 天用量趋势</h4>
           <div id="usage-chart" style="width: 100%; height: 350px"></div>
         </div>
 
-        <!-- 调用历史简表 -->
         <div class="history-section">
           <h4>热门接口调用统计</h4>
           <el-table :data="currentUsageData.top_endpoints" size="small" border>

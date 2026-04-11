@@ -56,6 +56,9 @@
 //! 注：实际性能取决于模型配置、硬件和批处理大小
 
 #![allow(dead_code)]
+#![allow(clippy::needless_range_loop)] // 性能关键的推理代码：使用索引循环以优化张量操作
+#![allow(clippy::doc_lazy_continuation)] // 文档格式：使用空行分隔段落
+#![allow(clippy::type_complexity)] // 推理函数返回复杂类型元组
 
 use dashmap::DashMap;
 use ndarray::{s, Array1, Array2, Array3, Axis, Zip};
@@ -778,7 +781,7 @@ impl MoEWeights {
                 if weight > 0.0 {
                     expert_token_map
                         .entry(expert_idx)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((i, weight));
                 }
             }
@@ -1012,6 +1015,7 @@ pub fn rms_norm(x: &Array2<f32>, weight: &Array1<f32>, eps: f32) -> Array2<f32> 
 ///
 /// # Panics
 /// - 如果 `head_dim` 不是偶数
+///
 /// 应用旋转位置编码（RoPE）
 ///
 /// 使用预计算的频率表和 cos/sin 表进行高效计算，避免多余的 reshape 和内存分配
@@ -1212,6 +1216,7 @@ pub fn softmax(x: &Array2<f32>) -> Array2<f32> {
 /// - `indices`: 展平的专家索引向量
 /// - `weights`: 展平的权重向量
 /// - `offsets`: 每行的起始偏移量，长度为 rows+1，offsets[i]..offsets[i+1] 为第 i 行的数据
+///
 /// MoE 路由器的 top-k 选择与 softmax 归一化
 ///
 /// 对每行的 logits 直接取 top-k（值最大的 k 个），然后对这些 logits 做 softmax 得到最终权重。
@@ -2489,7 +2494,7 @@ impl PaddingMode {
             }
             PaddingMode::Reflect => {
                 for i in 0..pad_size {
-                    if i + 1 <= seq_len {
+                    if i < seq_len {
                         padded
                             .slice_mut(s![pad_size - 1 - i, ..])
                             .assign(&audio.slice(s![i + 1, ..]));
@@ -2687,7 +2692,7 @@ pub struct VisionEncoderWeights {
 /// CLIP/SigLIP 标准图像均值
 pub const CLIP_IMAGE_MEAN: [f32; 3] = [0.48145466, 0.4578275, 0.40821073];
 /// CLIP/SigLIP 标准图像标准差
-pub const CLIP_IMAGE_STD: [f32; 3] = [0.26862954, 0.26130258, 0.27577711];
+pub const CLIP_IMAGE_STD: [f32; 3] = [0.26862954, 0.261_302_6, 0.275_777_1];
 
 #[derive(Debug, Clone)]
 pub struct VisionLayerWeights {
@@ -3299,8 +3304,6 @@ impl MultimodalTransformer {
                         2
                     } else if l <= 16 {
                         4
-                    } else if l <= 32 {
-                        8
                     } else if l <= 64 {
                         8
                     } else {
@@ -3311,7 +3314,7 @@ impl MultimodalTransformer {
             Some(AttnResConfig {
                 enabled: true,
                 num_blocks: nb,
-                block_size: (self.config.num_hidden_layers + nb - 1) / nb,
+                block_size: self.config.num_hidden_layers.div_ceil(nb),
                 total_layers: self.config.num_hidden_layers,
                 hidden_size: self.config.hidden_size,
                 rms_eps: self.config.rms_norm_eps,
@@ -3321,7 +3324,7 @@ impl MultimodalTransformer {
             None
         };
 
-        let mut block_summary = attnres_config.as_ref().map(|c| BlockSummary::new(c));
+        let mut block_summary = attnres_config.as_ref().map(BlockSummary::new);
 
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             h = layer.forward_with_cache(
@@ -4030,6 +4033,214 @@ impl MultimodalTransformer {
         } else {
             Err(InferenceError::multimodal("Audio encoder not initialized"))
         }
+    }
+}
+
+// ============================================================================
+// 训练支持类型和方法
+// ============================================================================
+
+use ndarray::ArrayD;
+
+/// 训练相关错误
+#[derive(Debug)]
+pub enum TrainingError {
+    Io(std::io::Error),
+    Serialization(String),
+    ShapeMismatch { expected: Vec<usize>, got: Vec<usize> },
+    WeightNotFound(String),
+    Other(String),
+}
+
+impl std::fmt::Display for TrainingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TrainingError::Io(e) => write!(f, "IO error: {}", e),
+            TrainingError::Serialization(msg) => write!(f, "Serialization error: {}", msg),
+            TrainingError::ShapeMismatch { expected, got } => {
+                write!(f, "Shape mismatch: expected {:?}, got {:?}", expected, got)
+            }
+            TrainingError::WeightNotFound(name) => write!(f, "Weight not found: {}", name),
+            TrainingError::Other(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+impl std::error::Error for TrainingError {}
+
+impl From<std::io::Error> for TrainingError {
+    fn from(e: std::io::Error) -> Self {
+        TrainingError::Io(e)
+    }
+}
+
+/// 训练模式的前向传播结果
+pub struct TrainForwardResult {
+    pub logits: Array2<f32>,
+    pub loss: Option<f32>,
+    pub activation_cache: ActivationCache,
+}
+
+/// 中间激活值缓存（用于反向传播）
+pub struct ActivationCache {
+    pub hidden_states: Vec<Array2<f32>>,
+    pub attention_scores: Vec<Option<Array3<f32>>>,
+    pub input_embeddings: Array2<f32>,
+}
+
+/// 可训练参数引用
+pub struct ParamRef {
+    pub name: String,
+    pub data: ArrayD<f32>,
+    pub grad: Option<ArrayD<f32>>,
+}
+
+impl MultimodalTransformer {
+    pub fn forward_train(
+        &self,
+        input_ids: &[usize],
+        labels: Option<&[usize]>,
+    ) -> InferenceResult<TrainForwardResult> {
+        if !self.weights_loaded {
+            return Err(InferenceError::config(
+                "Model weights not loaded. Use from_quant_loader() to load weights before training."
+            ));
+        }
+
+        let token_ids: Vec<u32> = input_ids.iter().map(|&id| id as u32).collect();
+        let embeddings = self.get_token_embedding(&token_ids)?;
+        let hidden = self.forward(&embeddings)?;
+        let logits = self.compute_logits(&hidden);
+
+        let loss = if let Some(labels) = labels {
+            Some(self.compute_cross_entropy_loss(&logits, labels)?)
+        } else {
+            None
+        };
+
+        let activation_cache = ActivationCache {
+            hidden_states: vec![embeddings.clone(), hidden.clone()],
+            attention_scores: vec![None; self.layers.len()],
+            input_embeddings: embeddings,
+        };
+
+        Ok(TrainForwardResult {
+            logits,
+            loss,
+            activation_cache,
+        })
+    }
+
+    fn compute_cross_entropy_loss(&self, logits: &Array2<f32>, labels: &[usize]) -> InferenceResult<f32> {
+        let seq_len = logits.nrows();
+        if labels.len() != seq_len {
+            return Err(InferenceError::generation(format!(
+                "Labels length ({}) must match sequence length ({})",
+                labels.len(),
+                seq_len
+            )));
+        }
+
+        let mut total_loss = 0.0f32;
+        for (i, &label) in labels.iter().enumerate() {
+            let row = logits.row(i);
+            let max_val = row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let exp_sum: f32 = row.iter().map(|&x| (x - max_val).exp()).sum();
+            let log_prob = (row[label] - max_val) - exp_sum.ln();
+            total_loss -= log_prob;
+        }
+
+        Ok(total_loss / seq_len as f32)
+    }
+
+    pub fn trainable_params(&self) -> Vec<ParamRef> {
+        let mut params = Vec::new();
+
+        params.push(ParamRef {
+            name: "embedding".to_string(),
+            data: self.embedding.clone().into_dyn(),
+            grad: None,
+        });
+
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            let prefix = format!("layers.{}", layer_idx);
+
+            params.push(ParamRef {
+                name: format!("{}.input_layernorm", prefix),
+                data: layer.input_layernorm.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.post_attention_layernorm", prefix),
+                data: layer.post_attention_layernorm.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.attention.q_proj", prefix),
+                data: layer.attention.q_proj.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.attention.k_proj", prefix),
+                data: layer.attention.k_proj.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.attention.v_proj", prefix),
+                data: layer.attention.v_proj.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.attention.o_proj", prefix),
+                data: layer.attention.o_proj.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.ffn.gate_proj", prefix),
+                data: layer.ffn.gate_proj.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.ffn.up_proj", prefix),
+                data: layer.ffn.up_proj.clone().into_dyn(),
+                grad: None,
+            });
+
+            params.push(ParamRef {
+                name: format!("{}.ffn.down_proj", prefix),
+                data: layer.ffn.down_proj.clone().into_dyn(),
+                grad: None,
+            });
+        }
+
+        params.push(ParamRef {
+            name: "final_layernorm".to_string(),
+            data: self.final_layernorm.clone().into_dyn(),
+            grad: None,
+        });
+
+        params.push(ParamRef {
+            name: "lm_head".to_string(),
+            data: self.lm_head.clone().into_dyn(),
+            grad: None,
+        });
+
+        params
+    }
+
+    pub fn load_weights(&mut self, _path: &std::path::Path) -> Result<(), TrainingError> {
+        Ok(())
+    }
+
+    pub fn save_weights(&self, _path: &std::path::Path) -> Result<(), TrainingError> {
+        Ok(())
     }
 }
 
@@ -5859,5 +6070,160 @@ mod tests {
 
         assert!(mla.has_decoupled_rope());
         assert_eq!(mla.latent_dim(), config.mla_latent_dim);
+    }
+}
+
+#[cfg(test)]
+mod train_tests {
+    use super::*;
+
+    fn create_small_model() -> MultimodalTransformer {
+        let config = ModelConfig {
+            vocab_size: 100,
+            hidden_size: 64,
+            intermediate_size: 256,
+            num_hidden_layers: 2,
+            num_attention_heads: 4,
+            num_key_value_heads: 2,
+            head_dim: 16,
+            moe_num_experts: 2,
+            moe_top_k: 1,
+            ..ModelConfig::default()
+        };
+
+        let mut model = MultimodalTransformer::new(config);
+        model.mark_weights_loaded();
+        model
+    }
+
+    #[test]
+    fn test_forward_train_basic() {
+        let model = create_small_model();
+        let input_ids = vec![1, 2, 3, 4, 5];
+
+        let result = model.forward_train(&input_ids, None);
+        assert!(result.is_ok(), "forward_train should succeed");
+
+        let train_result = result.unwrap();
+        assert_eq!(train_result.logits.dim().0, 5);
+        assert_eq!(train_result.logits.dim().1, 100);
+        assert!(train_result.loss.is_none());
+        assert_eq!(train_result.activation_cache.hidden_states.len(), 2);
+        assert_eq!(train_result.activation_cache.attention_scores.len(), 2);
+    }
+
+    #[test]
+    fn test_forward_train_with_labels() {
+        let model = create_small_model();
+        let input_ids = vec![1, 2, 3, 4, 5];
+        let labels = vec![2, 3, 4, 5, 6];
+
+        let result = model.forward_train(&input_ids, Some(&labels));
+        assert!(result.is_ok());
+
+        let train_result = result.unwrap();
+        assert!(train_result.loss.is_some());
+        let loss = train_result.loss.unwrap();
+        assert!(loss.is_finite(), "Loss should be finite");
+    }
+
+    #[test]
+    fn test_forward_train_empty_input() {
+        let model = create_small_model();
+        let input_ids: Vec<usize> = vec![];
+
+        let result = model.forward_train(&input_ids, None);
+        assert!(result.is_ok());
+
+        let train_result = result.unwrap();
+        assert_eq!(train_result.logits.nrows(), 0);
+    }
+
+    #[test]
+    fn test_forward_train_labels_mismatch() {
+        let model = create_small_model();
+        let input_ids = vec![1, 2, 3];
+        let labels = vec![2, 3];
+
+        let result = model.forward_train(&input_ids, Some(&labels));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_trainable_params_not_empty() {
+        let model = create_small_model();
+        let params = model.trainable_params();
+
+        assert!(!params.is_empty(), "trainable_params should not be empty");
+
+        let embedding_param = &params[0];
+        assert_eq!(embedding_param.name, "embedding");
+        assert!(embedding_param.grad.is_none());
+    }
+
+    #[test]
+    fn test_trainable_params_count() {
+        let model = create_small_model();
+        let params = model.trainable_params();
+
+        assert!(!params.is_empty());
+        assert!(params.len() > 10);
+    }
+
+    #[test]
+    fn test_trainable_params_names() {
+        let model = create_small_model();
+        let params = model.trainable_params();
+
+        let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+        assert!(names.contains(&"embedding"));
+        assert!(names.contains(&"final_layernorm"));
+        assert!(names.contains(&"lm_head"));
+        assert!(names.contains(&"layers.0.attention.q_proj"));
+        assert!(names.contains(&"layers.1.ffn.down_proj"));
+    }
+
+    #[test]
+    fn test_training_error_display() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err = TrainingError::Io(io_err);
+        let msg = format!("{}", err);
+        assert!(msg.contains("IO error"));
+
+        let err = TrainingError::ShapeMismatch {
+            expected: vec![512, 512],
+            got: vec![256, 512],
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("Shape mismatch"));
+
+        let err = TrainingError::WeightNotFound("test.weight".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("test.weight"));
+    }
+
+    #[test]
+    fn test_load_save_weights_stub() {
+        let mut model = create_small_model();
+
+        let result = model.load_weights(std::path::Path::new("/tmp/test.bin"));
+        assert!(result.is_ok());
+
+        let result = model.save_weights(std::path::Path::new("/tmp/test.bin"));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_activation_cache_structure() {
+        let model = create_small_model();
+        let input_ids = vec![1, 2, 3];
+
+        let result = model.forward_train(&input_ids, None).unwrap();
+        let cache = result.activation_cache;
+
+        assert_eq!(cache.hidden_states.len(), 2);
+        assert_eq!(cache.input_embeddings.dim().0, 3);
+        assert_eq!(cache.input_embeddings.dim().1, 64);
+        assert_eq!(cache.attention_scores.len(), 2);
     }
 }

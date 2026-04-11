@@ -345,7 +345,7 @@ impl crate::hardware::kv_cache::KVCache for MLALatentCache {
 
     fn clear_cache(&mut self) -> Result<(), crate::hardware::kv_cache::KVCacheError> {
         self.clear()
-            .map_err(|e| crate::hardware::kv_cache::KVCacheError::ClearError(e))
+            .map_err(crate::hardware::kv_cache::KVCacheError::ClearError)
     }
 
     fn memory_usage(&self) -> usize {

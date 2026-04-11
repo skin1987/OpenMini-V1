@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, CircleCheck } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
+import { getModelList, loadModel, unloadModel, switchModel, checkModelHealth } from '@/api/model'
 
 const loading = ref(false)
 const keyword = ref('')
@@ -11,64 +12,25 @@ const drawerVisible = ref(false)
 const currentModel = ref<any>(null)
 const switchVisible = ref(false)
 
-const modelList = ref([
-  {
-    id: 1,
-    name: 'Qwen-14B-Chat',
-    path: '/models/qwen-14b-chat',
-    size: '28.5GB',
-    quantization: 'INT8',
-    contextLength: 4096,
-    status: 'loaded',
-    loadTime: '2026-04-01 10:00:00'
-  },
-  {
-    id: 2,
-    name: 'Llama-3-8B-Instruct',
-    path: '/models/llama-3-8b',
-    size: '16.2GB',
-    quantization: 'FP16',
-    contextLength: 8192,
-    status: 'unloaded',
-    loadTime: '-'
-  },
-  {
-    id: 3,
-    name: 'Baichuan2-7B-Chat',
-    path: '/models/baichuan2-7b',
-    size: '14.1GB',
-    quantization: 'INT4',
-    contextLength: 2048,
-    status: 'loaded',
-    loadTime: '2026-04-02 14:30:00'
-  },
-  {
-    id: 4,
-    name: 'Yi-34B-Chat',
-    path: '/models/yi-34b-chat',
-    size: '68.3GB',
-    quantization: 'INT8',
-    contextLength: 4096,
-    status: 'loading',
-    loadTime: '-'
-  },
-  {
-    id: 5,
-    name: 'Mistral-7B-Instruct',
-    path: '/models/mistral-7b',
-    size: '14.8GB',
-    quantization: 'FP16',
-    contextLength: 32768,
-    status: 'error',
-    loadTime: '-'
-  }
-])
+const modelList = ref<any[]>([])
 
 const form = reactive({
   path: '',
   quantization: 'INT8',
   contextLength: 4096
 })
+
+async function fetchModelList() {
+  loading.value = true
+  try {
+    const res: any = await getModelList()
+    modelList.value = res.models || []
+  } catch (error: any) {
+    ElMessage.error(error.message || '获取模型列表失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 function getStatusType(status: string) {
   const map: Record<string, string> = {
@@ -104,9 +66,15 @@ function handleLoadModel() {
   dialogVisible.value = true
 }
 
-function submitLoadModel() {
-  ElMessage.success('模型加载任务已提交')
-  dialogVisible.value = false
+async function submitLoadModel() {
+  try {
+    await loadModel({ path: form.path })
+    ElMessage.success('模型加载任务已提交')
+    dialogVisible.value = false
+    await fetchModelList()
+  } catch (error: any) {
+    ElMessage.error(error.message || '模型加载失败')
+  }
 }
 
 function handleDetail(row: any) {
@@ -114,22 +82,57 @@ function handleDetail(row: any) {
   drawerVisible.value = true
 }
 
-function handleToggleLoad(row: any) {
+async function handleToggleLoad(row: any) {
   if (row.status === 'loaded') {
-    ElMessage.info(`开始卸载模型: ${row.name}`)
+    try {
+      await unloadModel(row.id)
+      ElMessage.success(`模型 ${row.name} 已卸载`)
+      await fetchModelList()
+    } catch (error: any) {
+      ElMessage.error(error.message || '卸载模型失败')
+    }
   } else {
-    ElMessage.info(`开始加载模型: ${row.name}`)
+    try {
+      await loadModel({ path: row.path })
+      ElMessage.success(`开始加载模型: ${row.name}`)
+      await fetchModelList()
+    } catch (error: any) {
+      ElMessage.error(error.message || '加载模型失败')
+    }
   }
 }
 
-function handleHealthCheck(row: any) {
-  ElMessage.success(`${row.name} 健康检查通过`)
+async function handleHealthCheck(row: any) {
+  try {
+    const res: any = await checkModelHealth(row.id)
+    if (res.healthy !== false) {
+      ElMessage.success(`${row.name} 健康检查通过`)
+    } else {
+      ElMessage.warning(`${row.name} 健康检查异常`)
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '健康检查失败')
+  }
 }
 
-function handleSwitchModel() {
-  switchVisible.value = false
-  ElMessage.success('热切换完成')
+async function handleSwitchModel(targetName?: string) {
+  if (!targetName) {
+    switchVisible.value = false
+    return
+  }
+  try {
+    await switchModel({ target: targetName })
+    ElMessage.success('热切换完成')
+    switchVisible.value = false
+    await fetchModelList()
+  } catch (error: any) {
+    ElMessage.error(error.message || '热切换失败')
+  }
 }
+
+onMounted(() => {
+  fetchModelList()
+})
 </script>
 
 <template>
@@ -155,6 +158,7 @@ function handleSwitchModel() {
       <el-table :data="modelList" stripe v-loading="loading">
         <el-table-column prop="name" label="模型名称" min-width="180" />
         <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="source" label="来源" width="100" />
         <el-table-column prop="size" label="大小" width="100" />
         <el-table-column prop="quantization" label="量化类型" width="110">
           <template #default="{ row }">
@@ -163,7 +167,7 @@ function handleSwitchModel() {
         </el-table-column>
         <el-table-column prop="contextLength" label="上下文长度" width="110">
           <template #default="{ row }">
-            {{ row.contextLength.toLocaleString() }}
+            {{ row.contextLength?.toLocaleString() || '-' }}
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
@@ -211,17 +215,18 @@ function handleSwitchModel() {
       <el-descriptions v-if="currentModel" :column="1" border>
         <el-descriptions-item label="名称">{{ currentModel.name }}</el-descriptions-item>
         <el-descriptions-item label="路径">{{ currentModel.path }}</el-descriptions-item>
+        <el-descriptions-item label="来源">{{ currentModel.source || '-' }}</el-descriptions-item>
         <el-descriptions-item label="大小">{{ currentModel.size }}</el-descriptions-item>
         <el-descriptions-item label="量化类型">{{ currentModel.quantization }}</el-descriptions-item>
-        <el-descriptions-item label="上下文长度">{{ currentModel.contextLength.toLocaleString() }}</el-descriptions-item>
+        <el-descriptions-item label="上下文长度">{{ currentModel.contextLength?.toLocaleString() || '-' }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="getStatusType(currentModel.status)" size="small">{{ getStatusText(currentModel.status) }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="加载时间">{{ currentModel.loadTime }}</el-descriptions-item>
+        <el-descriptions-item label="加载时间">{{ currentModel.loadTime || '-' }}</el-descriptions-item>
       </el-descriptions>
     </el-drawer>
 
-    <ConfirmDialog v-model:visible="switchVisible" title="确认热切换" content="热切换将在不中断服务的情况下替换模型，切换过程中可能有短暂延迟" type="warning" @confirm="handleSwitchModel" />
+    <ConfirmDialog v-model:visible="switchVisible" title="确认热切换" content="热切换将在不中断服务的情况下替换模型，切换过程中可能有短暂延迟" type="warning" @confirm="handleSwitchModel(currentModel?.name)" />
   </div>
 </template>
 

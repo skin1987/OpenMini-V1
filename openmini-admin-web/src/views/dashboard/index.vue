@@ -1,54 +1,52 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Monitor, Cpu, Coin, TrendCharts } from '@element-plus/icons-vue'
+import { getDashboardData } from '@/api/monitoring'
 
 const loading = ref(false)
 let refreshTimer: number | null = null
 
 const gpuStats = ref({
-  utilization: 78.5,
-  memoryUsed: 18.6,
-  memoryTotal: 24.0,
-  temperature: 72
+  utilization: 0,
+  memoryUsed: 0,
+  memoryTotal: 0,
+  temperature: 0
 })
 
 const cpuStats = ref({
-  usage: 45.2,
-  cores: 16,
-  loadAvg: [2.34, 2.12, 1.98]
+  usage: 0,
+  cores: 0,
+  loadAvg: [0, 0, 0]
 })
 
 const memoryStats = ref({
-  used: 52.3,
-  total: 64.0,
-  swapUsed: 8.2
+  used: 0,
+  total: 0,
+  swapUsed: 0
 })
 
 const inferenceStats = ref({
-  qps: 156,
-  tokenThroughput: 12400,
-  activeConnections: 42,
-  batchSize: 8,
-  avgLatency: 123,
-  p50: 98,
-  p95: 234,
-  p99: 567
+  qps: 0,
+  tokenThroughput: 0,
+  activeConnections: 0,
+  batchSize: 0,
+  avgLatency: 0,
+  p50: 0,
+  p95: 0,
+  p99: 0
 })
 
 const componentHealth = ref([
-  { name: 'GPU', status: 'success' as const },
-  { name: 'Memory', status: 'warning' as const },
-  { name: 'CPU', status: 'success' as const },
-  { name: 'Scheduler', status: 'success' as const },
-  { name: 'Model', status: 'success' as const }
+  { name: 'GPU', status: 'success' as 'success' | 'warning' },
+  { name: 'Memory', status: 'success' as 'success' | 'warning' },
+  { name: 'CPU', status: 'success' as 'success' | 'warning' },
+  { name: 'Scheduler', status: 'success' as 'success' | 'warning' },
+  { name: 'Model', status: 'success' as 'success' | 'warning' }
 ])
 
 const recentAlerts = ref([
-  { id: 1, level: 'warning', message: 'GPU温度超过70°C阈值', time: '2分钟前' },
-  { id: 2, level: 'info', message: '模型Qwen-14B加载完成', time: '15分钟前' },
-  { id: 3, level: 'danger', message: '内存使用率超过80%', time: '30分钟前' },
-  { id: 4, level: 'success', message: 'Worker-2重启成功', time: '1小时前' },
-  { id: 5, level: 'info', message: '配置热重载完成', time: '2小时前' }
+  { id: 1, level: 'info', message: '暂无告警信息', time: '-' }
 ])
 
 const chartData = ref({
@@ -56,12 +54,12 @@ const chartData = ref({
   series: [
     {
       name: 'GPU利用率',
-      data: [65, 58, 72, 85, 78, 82, 76],
+      data: [0, 0, 0, 0, 0, 0, 0],
       color: '#409EFF'
     },
     {
       name: 'CPU使用率',
-      data: [35, 38, 52, 48, 45, 55, 42],
+      data: [0, 0, 0, 0, 0, 0, 0],
       color: '#67C23A'
     }
   ]
@@ -72,29 +70,119 @@ const memoryChartData = ref({
   series: [
     {
       name: '内存使用',
-      data: [40, 42, 48, 55, 52, 58, 50],
+      data: [0, 0, 0, 0, 0, 0, 0],
       color: '#E6A23C'
     }
   ]
 })
 
-function generateMockData() {
-  gpuStats.value.utilization = Math.random() * 30 + 60
-  cpuStats.value.usage = Math.random() * 30 + 35
-  memoryStats.value.used = Math.random() * 15 + 45
-  inferenceStats.value.qps = Math.floor(Math.random() * 100 + 100)
-  inferenceStats.value.avgLatency = Math.floor(Math.random() * 80 + 90)
+const serviceStatus = ref({
+  status: '-',
+  upstream: '-',
+  version: '-'
+})
 
-  chartData.value.series[0].data = Array.from({ length: 7 }, () =>
-    Math.floor(Math.random() * 30 + 60)
-  )
-  chartData.value.series[1].data = Array.from({ length: 7 }, () =>
-    Math.floor(Math.random() * 25 + 35)
-  )
+const alertSummary = ref({
+  firing: 0,
+  acknowledged: 0,
+  resolved: 0
+})
+
+async function fetchDashboardData() {
+  loading.value = true
+  try {
+    const data = await getDashboardData()
+
+    if (data) {
+      if (data.service_status) {
+        serviceStatus.value = {
+          status: data.service_status.status || '-',
+          upstream: data.service_status.upstream || '-',
+          version: data.service_status.version || '-'
+        }
+
+        if (data.service_status.gpu?.[0]) {
+          const gpu = data.service_status.gpu[0]
+          gpuStats.value = {
+            utilization: gpu.utilization_percent || 0,
+            memoryUsed: (gpu.memory_used_mb / 1024) || 0,
+            memoryTotal: (gpu.memory_total_mb / 1024) || 0,
+            temperature: gpu.temperature_celsius || 0
+          }
+        }
+
+        if (data.service_status.cpu) {
+          cpuStats.value = {
+            usage: data.service_status.cpu.usage_percent || 0,
+            cores: data.service_status.cpu.cores || 0,
+            loadAvg: [
+              data.service_status.cpu.load_average_1m || 0,
+              data.service_status.cpu.load_average_5m || 0,
+              data.service_status.cpu.load_average_15m || 0
+            ]
+          }
+        }
+
+        if (data.service_status.memory) {
+          memoryStats.value = {
+            used: data.service_status.memory.used_gb || 0,
+            total: data.service_status.memory.total_gb || 0,
+            swapUsed: data.service_status.memory.swap_used_gb || 0
+          }
+        }
+
+        if (data.service_status.inference) {
+          inferenceStats.value = {
+            qps: data.service_status.inference.requests_per_second || 0,
+            tokenThroughput: data.service_status.inference.tokens_per_second || 0,
+            activeConnections: data.service_status.inference.active_connections || 0,
+            batchSize: 8,
+            avgLatency: data.service_status.inference.avg_latency_ms || 0,
+            p50: data.service_status.inference.p50_latency_ms || 0,
+            p95: data.service_status.inference.p90_latency_ms || 0,
+            p99: data.service_status.inference.p99_latency_ms || 0
+          }
+        }
+
+        componentHealth.value = [
+          { name: 'GPU', status: data.service_status.status === 'healthy' ? 'success' : 'warning' },
+          { name: 'Memory', status: data.service_status.memory?.usage_percent > 80 ? 'warning' : 'success' },
+          { name: 'CPU', status: data.service_status.cpu?.usage_percent > 80 ? 'warning' : 'success' },
+          { name: 'Scheduler', status: 'success' },
+          { name: 'Model', status: 'success' }
+        ]
+      }
+
+      if (data.alert_summary) {
+        alertSummary.value = {
+          firing: data.alert_summary.firing || data.alert_summary.total_active || 0,
+          acknowledged: data.alert_summary.acknowledged || 0,
+          resolved: data.alert_summary.resolved || data.alert_summary.resolved_today || 0
+        }
+
+        const alerts = []
+        if (data.alert_summary.critical_count > 0) {
+          alerts.push({ id: alerts.length + 1, level: 'danger', message: `${data.alert_summary.critical_count} 个严重告警`, time: '-' })
+        }
+        if (data.alert_summary.warning_count > 0) {
+          alerts.push({ id: alerts.length + 1, level: 'warning', message: `${data.alert_summary.warning_count} 个警告`, time: '-' })
+        }
+        if (alerts.length > 0) {
+          recentAlerts.value = alerts
+        }
+      }
+    }
+  } catch (error) {
+    console.error('获取仪表盘数据失败:', error)
+    ElMessage.error('数据加载失败，显示默认值')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
-  refreshTimer = window.setInterval(generateMockData, 10000)
+  fetchDashboardData()
+  refreshTimer = window.setInterval(fetchDashboardData, 10000)
 })
 
 onUnmounted(() => {
@@ -105,8 +193,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="dashboard-container">
-    <!-- 统计卡片区域 -->
+  <div class="dashboard-container" v-loading="loading">
     <el-row :gutter="20" class="stat-row">
       <el-col :xs="24" :sm="12" :md="6">
         <StatCard
@@ -123,7 +210,7 @@ onUnmounted(() => {
               :color="'#409EFF'"
               :stroke-width="8"
             />
-            <span class="detail-text">显存: {{ gpuStats.memoryUsed }}GB / {{ gpuStats.memoryTotal }}GB</span>
+            <span class="detail-text">显存: {{ gpuStats.memoryUsed.toFixed(1) }}GB / {{ gpuStats.memoryTotal.toFixed(1) }}GB</span>
           </div>
         </StatCard>
       </el-col>
@@ -139,7 +226,7 @@ onUnmounted(() => {
         >
           <div class="progress-wrapper">
             <el-progress
-              :percentage="(gpuStats.memoryUsed / gpuStats.memoryTotal) * 100"
+              :percentage="gpuStats.memoryTotal > 0 ? (gpuStats.memoryUsed / gpuStats.memoryTotal) * 100 : 0"
               :color="'#67C23A'"
               :stroke-width="8"
             />
@@ -173,23 +260,22 @@ onUnmounted(() => {
           title="内存使用量"
           :value="memoryStats.used.toFixed(1)"
           suffix="GB"
-          :icon="DataLine"
+          :icon="TrendCharts"
           color="danger"
           :trend="{ value: 3.2, isUp: true }"
         >
           <div class="progress-wrapper">
             <el-progress
-              :percentage="(memoryStats.used / memoryStats.total) * 100"
+              :percentage="memoryStats.total > 0 ? (memoryStats.used / memoryStats.total) * 100 : 0"
               :color="'#F56C6C'"
               :stroke-width="8"
             />
-            <span class="detail-text">总计: {{ memoryStats.total }}GB</span>
+            <span class="detail-text">总计: {{ memoryStats.total.toFixed(1) }}GB</span>
           </div>
         </StatCard>
       </el-col>
     </el-row>
 
-    <!-- 趋势图表区域 -->
     <el-row :gutter="20" class="chart-row">
       <el-col :span="16">
         <el-card shadow="hover">
@@ -210,7 +296,6 @@ onUnmounted(() => {
       </el-col>
     </el-row>
 
-    <!-- 推理性能面板 -->
     <el-card shadow="hover" class="inference-panel">
       <template #header>
         <span>推理性能面板</span>
@@ -270,7 +355,6 @@ onUnmounted(() => {
       </el-row>
     </el-card>
 
-    <!-- 底部信息区 -->
     <el-row :gutter="20" class="bottom-row">
       <el-col :span="10">
         <el-card shadow="hover">

@@ -248,10 +248,8 @@ impl StreamingAttention {
 
         // 分配新块（如果需要）
         let is_new_block = self.position_to_block[block_idx].is_none();
-        if is_new_block {
-            if self.allocated_blocks >= self.config.max_blocks {
-                return Err("No more blocks available".to_string());
-            }
+        if is_new_block && self.allocated_blocks >= self.config.max_blocks {
+            return Err("No more blocks available".to_string());
         }
 
         // 尝试写入数据
@@ -298,9 +296,7 @@ impl StreamingAttention {
             if block_idx >= self.position_to_block.len() {
                 return None;
             }
-            if self.position_to_block[block_idx].is_none() {
-                return None;
-            }
+            self.position_to_block[block_idx]?;
         }
 
         let chunk_size = self.config.num_heads * self.config.head_dim;

@@ -76,26 +76,29 @@ impl Default for ParallelExecutionConfig {
 impl ParallelExecutionConfig {
     /// 创建计算密集型配置
     pub fn compute_intensive() -> Self {
-        let mut config = Self::default();
-        config.strategy = ParallelStrategy::DataParallel;
-        config.load_balance = LoadBalanceStrategy::Static;
-        config
+        Self {
+            strategy: ParallelStrategy::DataParallel,
+            load_balance: LoadBalanceStrategy::Static,
+            ..Default::default()
+        }
     }
 
     /// 创建 I/O 密集型配置
     pub fn io_intensive() -> Self {
-        let mut config = Self::default();
-        config.strategy = ParallelStrategy::TaskParallel;
-        config.load_balance = LoadBalanceStrategy::Dynamic;
-        config
+        Self {
+            strategy: ParallelStrategy::TaskParallel,
+            load_balance: LoadBalanceStrategy::Dynamic,
+            ..Default::default()
+        }
     }
 
     /// 创建混合型配置
     pub fn mixed() -> Self {
-        let mut config = Self::default();
-        config.strategy = ParallelStrategy::Hybrid;
-        config.load_balance = LoadBalanceStrategy::WorkStealing;
-        config
+        Self {
+            strategy: ParallelStrategy::Hybrid,
+            load_balance: LoadBalanceStrategy::WorkStealing,
+            ..Default::default()
+        }
     }
 }
 

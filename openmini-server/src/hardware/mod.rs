@@ -31,9 +31,11 @@ pub mod detector;
 pub mod ess;
 pub mod gpu;
 pub mod hyperthreading;
+pub mod kernel;
 pub mod kv_cache;
 pub mod load_monitor;
 pub mod memory;
+pub mod persistence;
 pub mod profile;
 pub mod resource_manager;
 pub mod scheduler;
@@ -74,6 +76,12 @@ pub use load_monitor::{get_system_load, LoadAction, LoadMonitor, LoadThresholds,
 
 #[allow(unused_imports)]
 pub use cpu::{CpuBackend, CpuBackendType, CpuInfoDetail, CpuOps, SimdInfo};
+
+#[allow(unused_imports)]
+pub use persistence::{
+    CompressionManager, DatabaseConfig, DatabaseManager, EvictionAlgorithm, EvictionPolicy,
+    KvSwapConfig, KvSwapManager, KvSwapStats, PersistenceError,
+};
 
 /// 快速检测硬件配置
 pub fn detect_hardware() -> HardwareProfile {

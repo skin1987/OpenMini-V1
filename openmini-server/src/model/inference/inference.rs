@@ -129,6 +129,7 @@ impl InferenceStats {
 /// 推理引擎
 ///
 /// 整合所有推理组件，提供统一的推理接口。
+#[derive(Clone)]
 pub struct InferenceEngine {
     /// 多模态模型
     model: Arc<MultimodalTransformer>,
@@ -231,22 +232,16 @@ impl InferenceEngine {
 
                 // 加载层归一化权重
                 let input_norm_name = format!("model.layers.{}.input_layernorm", layer_idx);
-                match loader.load_norm_weights(&input_norm_name) {
-                    Ok(input_norm) => {
-                        layer.input_layernorm = input_norm;
-                        layer_loaded = true;
-                    }
-                    Err(_) => {}
+                if let Ok(input_norm) = loader.load_norm_weights(&input_norm_name) {
+                    layer.input_layernorm = input_norm;
+                    layer_loaded = true;
                 }
 
                 let post_attn_norm_name =
                     format!("model.layers.{}.post_attention_layernorm", layer_idx);
-                match loader.load_norm_weights(&post_attn_norm_name) {
-                    Ok(post_norm) => {
-                        layer.post_attention_layernorm = post_norm;
-                        layer_loaded = true;
-                    }
-                    Err(_) => {}
+                if let Ok(post_norm) = loader.load_norm_weights(&post_attn_norm_name) {
+                    layer.post_attention_layernorm = post_norm;
+                    layer_loaded = true;
                 }
 
                 if layer_loaded {
@@ -505,6 +500,24 @@ impl InferenceEngine {
         }
 
         Ok((results, stats_list))
+    }
+
+    /// 异步文本生成
+    pub async fn generate_async(
+        &self,
+        prompt: &str,
+        params: &GenerateParams,
+    ) -> Result<String, String> {
+        let engine = self.clone();
+        let prompt = prompt.to_string();
+        let params_clone = params.clone();
+
+        tokio::task::spawn_blocking(move || {
+            engine.generate(&prompt, &params_clone)
+        })
+        .await
+        .map_err(|e| format!("Inference task join error: {}", e))?
+        .map_err(|e| format!("Inference error: {}", e))
     }
 }
 

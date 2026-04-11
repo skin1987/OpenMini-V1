@@ -1392,15 +1392,12 @@ impl MemoryWarmer {
         const MAX_KEY_VERSIONS: u32 = 10;
         for counter in 1..=MAX_KEY_VERSIONS {
             let new_key = format!("{}_v{}", key, counter);
-            if !cache.contains_key(&new_key) {
-                cache.insert(
-                    new_key,
-                    CacheItem {
+            if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(new_key) {
+                e.insert(CacheItem {
                         data: Arc::new(data),
                         access_count: 0,
                         last_access: current_timestamp(),
-                    },
-                );
+                    });
                 return true;
             }
         }

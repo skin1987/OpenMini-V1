@@ -5,7 +5,6 @@ import { useUserStore } from '@/stores/user'
 import router from '@/router'
 
 const service: AxiosInstance = axios.create({
-  baseURL: '/api',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
@@ -28,53 +27,31 @@ service.interceptors.request.use(
 
 service.interceptors.response.use(
   (response: AxiosResponse) => {
-    const res = response.data
-
-    if (res.code !== 200 && res.code !== 0) {
-      ElMessage.error(res.message || '请求失败')
-
-      if (res.code === 401) {
-        const userStore = useUserStore()
-        userStore.resetState()
-        router.push('/login')
-      }
-
-      if (res.code === 403) {
-        ElMessage.error('权限不足')
-      }
-
-      return Promise.reject(new Error(res.message || '请求失败'))
-    }
-
-    return res
+    return response.data
   },
   (error) => {
-    console.error('响应错误：', error)
-
     if (error.response) {
       const status = error.response.status
+      const data = error.response.data
 
       switch (status) {
-        case 400:
-          ElMessage.error('请求参数错误')
-          break
         case 401:
-          ElMessage.error('未授权，请重新登录')
+          ElMessage.error(data?.message || '未授权，请重新登录')
           const userStore = useUserStore()
           userStore.resetState()
           router.push('/login')
           break
         case 403:
-          ElMessage.error('权限不足')
+          ElMessage.error(data?.message || '权限不足')
           break
         case 404:
-          ElMessage.error('请求地址不存在')
+          ElMessage.warning(data?.message || '请求地址不存在')
           break
         case 500:
-          ElMessage.error('服务器内部错误')
+          ElMessage.error(data?.message || '服务器内部错误')
           break
         default:
-          ElMessage.error(`请求失败(${status})`)
+          ElMessage.error(data?.message || `请求失败(${status})`)
       }
     } else {
       ElMessage.error('网络错误，请检查网络连接')
@@ -94,6 +71,10 @@ export function post<T = any>(url: string, data?: any, config?: AxiosRequestConf
 
 export function put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
   return service.put(url, data, config)
+}
+
+export function patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+  return service.patch(url, data, config)
 }
 
 export function del<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {

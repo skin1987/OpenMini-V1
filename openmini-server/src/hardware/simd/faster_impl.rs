@@ -188,8 +188,8 @@ mod x86_impl {
         _mm_storeu_ps(arr.as_mut_ptr(), max128);
         let mut max_val = arr[0].max(arr[1]).max(arr[2]).max(arr[3]);
 
-        for j in i..len {
-            max_val = max_val.max(a[j]);
+        for &val in &a[i..] {
+            max_val = max_val.max(val);
         }
 
         max_val
@@ -219,8 +219,8 @@ mod x86_impl {
         _mm_storeu_ps(arr.as_mut_ptr(), min128);
         let mut min_val = arr[0].min(arr[1]).min(arr[2]).min(arr[3]);
 
-        for j in i..len {
-            min_val = min_val.min(a[j]);
+        for &val in &a[i..] {
+            min_val = min_val.min(val);
         }
 
         min_val
@@ -389,6 +389,7 @@ mod x86_impl {
                 if remaining == 8 {
                     let mut vsum = _mm256_loadu_ps(bias.as_ptr().add(j));
 
+                    #[allow(clippy::needless_range_loop)]
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
@@ -398,12 +399,14 @@ mod x86_impl {
                     let vrelu = _mm256_max_ps(vsum, zero);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vrelu);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut sum = bias[jj];
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             sum += input_row[p] * weight[p * n + jj];
                         }
-                        output_row[jj] = if sum > 0.0 { sum } else { 0.0 };
+                        *output_val = if sum > 0.0 { sum } else { 0.0 };
                     }
                 }
             }
@@ -434,6 +437,7 @@ mod x86_impl {
                 if remaining == 8 {
                     let mut vsum = _mm256_loadu_ps(bias.as_ptr().add(j));
 
+                    #[allow(clippy::needless_range_loop)]
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
@@ -444,12 +448,14 @@ mod x86_impl {
                     let vrelu = _mm256_max_ps(vsum, zero);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vrelu);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut sum = bias[jj];
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             sum += input_row[p] * weight[p * n + jj];
                         }
-                        output_row[jj] = if sum > 0.0 { sum } else { 0.0 };
+                        *output_val = if sum > 0.0 { sum } else { 0.0 };
                     }
                 }
             }
@@ -488,8 +494,8 @@ mod x86_impl {
                     let vneg = _mm256_sub_ps(_mm256_set1_ps(0.0), vsum);
                     let mut exp_vals = [0.0f32; 8];
                     _mm256_storeu_ps(exp_vals.as_mut_ptr(), vneg);
-                    for jj in 0..8 {
-                        exp_vals[jj] = exp_vals[jj].exp();
+                    for val in exp_vals.iter_mut() {
+                        *val = val.exp();
                     }
                     let vexp = _mm256_loadu_ps(exp_vals.as_ptr());
                     let vdenom = _mm256_add_ps(vone, vexp);
@@ -497,12 +503,14 @@ mod x86_impl {
 
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vsilu);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut sum = 0.0f32;
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             sum += input_row[p] * weight[p * n + jj];
                         }
-                        output_row[jj] = sum / (1.0 + (-sum).exp());
+                        *output_val = sum / (1.0 + (-sum).exp());
                     }
                 }
             }
@@ -542,8 +550,8 @@ mod x86_impl {
                     let vneg = _mm256_sub_ps(_mm256_set1_ps(0.0), vsum);
                     let mut exp_vals = [0.0f32; 8];
                     _mm256_storeu_ps(exp_vals.as_mut_ptr(), vneg);
-                    for jj in 0..8 {
-                        exp_vals[jj] = exp_vals[jj].exp();
+                    for val in exp_vals.iter_mut() {
+                        *val = val.exp();
                     }
                     let vexp = _mm256_loadu_ps(exp_vals.as_ptr());
                     let vdenom = _mm256_add_ps(vone, vexp);
@@ -551,12 +559,14 @@ mod x86_impl {
 
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vsilu);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut sum = 0.0f32;
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             sum += input_row[p] * weight[p * n + jj];
                         }
-                        output_row[jj] = sum / (1.0 + (-sum).exp());
+                        *output_val = sum / (1.0 + (-sum).exp());
                     }
                 }
             }
@@ -587,6 +597,7 @@ mod x86_impl {
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
 
+                    #[allow(clippy::needless_range_loop)]
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
@@ -597,12 +608,14 @@ mod x86_impl {
                     let vresult = _mm256_add_ps(vsum, vresidual);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vresult);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut sum = 0.0f32;
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             sum += input_row[p] * weight[p * n + jj];
                         }
-                        output_row[jj] = sum + residual_row[jj];
+                        *output_val = sum + residual_row[jj];
                     }
                 }
             }
@@ -633,6 +646,7 @@ mod x86_impl {
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
 
+                    #[allow(clippy::needless_range_loop)]
                     for p in 0..k {
                         let vinput = _mm256_set1_ps(input_row[p]);
                         let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
@@ -644,12 +658,14 @@ mod x86_impl {
                     let vresult = _mm256_add_ps(vsum, vresidual);
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vresult);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut sum = 0.0f32;
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             sum += input_row[p] * weight[p * n + jj];
                         }
-                        output_row[jj] = sum + residual_row[jj];
+                        *output_val = sum + residual_row[jj];
                     }
                 }
             }
@@ -684,6 +700,7 @@ mod x86_impl {
                 if remaining == 8 {
                     let mut vscore = _mm256_set1_ps(0.0f32);
 
+                    #[allow(clippy::needless_range_loop)]
                     for p in 0..k {
                         let vquery = _mm256_set1_ps(query_row[p]);
                         let vkey = _mm256_loadu_ps(key.as_ptr().add(p * n + j));
@@ -693,12 +710,14 @@ mod x86_impl {
                     vscore = _mm256_mul_ps(vscore, vscale);
                     _mm256_storeu_ps(scores.as_mut_ptr().add(j), vscore);
                 } else {
-                    for jj in j..j + remaining {
+                    for (jj, score_val) in scores[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
                         let mut score = 0.0f32;
+                        #[allow(clippy::needless_range_loop)]
                         for p in 0..k {
                             score += query_row[p] * key[p * n + jj];
                         }
-                        scores[jj] = score * scale;
+                        *score_val = score * scale;
                     }
                 }
             }
@@ -716,8 +735,9 @@ mod x86_impl {
                     let vexp = avx2_exp_approx(vshifted);
                     _mm256_storeu_ps(exp_scores.as_mut_ptr().add(j), vexp);
                 } else {
-                    for jj in j..j + remaining {
-                        exp_scores[jj] = (scores[jj] - max_score).exp();
+                    for (jj, exp_val) in exp_scores[j..j + remaining].iter_mut().enumerate() {
+                        let jj = j + jj;
+                        *exp_val = (scores[jj] - max_score).exp();
                     }
                 }
             }
@@ -733,6 +753,7 @@ mod x86_impl {
                 if remaining == 8 {
                     let mut vsum = _mm256_set1_ps(0.0f32);
 
+                    #[allow(clippy::needless_range_loop)]
                     for j in 0..n {
                         let vattn = _mm256_set1_ps(attn_weights[j]);
                         let vvalue = _mm256_loadu_ps(value.as_ptr().add(j * head_dim + d));
@@ -741,12 +762,14 @@ mod x86_impl {
 
                     _mm256_storeu_ps(output_row.as_mut_ptr().add(d), vsum);
                 } else {
-                    for dd in d..d + remaining {
+                    for (dd, output_val) in output_row[d..d + remaining].iter_mut().enumerate() {
+                        let dd = d + dd;
                         let mut sum = 0.0f32;
+                        #[allow(clippy::needless_range_loop)]
                         for j in 0..n {
                             sum += attn_weights[j] * value[j * head_dim + dd];
                         }
-                        output_row[dd] = sum;
+                        *output_val = sum;
                     }
                 }
             }

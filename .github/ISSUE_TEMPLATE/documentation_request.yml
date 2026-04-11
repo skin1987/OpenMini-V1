@@ -1,89 +1,139 @@
----
 name: 📖 Documentation Request
 about: Request improvements to documentation or examples
 title: '[DOC] <what needs documentation>'
 labels: 'documentation'
 assignees: ''
----
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📖 Documentation Request
 
-## 📖 Documentation Request
+        **What part of the project needs better documentation?**
+  - type: checkboxes
+    id: doc-area
+    attributes:
+      label: Documentation Area
+      description: What part of the project needs better documentation?
+      options:
+        - label: README.md (general overview)
+          required: false
+        - label: API Reference (rustdoc)
+          required: false
+        - label: Installation Guide
+          required: false
+        - label: Configuration Options
+          required: false
+        - label: Usage Examples / Tutorials
+          required: false
+        - label: Architecture Documentation
+          required: false
+        - label: Troubleshooting Guide
+          required: false
+        - label: Migration Guides
+          required: false
+        - label: Contributing Guidelines
+          required: false
+  - type: input
+    id: other-area
+    attributes:
+      label: Other Area
+      description: If you selected "Other", please specify
+      placeholder: Specify other documentation area...
+    validations:
+      required: false
+  - type: textarea
+    id: whats-missing
+    attributes:
+      label: What's Missing or Unclear?
+      description: Describe what information you couldn't find or found confusing
+      placeholder: "I was trying to... but I couldn't figure out how to... because..."
+    validations:
+      required: true
+  - type: checkboxes
+    id: target-audience
+    attributes:
+      label: Target Audience
+      description: Who would benefit from this documentation?
+      options:
+        - label: New users getting started
+          required: false
+        - label: Developers contributing code
+          required: false
+        - label: System administrators deploying
+          required: false
+        - label: Advanced users optimizing performance
+          required: false
+        - label: Researchers understanding algorithms
+          required: false
+  - type: textarea
+    id: proposed-outline
+    attributes:
+      label: Proposed Content Outline (optional)
+      description: If you have suggestions for what should be documented
+      placeholder: |
+        ### Outline Structure
 
-**What part of the project needs better documentation?**
+        # Title
 
-- [ ] README.md (general overview)
-- [ ] API Reference (rustdoc)
-- [ ] Installation Guide
-- [ ] Configuration Options
-- [ ] Usage Examples / Tutorials
-- [ ] Architecture Documentation
-- [ ] Troubleshooting Guide
-- [ ] Migration Guides
-- [ ] Contributing Guidelines
-- [ ] Other: ___________
+        ## Section 1
+        - Point 1
+        - Point 2
 
-## ❓ What's Missing or Unclear?
+        ## Section 2
+        - ...
+    validations:
+      required: false
+  - type: textarea
+    id: code-examples
+    attributes:
+      label: Code Examples Needed (optional)
+      description: Example code that should be included in the documentation
+      placeholder: "// Paste example code here"
+      render: rust
+    validations:
+      required: false
+  - type: checkboxes
+    id: visuals-needed
+    attributes:
+      label: Diagrams/Screenshots Needed (optional)
+      options:
+        - label: Architecture diagram
+          required: false
+        - label: Flow chart
+          required: false
+        - label: Screenshot of UI
+          required: false
+        - label: CLI usage example
+          required: false
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link to relevant code, issues, or discussions
+      placeholder: |
+        - Source file: `path/to/file.rs`
+        - Related issue: #...
+        - Discussion link: ...
+    validations:
+      required: false
+  - type: checkboxes
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: When would this documentation request be considered complete?
+      options:
+        - label: New users can successfully complete task X
+          required: false
+        - label: No ambiguity in configuration option Y
+          required: false
+        - label: Examples run without modification
+          required: false
+        - label: All edge cases are documented
+          required: false
+  - type: markdown
+    attributes:
+      value: |
+        ---
 
-**Describe what information you couldn't find or found confusing:**
-
-*I was trying to... but I couldn't figure out how to... because...*
-
-## 🎯 Target Audience
-
-**Who would benefit from this documentation?**
-
-- [ ] New users getting started
-- [ ] Developers contributing code
-- [ ] System administrators deploying
-- [ ] Advanced users optimizing performance
-- [ ] Researchers understanding algorithms
-
-## 💡 Proposed Content (optional)
-
-**If you have suggestions for what should be documented:**
-
-### Outline Structure
-
-```markdown
-# Title
-
-## Section 1
-- Point 1
-- Point 2
-
-## Section 2
-- ...
-```
-
-### Code Examples Needed
-
-```rust
-// Example code that should be included
-```
-
-### Diagrams/Screenshots Needed
-
-- [ ] Architecture diagram
-- [ ] Flow chart
-- [ ] Screenshot of UI
-- [ ] CLI usage example
-
-## 🔗 References
-
-**Link to relevant code, issues, or discussions:**
-
-- Source file: `path/to/file.rs`
-- Related issue: #...
-- Discussion link: ...
-
-## ✅ Acceptance Criteria
-
-**When would this documentation request be considered complete?**
-
-- [ ] New users can successfully complete task X
-- [ ] No ambiguity in configuration option Y
-- [ ] Examples run without modification
-- [ ] All edge cases are documented
-
----
-
-**Thank you for helping improve our documentation! 📚**
+        **Thank you for helping improve our documentation! 📚**

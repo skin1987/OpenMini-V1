@@ -500,6 +500,7 @@ impl QuantizedModelLoader {
 
     /// 从加载的权重推断模型配置（当元数据不完整时使用）
     pub fn infer_config(&self) -> ModelConfig {
+        #[allow(clippy::field_reassign_with_default)]
         let mut config = ModelConfig::default();
 
         config.num_hidden_layers = self.num_layers();

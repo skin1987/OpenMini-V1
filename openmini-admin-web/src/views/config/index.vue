@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Edit, RefreshRight, Check, Close } from '@element-plus/icons-vue'
+import { RefreshRight, Check } from '@element-plus/icons-vue'
+import { getConfig, updateConfig, reloadConfig, getConfigHistory } from '@/api/config'
 
 const isEditMode = ref(false)
 const activeTab = ref('server')
 const hotReloadVisible = ref(false)
+
+const configLoading = ref(false)
+const historyLoading = ref(false)
+const saveLoading = ref(false)
+const reloadLoading = ref(false)
 
 const serverForm = reactive({
   host: '0.0.0.0',
@@ -44,31 +50,85 @@ const grpcForm = reactive({
   keepalive_timeout_ms: 10000
 })
 
-const historyList = ref([
-  { operator: 'admin', time: '2026-04-09 10:30:00', group: 'server', summary: '修改端口为8080' },
-  { operator: 'admin', time: '2026-04-08 15:20:00', group: 'memory', summary: '增加模型内存至48GB' },
-  { operator: 'operator', time: '2026-04-07 09:15:00', group: 'worker', summary: 'Worker数量调整为4' }
+const historyList = ref<Array<{ operator: string; time: string; group: string; summary: string }>>([])
+
+const memoryChartData = computed(() => [
+  { name: '模型内存', value: memoryForm.model_memory_gb },
+  { name: '缓存内存', value: memoryForm.cache_memory_gb },
+  { name: '系统预留', value: Math.max(0, memoryForm.max_memory_gb - memoryForm.model_memory_gb - memoryForm.cache_memory_gb) }
 ])
 
-const memoryChartData = [
-  { name: '模型内存', value: 48 },
-  { name: '缓存内存', value: 8 },
-  { name: '系统预留', value: 8 }
-]
+async function loadConfig() {
+  configLoading.value = true
+  try {
+    const res = await getConfig()
+    if (res.data?.server) Object.assign(serverForm, res.data.server)
+    if (res.data?.thread_pool) Object.assign(threadPoolForm, res.data.thread_pool)
+    if (res.data?.memory) Object.assign(memoryForm, res.data.memory)
+    if (res.data?.model) Object.assign(modelForm, res.data.model)
+    if (res.data?.worker) Object.assign(workerForm, res.data.worker)
+    if (res.data?.grpc) Object.assign(grpcForm, res.data.grpc)
+  } catch (err: any) {
+    ElMessage.error(err.message || '加载配置失败')
+  } finally {
+    configLoading.value = false
+  }
+}
 
-function handleSave() {
-  ElMessage.success('配置保存成功')
-  isEditMode.value = false
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    const res = await getConfigHistory({ page: 1, page_size: 20 })
+    historyList.value = res.data?.records || res.data?.list || []
+  } catch (err: any) {
+    ElMessage.error(err.message || '加载历史记录失败')
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function handleSave() {
+  saveLoading.value = true
+  try {
+    await updateConfig({
+      server: { ...serverForm },
+      thread_pool: { ...threadPoolForm },
+      memory: { ...memoryForm },
+      model: { ...modelForm },
+      worker: { ...workerForm },
+      grpc: { ...grpcForm }
+    })
+    ElMessage.success('配置保存成功')
+    isEditMode.value = false
+  } catch (err: any) {
+    ElMessage.error(err.message || '保存失败')
+  } finally {
+    saveLoading.value = false
+  }
 }
 
 function handleCancel() {
   isEditMode.value = false
+  loadConfig()
 }
 
-function handleHotReload() {
-  hotReloadVisible.value = false
-  ElMessage.success('配置热重载成功')
+async function handleHotReload() {
+  reloadLoading.value = true
+  try {
+    await reloadConfig()
+    ElMessage.success('配置热重载成功')
+  } catch (err: any) {
+    ElMessage.error(err.message || '热重载失败')
+  } finally {
+    reloadLoading.value = false
+    hotReloadVisible.value = false
+  }
 }
+
+onMounted(() => {
+  loadConfig()
+  loadHistory()
+})
 </script>
 
 <template>
@@ -86,14 +146,13 @@ function handleHotReload() {
           @confirm="handleHotReload"
         >
           <template #reference>
-            <el-button type="warning" :icon="RefreshRight">热重载</el-button>
+            <el-button type="warning" :icon="RefreshRight" :loading="reloadLoading">热重载</el-button>
           </template>
         </el-popconfirm>
       </template>
     </PageHeader>
 
-    <!-- 配置表单 -->
-    <el-card shadow="hover">
+    <el-card shadow="hover" v-loading="configLoading">
       <el-tabs v-model="activeTab" tab-position="left" style="min-height: 400px">
         <el-tab-pane label="Server" name="server">
           <el-form :disabled="!isEditMode" label-width="160px">
@@ -200,12 +259,11 @@ function handleHotReload() {
 
       <div v-if="isEditMode" class="form-actions">
         <el-button @click="handleCancel">取消</el-button>
-        <el-button type="primary" :icon="Check" @click="handleSave">保存配置</el-button>
+        <el-button type="primary" :icon="Check" :loading="saveLoading" @click="handleSave">保存配置</el-button>
       </div>
     </el-card>
 
-    <!-- 配置变更历史 -->
-    <el-card shadow="hover" class="history-card">
+    <el-card shadow="hover" class="history-card" v-loading="historyLoading">
       <template #header><span>配置变更历史</span></template>
       <el-table :data="historyList" stripe size="small">
         <el-table-column prop="operator" label="操作人" width="120" />

@@ -53,15 +53,13 @@ impl AttnResConfig {
             2
         } else if num_layers <= 16 {
             4
-        } else if num_layers <= 32 {
-            8
         } else if num_layers <= 64 {
             8
         } else {
             16
         };
 
-        let block_size = (num_layers + num_blocks - 1) / num_blocks;
+        let block_size = num_layers.div_ceil(num_blocks);
 
         Self {
             enabled: true,

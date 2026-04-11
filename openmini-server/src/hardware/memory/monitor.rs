@@ -202,8 +202,8 @@ impl MemoryMonitor {
 
     pub fn check_pressure(&self) -> MemoryPressure {
         let percent = self.usage_percent();
-        let critical = *self.critical_threshold.read().unwrap();
-        let warning = *self.warning_threshold.read().unwrap();
+        let critical = self.critical_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_CRITICAL_THRESHOLD);
+        let warning = self.warning_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_WARNING_THRESHOLD);
 
         if percent >= critical {
             MemoryPressure::Critical
@@ -220,18 +220,20 @@ impl MemoryMonitor {
     }
 
     pub fn register_callback(&self, callback: AllocationCallback) {
-        let mut callbacks = self.callbacks.write().unwrap();
-        callbacks.push(callback);
+        if let Ok(mut callbacks) = self.callbacks.write() {
+            callbacks.push(callback);
+        }
     }
 
     fn trigger_callbacks(&self, old_usage: usize, new_usage: usize) {
         let current_percent = self.usage_percent();
-        let warning = *self.warning_threshold.read().unwrap();
+        let warning = self.warning_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_WARNING_THRESHOLD);
 
         if current_percent >= warning {
-            let callbacks = self.callbacks.read().unwrap();
-            for callback in callbacks.iter() {
-                callback(old_usage, new_usage);
+            if let Ok(callbacks) = self.callbacks.read() {
+                for callback in callbacks.iter() {
+                    callback(old_usage, new_usage);
+                }
             }
         }
     }
@@ -241,15 +243,19 @@ impl MemoryMonitor {
             return;
         }
         let percent = (usage as f64 / self.max_memory as f64) * 100.0;
-        let mut history = self.history.write().unwrap();
-        if history.len() >= HISTORY_SIZE {
-            history.pop_front();
+        if let Ok(mut history) = self.history.write() {
+            if history.len() >= HISTORY_SIZE {
+                history.pop_front();
+            }
+            history.push_back(percent);
         }
-        history.push_back(percent);
     }
 
     pub fn auto_adjust_thresholds(&self) {
-        let history = self.history.read().unwrap();
+        let history = match self.history.read() {
+            Ok(h) => h,
+            Err(_) => return,
+        };
         if history.len() < HISTORY_SIZE / 2 {
             return;
         }
@@ -257,20 +263,19 @@ impl MemoryMonitor {
         let avg_percent: f64 = history.iter().sum::<f64>() / history.len() as f64;
         let max_percent = history.iter().cloned().fold(0.0_f64, f64::max);
 
-        let mut warning = self.warning_threshold.write().unwrap();
-        let mut critical = self.critical_threshold.write().unwrap();
-
-        if avg_percent > 60.0 {
-            *warning = (avg_percent + 10.0).min(85.0);
-            *critical = (max_percent + 5.0).min(95.0);
-        } else if avg_percent < 40.0 && *warning > 60.0 {
-            *warning = 70.0;
-            *critical = 90.0;
+        if let (Ok(mut warning), Ok(mut critical)) = (self.warning_threshold.write(), self.critical_threshold.write()) {
+            if avg_percent > 60.0 {
+                *warning = (avg_percent + 10.0).min(85.0);
+                *critical = (max_percent + 5.0).min(95.0);
+            } else if avg_percent < 40.0 && *warning > 60.0 {
+                *warning = 70.0;
+                *critical = 90.0;
+            }
         }
     }
 
     pub fn warning_threshold(&self) -> f64 {
-        *self.warning_threshold.read().unwrap()
+        self.warning_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_WARNING_THRESHOLD)
     }
 
     pub fn critical_threshold(&self) -> f64 {

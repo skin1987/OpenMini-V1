@@ -15,6 +15,3 @@ pub mod cuda;
 
 #[cfg(feature = "metal")]
 pub mod metal;
-
-pub use executor::*;
-pub use ops::*;

@@ -334,7 +334,7 @@ function formatTime(time?: string) {
         style="width: 100%"
       >
         <el-table-column label="头像" width="80" align="center">
-          <template #default="{ row }">
+          <template #default>
             <el-avatar :size="36" :icon="UserFilled" />
           </template>
         </el-table-column>

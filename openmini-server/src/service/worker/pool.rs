@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::error::{AppError, WorkerError};
+
 use super::worker::{
     Task, TaskResult, WORKER_CMD_HEARTBEAT, WORKER_CMD_SHUTDOWN, WORKER_CMD_TASK,
     WORKER_STATE_BUSY, WORKER_STATE_DEAD, WORKER_STATE_IDLE,
@@ -98,17 +100,17 @@ impl WorkerHandle {
     /// 创建新的 Worker 进程
     ///
     /// 通过 fork 当前可执行文件创建 Worker 进程。
-    fn new(id: usize) -> Result<Self, WorkerPoolError> {
+    fn new(id: usize) -> Result<Self, AppError> {
         let state = Arc::new(AtomicU8::new(WORKER_STATE_IDLE));
         let last_heartbeat = Arc::new(AtomicU64::new(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .map_err(|e| AppError::Worker(WorkerError::CommunicationError(format!("Time error: {}", e))))?
                 .as_secs(),
         ));
 
         let current_exe = std::env::current_exe()
-            .map_err(|e| WorkerPoolError::SpawnError(format!("Cannot get current exe: {}", e)))?;
+            .map_err(|e| AppError::Worker(WorkerError::SpawnFailed(format!("Cannot get current exe: {}", e))))?;
 
         let mut child = Command::new(&current_exe)
             .env("MINICPM_WORKER_ID", id.to_string())
@@ -116,11 +118,11 @@ impl WorkerHandle {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|e| WorkerPoolError::SpawnError(format!("Failed to spawn worker: {}", e)))?;
+            .map_err(|e| AppError::Worker(WorkerError::SpawnFailed(format!("Failed to spawn worker: {}", e))))?;
 
         let pid = child.id();
-        let stdin = child.stdin.take();
-        let stdout = child.stdout.take();
+        let stdin = child.stdin.take().ok_or(AppError::Worker(WorkerError::CommunicationError("stdin not available".into())))?;
+        let stdout = child.stdout.take().ok_or(AppError::Worker(WorkerError::CommunicationError("stdout not available".into())))?;
 
         Ok(Self {
             id,
@@ -128,8 +130,8 @@ impl WorkerHandle {
             state,
             last_heartbeat,
             child: Arc::new(Mutex::new(Some(child))),
-            stdin: Mutex::new(stdin),
-            stdout: Mutex::new(stdout),
+            stdin: Mutex::new(Some(stdin)),
+            stdout: Mutex::new(Some(stdout)),
         })
     }
 
@@ -139,9 +141,9 @@ impl WorkerHandle {
             && self
                 .child
                 .lock()
-                .unwrap()
-                .as_mut()
-                .is_some_and(|c| c.try_wait().ok().flatten().is_none())
+                .map_err(|_| AppError::Worker(WorkerError::LockPoisoned))
+                .ok().map(|mut guard| guard.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none()))
+                .unwrap_or(false)
     }
 
     /// 检查 Worker 是否空闲
@@ -156,53 +158,49 @@ impl WorkerHandle {
     ///
     /// # 返回
     /// 成功返回任务结果，失败返回错误
-    pub fn send_task(&self, task: &Task) -> Result<TaskResult, WorkerPoolError> {
-        let mut stdin_guard = self.stdin.lock().unwrap();
+    pub fn send_task(&self, task: &Task) -> Result<TaskResult, AppError> {
+        let mut stdin_guard = self.stdin.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
         let stdin = stdin_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError(
-                "stdin not available".into(),
-            ))?;
+            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdin not available".into())))?;
 
         let task_data = task.serialize();
 
         stdin.write_all(&[WORKER_CMD_TASK]).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to send command: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to send command: {}", e)))
         })?;
         stdin
             .write_all(&(task_data.len() as u32).to_le_bytes())
             .map_err(|e| {
-                WorkerPoolError::CommunicationError(format!("Failed to send length: {}", e))
+                AppError::Worker(WorkerError::CommunicationError(format!("Failed to send length: {}", e)))
             })?;
         stdin.write_all(&task_data).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to send task: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to send task: {}", e)))
         })?;
         stdin
             .flush()
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to flush: {}", e)))?;
+            .map_err(|e| AppError::Worker(WorkerError::CommunicationError(format!("Failed to flush: {}", e))))?;
 
         drop(stdin_guard);
 
-        let mut stdout_guard = self.stdout.lock().unwrap();
+        let mut stdout_guard = self.stdout.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
         let stdout = stdout_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError(
-                "stdout not available".into(),
-            ))?;
+            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdout not available".into())))?;
 
         let mut len_buf = [0u8; 4];
         stdout.read_exact(&mut len_buf).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to read result length: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to read result length: {}", e)))
         })?;
         let len = u32::from_le_bytes(len_buf) as usize;
 
         let mut result_data = vec![0u8; len];
         stdout.read_exact(&mut result_data).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to read result: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to read result: {}", e)))
         })?;
 
         TaskResult::deserialize(&result_data).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to deserialize result: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to deserialize result: {}", e)))
         })
     }
 
@@ -210,33 +208,29 @@ impl WorkerHandle {
     ///
     /// # 返回
     /// 成功返回 Worker 当前状态
-    pub fn send_heartbeat(&self) -> Result<u8, WorkerPoolError> {
-        let mut stdin_guard = self.stdin.lock().unwrap();
+    pub fn send_heartbeat(&self) -> Result<u8, AppError> {
+        let mut stdin_guard = self.stdin.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
         let stdin = stdin_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError(
-                "stdin not available".into(),
-            ))?;
+            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdin not available".into())))?;
 
         stdin.write_all(&[WORKER_CMD_HEARTBEAT]).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to send heartbeat: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to send heartbeat: {}", e)))
         })?;
         stdin
             .flush()
-            .map_err(|e| WorkerPoolError::CommunicationError(format!("Failed to flush: {}", e)))?;
+            .map_err(|e| AppError::Worker(WorkerError::CommunicationError(format!("Failed to flush: {}", e))))?;
 
         drop(stdin_guard);
 
-        let mut stdout_guard = self.stdout.lock().unwrap();
+        let mut stdout_guard = self.stdout.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
         let stdout = stdout_guard
             .as_mut()
-            .ok_or(WorkerPoolError::CommunicationError(
-                "stdout not available".into(),
-            ))?;
+            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdout not available".into())))?;
 
         let mut resp = [0u8; 1];
         stdout.read_exact(&mut resp).map_err(|e| {
-            WorkerPoolError::CommunicationError(format!("Failed to read heartbeat response: {}", e))
+            AppError::Worker(WorkerError::CommunicationError(format!("Failed to read heartbeat response: {}", e)))
         })?;
 
         Ok(resp[0])
@@ -244,13 +238,17 @@ impl WorkerHandle {
 
     /// 优雅关闭 Worker
     pub fn shutdown(&self) {
-        if let Some(stdin) = self.stdin.lock().unwrap().as_mut() {
-            let _ = stdin.write_all(&[WORKER_CMD_SHUTDOWN]);
-            let _ = stdin.flush();
+        if let Ok(mut guard) = self.stdin.lock() {
+            if let Some(stdin) = guard.as_mut() {
+                let _ = stdin.write_all(&[WORKER_CMD_SHUTDOWN]);
+                let _ = stdin.flush();
+            }
         }
 
-        if let Some(ref mut child) = self.child.lock().unwrap().as_mut() {
-            let _ = child.wait();
+        if let Ok(mut guard) = self.child.lock() {
+            if let Some(ref mut child) = guard.as_mut() {
+                let _ = child.wait();
+            }
         }
 
         self.state.store(WORKER_STATE_DEAD, Ordering::SeqCst);
@@ -258,9 +256,11 @@ impl WorkerHandle {
 
     /// 强制终止 Worker
     pub fn kill(&self) {
-        if let Some(ref mut child) = self.child.lock().unwrap().as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Ok(mut guard) = self.child.lock() {
+            if let Some(ref mut child) = guard.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
         self.state.store(WORKER_STATE_DEAD, Ordering::SeqCst);
     }
@@ -312,7 +312,7 @@ pub struct WorkerPool {
 
 impl WorkerPool {
     /// 创建新的 Worker 池
-    pub fn new(config: WorkerConfig) -> Result<Self, WorkerPoolError> {
+    pub fn new(config: WorkerConfig) -> Result<Self, AppError> {
         let mut workers = Vec::with_capacity(config.count);
 
         for id in 0..config.count {
@@ -330,7 +330,7 @@ impl WorkerPool {
     /// 分发任务到空闲 Worker
     ///
     /// 使用轮询策略选择空闲 Worker。
-    pub fn dispatch(&self, task: Task) -> Result<TaskResult, WorkerPoolError> {
+    pub fn dispatch(&self, task: Task) -> Result<TaskResult, AppError> {
         let start_idx = self.next_worker.fetch_add(1, Ordering::SeqCst);
 
         for i in 0..self.workers.len() {
@@ -354,21 +354,20 @@ impl WorkerPool {
             }
         }
 
-        Err(WorkerPoolError::NoAvailableWorker)
+        Err(AppError::Internal("No available worker".to_string()))
     }
 
     /// 阻塞式任务分发
     ///
     /// 持续尝试分发任务直到成功或遇到错误。
-    pub fn dispatch_blocking(&self, task: Task) -> Result<TaskResult, WorkerPoolError> {
+    pub fn dispatch_blocking(&self, task: Task) -> Result<TaskResult, AppError> {
         loop {
             match self.dispatch(task.clone()) {
                 Ok(result) => return Ok(result),
-                Err(WorkerPoolError::NoAvailableWorker) => {
+                Err(_) => {
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
                 }
-                Err(e) => return Err(e),
             }
         }
     }
@@ -379,8 +378,8 @@ impl WorkerPool {
     pub fn health_check(&mut self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
         let mut workers_to_restart: Vec<usize> = Vec::new();
 
@@ -417,18 +416,19 @@ impl WorkerPool {
     }
 
     /// 重启指定 Worker
-    pub fn restart_worker(&mut self, id: usize) -> Result<(), WorkerPoolError> {
+    pub fn restart_worker(&mut self, id: usize) -> Result<(), AppError> {
         let worker = self
             .workers
             .iter()
             .find(|w| w.id == id)
-            .ok_or(WorkerPoolError::WorkerDead(id))?;
+            .ok_or(AppError::Worker(WorkerError::CommunicationError(format!("Worker {} not found", id))))?;
 
         worker.kill();
 
         let new_handle = WorkerHandle::new(id)?;
-        let old_worker = self.workers.iter_mut().find(|w| w.id == id).unwrap();
-        *old_worker = new_handle;
+        if let Some(old_worker) = self.workers.iter_mut().find(|w| w.id == id) {
+            *old_worker = new_handle;
+        }
 
         Ok(())
     }
@@ -507,7 +507,7 @@ impl WorkerPoolBuilder {
     }
 
     /// 构建 Worker 池
-    pub fn build(self) -> Result<WorkerPool, WorkerPoolError> {
+    pub fn build(self) -> Result<WorkerPool, AppError> {
         WorkerPool::new(self.config)
     }
 }

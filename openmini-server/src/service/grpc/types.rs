@@ -1,23 +1,28 @@
 //! gRPC 类型定义
 //!
 //! 定义 gRPC 服务中使用的消息类型
+//! 使用 ts-rs 自动生成 TypeScript 类型定义，确保前后端类型一致性。
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct UsageInfo {
     pub prompt_tokens: i32,
     pub completion_tokens: i32,
     pub total_tokens: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Message {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatRequest {
     pub session_id: String,
     pub messages: Vec<Message>,
@@ -26,7 +31,8 @@ pub struct ChatRequest {
     pub temperature: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ChatResponse {
     pub session_id: String,
     pub token: String,
@@ -34,7 +40,8 @@ pub struct ChatResponse {
     pub usage: Option<UsageInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ImageRequest {
     pub session_id: String,
     pub image_data: Vec<u8>,
@@ -42,23 +49,27 @@ pub struct ImageRequest {
     pub stream: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ImageResponse {
     pub session_id: String,
     pub token: String,
     pub finished: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct HealthRequest {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct HealthResponse {
     pub healthy: bool,
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct OmniChatRequest {
     pub session_id: String,
     pub input: Option<OmniInput>,
@@ -67,7 +78,8 @@ pub struct OmniChatRequest {
     pub temperature: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(untagged)]
 pub enum OmniInput {
     Text(String),
@@ -76,7 +88,8 @@ pub enum OmniInput {
     ImageData(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct OmniChatResponse {
     pub session_id: String,
     pub output: Option<OmniOutput>,
@@ -84,14 +97,16 @@ pub struct OmniChatResponse {
     pub usage: Option<UsageInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[serde(untagged)]
 pub enum OmniOutput {
     Text(String),
     AudioData(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SpeechToTextRequest {
     pub session_id: String,
     pub audio_data: Vec<u8>,
@@ -99,7 +114,8 @@ pub struct SpeechToTextRequest {
     pub stream: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct SpeechToTextResponse {
     pub session_id: String,
     pub text: String,
@@ -107,7 +123,8 @@ pub struct SpeechToTextResponse {
     pub confidence: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TextToSpeechRequest {
     pub session_id: String,
     pub text: String,
@@ -117,7 +134,8 @@ pub struct TextToSpeechRequest {
     pub pitch: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct TextToSpeechResponse {
     pub session_id: String,
     pub audio_data: Vec<u8>,

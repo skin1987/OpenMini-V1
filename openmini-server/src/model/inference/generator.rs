@@ -307,7 +307,7 @@ impl StreamGenerator {
                     .map_err(|e| InferenceError::generation(e.to_string()))?;
                 stats.tokens_generated += 1;
                 token_index += 1;
-                next_output_time = next_output_time + target_interval;
+                next_output_time += target_interval;
 
                 Ok(should_continue)
             })
@@ -384,7 +384,7 @@ impl StreamGenerator {
                 let mut earliest_pos: Option<usize> = None;
                 for stop in &stop_strings {
                     if let Some(pos) = text.find(stop) {
-                        if earliest_pos.map_or(true, |p| pos < p) {
+                        if earliest_pos.is_none_or(|p| pos < p) {
                             earliest_pos = Some(pos);
                         }
                     }

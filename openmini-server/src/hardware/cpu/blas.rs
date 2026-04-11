@@ -264,6 +264,7 @@ impl BlasBackend {
                 .into_par_iter()
                 .map(|i| {
                     let mut sum = 0.0f32;
+                    #[allow(clippy::needless_range_loop)]
                     for j in 0..n {
                         sum += a_rows[i][j] * x[j];
                     }
@@ -275,12 +276,13 @@ impl BlasBackend {
                 y[i] += val;
             }
         } else {
-            for i in 0..m {
+            for (i, y_val) in y.iter_mut().enumerate().take(m) {
                 let mut sum = 0.0f32;
+                #[allow(clippy::needless_range_loop)]
                 for j in 0..n {
                     sum += a[[i, j]] * x[j];
                 }
-                y[i] += alpha * sum;
+                *y_val += alpha * sum;
             }
         }
     }

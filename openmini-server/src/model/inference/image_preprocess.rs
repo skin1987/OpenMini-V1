@@ -38,6 +38,7 @@ impl Default for ImagePreprocessorConfig {
 }
 
 /// 图像预处理器
+#[derive(Clone)]
 pub struct ImagePreprocessor {
     config: ImagePreprocessorConfig,
 }

@@ -45,7 +45,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-test-
 
@@ -113,7 +113,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-release-${{ matrix.target }}-
 
@@ -215,7 +215,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo
-          key: cargo-publish-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-publish-${{ hashFiles('Cargo.lock') }}
 
       - name: 📦 Login to crates.io
         run: cargo login ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -237,6 +237,8 @@ jobs:
     needs: [build, docker]
     runs-on: ubuntu-latest
     if: success()
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     
     steps:
       - name: 📥 Checkout repository
@@ -290,10 +292,10 @@ jobs:
             
             | Platform | Architecture | Download |
             |----------|-------------|----------|
-            | Linux | x86_64 | [Download](${{ steps.release.outputs.linux_x86_url }}) |
-            | Linux | ARM64 | [Download](${{ steps.release.outputs.linux_arm_url }}) |
-            | macOS | Intel | [Download](${{ steps.release.outputs.macos_x86_url }}) |
-            | macOS | Apple Silicon | [Download](${{ steps.release.outputs.macos_arm_url }}) |
+            | Linux | x86_64 | [Download](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/openmini-v${{ github.ref_name }}-linux-x86_64.tar.gz) |
+            | Linux | ARM64 | [Download](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/openmini-v${{ github.ref_name }}-linux-aarch64.tar.gz) |
+            | macOS | Intel | [Download](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/openmini-v${{ github.ref_name }}-macos-x86_64.tar.gz) |
+            | macOS | Apple Silicon | [Download](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/openmini-v${{ github.ref_name }}-macos-aarch64.tar.gz) |
             
             ### 🐳 Docker
             
@@ -321,8 +323,6 @@ jobs:
 
       - name: 📢 Post to Slack (if configured)
         if: env.SLACK_WEBHOOK_URL != ''
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"🚀 *OpenMini-V1 ${{ github.ref_name }} Released!*\n\nSee: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}\"}" \
@@ -345,11 +345,31 @@ jobs:
           echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| Version | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | ${{ needs.result == 'success' && '✅ Success' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Test Suite | ${{ needs.test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build Artifacts | ${{ needs.build.result == 'success' && '✅ Created' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker Images | ${{ needs.docker.result == 'success' && '✅ Pushed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| GitHub Release | ${{ needs.release.result == 'success' && '✅ Created' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.release.result }}" = "success" ]; then
+            echo "| Status | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Status | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ needs.test.result }}" = "success" ]; then
+            echo "| Test Suite | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Test Suite | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ needs.build.result }}" = "success" ]; then
+            echo "| Build Artifacts | ✅ Created |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Build Artifacts | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ needs.docker.result }}" = "success" ]; then
+            echo "| Docker Images | ✅ Pushed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Docker Images | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ needs.release.result }}" = "success" ]; then
+            echo "| GitHub Release | ✅ Created |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| GitHub Release | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
           echo "- [ ] Review release assets" >> $GITHUB_STEP_SUMMARY
@@ -360,7 +380,7 @@ jobs:
       - name: 🎯 Set release status
         if: needs.release.result == 'success'
         run: echo "🎉 Release ${{ github.ref_name }} completed successfully!"
-      
+
       - name: ❌ Report failure
         if: needs.release.result != 'success'
         run: |

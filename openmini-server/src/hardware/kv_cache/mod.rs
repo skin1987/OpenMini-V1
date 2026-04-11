@@ -47,6 +47,7 @@ pub mod continuous_batch;
 pub mod mla;
 pub mod page_table;
 pub mod paged_cache;
+pub mod persistence;
 pub mod prefix_cache;
 pub mod streaming;
 

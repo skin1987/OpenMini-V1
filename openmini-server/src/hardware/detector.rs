@@ -112,15 +112,7 @@ impl SimdCapabilities {
     pub fn best_width(&self) -> usize {
         if self.avx512 {
             512
-        } else if self.avx2 {
-            256
-        } else if self.avx {
-            256
-        } else if self.sve || self.sve2 {
-            256
-        }
-        // SVE 可变，默认 256
-        else if self.lasx {
+        } else if self.avx2 || self.avx || self.sve || self.sve2 || self.lasx {
             256
         } else if self.neon || self.sse42 || self.lsx {
             128
@@ -1373,6 +1365,7 @@ impl GpuInfo {
     }
 
     #[cfg(target_os = "macos")]
+    #[allow(clippy::field_reassign_with_default)]
     fn detect_macos_gpu() -> Self {
         use std::process::Command;
 

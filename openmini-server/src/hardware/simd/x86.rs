@@ -2,6 +2,8 @@
 //!
 //! 支持 SSE4.2, AVX2, AVX-512
 
+#![allow(clippy::needless_range_loop)] // SIMD 实现：使用索引循环以优化向量化操作
+
 use super::SimdOps;
 
 // ============================================================================
@@ -1917,7 +1919,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     fn test_avx2_add() {
         if is_x86_feature_detected!("avx2") {
             let ops = Avx2Ops;
@@ -1930,7 +1932,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     fn test_avx2_max() {
         if is_x86_feature_detected!("avx2") {
             let ops = Avx2Ops;
@@ -1942,7 +1944,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     fn test_avx2_min() {
         if is_x86_feature_detected!("avx2") {
             let ops = Avx2Ops;
@@ -1954,7 +1956,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     fn test_avx2_fused_gemm_relu() {
         if is_x86_feature_detected!("avx2") {
             let ops = Avx2Ops;
@@ -2090,7 +2092,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     fn test_avx2_cross_lane_shuffle() {
         // 覆盖分支: AVX2 跨通道重排（如果支持）
         if is_x86_feature_detected!("avx2") {

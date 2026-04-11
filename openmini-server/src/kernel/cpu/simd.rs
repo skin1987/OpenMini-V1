@@ -2,6 +2,8 @@
 //!
 //! 支持AVX2/AVX512/NEON指令集
 
+#![allow(clippy::needless_range_loop)] // CPU SIMD 内核：使用索引循环以优化性能
+
 use std::arch::x86_64::*;
 
 #[cfg(target_arch = "x86_64")]
@@ -20,6 +22,10 @@ pub fn is_neon_supported() -> bool {
 }
 
 /// AVX2优化的向量加法
+///
+/// # Safety
+/// - 调用者必须确保 CPU 支持 AVX2 指令集（使用 `is_avx2_supported()` 检查）
+/// - `a`, `b`, `c` 必须长度相同，且长度是 8 的倍数或能正确处理剩余元素
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn add_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
@@ -41,6 +47,10 @@ pub unsafe fn add_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
 }
 
 /// AVX2优化的向量乘法
+///
+/// # Safety
+/// - 调用者必须确保 CPU 支持 AVX2 指令集（使用 `is_avx2_supported()` 检查）
+/// - `a`, `b`, `c` 必须长度相同，且长度是 8 的倍数或能正确处理剩余元素
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn mul_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
@@ -62,6 +72,10 @@ pub unsafe fn mul_avx2(a: &[f32], b: &[f32], c: &mut [f32]) {
 }
 
 /// AVX2优化的Softmax
+///
+/// # Safety
+/// - 调用者必须确保 CPU 支持 AVX2 指令集（使用 `is_avx2_supported()` 检查）
+/// - `x` 和 `out` 必须长度相同
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn softmax_avx2(x: &[f32], out: &mut [f32]) {

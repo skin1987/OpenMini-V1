@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import { Search, Filter, View, WarningFilled } from '@element-plus/icons-vue'
+import { Search, Filter, View } from '@element-plus/icons-vue'
 
 const loading = ref(false)
 const showAdvancedFilter = ref(false)

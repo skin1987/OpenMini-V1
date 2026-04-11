@@ -5,6 +5,7 @@
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum EvictionPolicy {
     LRU,      // Least Recently Used
     LFU,      // Least Frequently Used

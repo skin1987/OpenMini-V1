@@ -4,7 +4,7 @@
 
 use axum::{
     body::Body,
-    http::{Method, Request},
+    http::{Method, Request, StatusCode},
     middleware::Next,
     response::Response,
     Router,
@@ -121,7 +121,7 @@ pub fn request_body_limit_layer(max_size: usize) -> RequestBodyLimitLayer {
 ///
 /// 设置请求处理的最大时间限制。
 pub fn timeout_layer(duration: Duration) -> TimeoutLayer {
-    TimeoutLayer::new(duration)
+    TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, duration)
 }
 
 /// 创建完整的中间件栈

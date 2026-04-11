@@ -66,11 +66,8 @@ impl MLAConfig {
     }
 
     pub fn q_latent_dim(&self) -> usize {
-        if self.use_decoupled_rope {
-            self.num_attention_heads * self.head_dim
-        } else {
-            self.num_attention_heads * self.head_dim
-        }
+        // use_decoupled_rope 不影响 q_latent_dim 的计算方式
+        self.num_attention_heads * self.head_dim
     }
 
     pub fn kv_latent_dim(&self) -> usize {

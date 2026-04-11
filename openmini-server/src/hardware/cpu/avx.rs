@@ -726,8 +726,8 @@ impl AvxBackend {
                     max = max.max(val);
                 }
 
-                for i in (chunks * 8)..x.len() {
-                    max = max.max(x[i]);
+                for &val in &x[chunks * 8..] {
+                    max = max.max(val);
                 }
 
                 return max;
@@ -741,9 +741,9 @@ impl AvxBackend {
     #[inline]
     #[allow(clippy::approx_constant)]
     unsafe fn exp_ps256(x: __m256, has_fma: bool) -> __m256 {
-        let log2e = _mm256_set1_ps(1.4426950408889634);
-        let negln2hi = _mm256_set1_ps(-0.693359375);
-        let negln2lo = _mm256_set1_ps(2.12194440e-4);
+        let log2e = _mm256_set1_ps(1.442_695);
+        let negln2hi = _mm256_set1_ps(-0.693_359_4);
+        let negln2lo = _mm256_set1_ps(2.121_944_4e-4);
         let half = _mm256_set1_ps(0.5);
 
         let fx = _mm256_mul_ps(x, log2e);

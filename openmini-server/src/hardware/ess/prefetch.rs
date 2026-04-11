@@ -220,7 +220,7 @@ impl Prefetcher {
 
     pub fn with_config(config: PrefetchConfig) -> Self {
         Self {
-            locality_analyzer: LocalityAnalyzer::with_config(config.clone()),
+            locality_analyzer: LocalityAnalyzer::with_config(config),
             enabled: true,
             prefetch_queue: Vec::with_capacity(config.max_prefetch),
             config,

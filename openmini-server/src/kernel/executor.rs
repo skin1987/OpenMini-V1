@@ -146,7 +146,7 @@ pub fn auto_select_backend() -> KernelBackend {
     #[cfg(feature = "metal")]
     {
         // 检查Metal是否可用
-        return KernelBackend::Metal;
+        KernelBackend::Metal
     }
 
     #[cfg(not(any(feature = "cuda", feature = "metal")))]

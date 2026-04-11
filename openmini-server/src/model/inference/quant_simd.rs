@@ -8,6 +8,8 @@
 
 #![allow(dead_code)]
 #![allow(unused_unsafe)]
+#![allow(unused_variables)] // 某些量化变量在特定 cfg 条件下未使用
+#![allow(clippy::needless_range_loop)] // SIMD 优化的量化代码：使用索引循环以优化 SIMD 向量化
 
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::{vaddq_f32, vdupq_n_f32, vld1q_f32, vmulq_f32, vst1q_f32};
@@ -22,6 +24,241 @@ use rayon::prelude::*;
 const QK4_0: usize = 32;
 const QK4_1: usize = 32;
 const QK8_0: usize = 32;
+
+// ============================================================================
+// 第一部分：CPU Feature 检测与安全包装（SIGSEGV 修复）
+// ============================================================================
+
+/// SIMD 支持状态描述
+#[derive(Debug, Clone, Copy)]
+pub struct SimdSupport {
+    pub avx512: bool,
+    pub avx2: bool,
+    pub sse42: bool,
+    pub neon: bool,
+}
+
+impl std::fmt::Display for SimdSupport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AVX512={}, AVX2={}, SSE4.2={}, NEON={}",
+            self.avx512, self.avx2, self.sse42, self.neon)
+    }
+}
+
+/// 量化错误类型
+#[derive(Debug, thiserror::Error)]
+pub enum QuantError {
+    #[error("数据不足: 期望 {expected} 字节，实际 {actual} 字节")]
+    InsufficientData { expected: usize, actual: usize },
+
+    #[error("不支持的张量类型: {:?}", .0)]
+    UnsupportedType(GgufTensorType),
+
+    #[error("SIMD 不支持: {}", .0)]
+    SimdNotSupported(String),
+
+    #[error("输入验证失败: {0}")]
+    InvalidInput(String),
+}
+
+/// 检测 x86_64 平台的 SIMD 支持情况
+#[cfg(target_arch = "x86_64")]
+pub fn detect_simd_support() -> SimdSupport {
+    SimdSupport {
+        #[cfg(feature = "nightly_avx512")]
+        avx512: is_x86_feature_detected!("avx512f"),
+        #[cfg(not(feature = "nightly_avx512"))]
+        avx512: false,
+        avx2: is_x86_feature_detected!("avx2"),
+        sse42: is_x86_feature_detected!("sse4.2"),
+        neon: false,
+    }
+}
+
+/// 检测 ARM 平台的 NEON 支持
+#[cfg(target_arch = "aarch64")]
+pub fn detect_simd_support() -> SimdSupport {
+    SimdSupport {
+        avx512: false,
+        avx2: false,
+        sse42: false,
+        neon: is_aarch64_feature_detected!("neon"),
+    }
+}
+
+/// 其他平台默认无 SIMD 支持
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+pub fn detect_simd_support() -> SimdSupport {
+    SimdSupport {
+        avx512: false,
+        avx2: false,
+        sse42: false,
+        neon: false,
+    }
+}
+
+/// 安全的 Q4_0 反量化入口（带完整输入验证）
+///
+/// # Arguments
+/// * `data` - 量化数据
+/// * `n` - 期望输出的元素数量
+///
+/// # Returns
+/// * `Ok(Vec<f32>)` - 反量化结果
+/// * `Err(QuantError)` - 输入验证失败或处理错误
+pub fn safe_dequantize_q4_0(data: &[u8], n: usize) -> Result<Vec<f32>, QuantError> {
+    // 边界检查：空数据
+    if n == 0 {
+        return Ok(vec![]);
+    }
+
+    // 边界检查：数据长度验证
+    let block_count = n.div_ceil(QK4_0);
+    let required_bytes = block_count * 18; // Q4_0 block size = 18 bytes
+
+    if data.len() < required_bytes {
+        return Err(QuantError::InsufficientData {
+            expected: required_bytes,
+            actual: data.len(),
+        });
+    }
+
+    // 选择最优实现路径
+    #[cfg(target_arch = "x86_64")]
+    {
+        let support = detect_simd_support();
+        if support.avx2 {
+            #[cfg(feature = "nightly_avx512")]
+            if support.avx512 {
+                if let Some(result) = avx512_opt::dequantize_q4_0_avx512_safe(data, n) {
+                    return Ok(result);
+                }
+            }
+            // AVX2 路径（在 dequantize_q4_0_impl 中自动选择）
+            return Ok(dequantize_q4_0_impl(data, n));
+        } else if support.sse42 {
+            return Ok(dequantize_q4_0_impl(data, n));
+        }
+        // Fallback 到标量实现
+        Ok(super::quant::dequantize(data, GgufTensorType::Q4_0, n))
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        let support = detect_simd_support();
+        if support.neon {
+            unsafe {
+                return Ok(neon_opt::dequantize_q4_0_neon(data, n));
+            }
+        }
+        return Ok(super::quant::dequantize(data, GgufTensorType::Q4_0, n));
+    }
+
+    // 其他平台使用标量实现
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    Ok(super::quant::dequantize(data, GgufTensorType::Q4_0, n))
+}
+
+/// 安全的 Q8_0 反量化入口
+pub fn safe_dequantize_q8_0(data: &[u8], n: usize) -> Result<Vec<f32>, QuantError> {
+    if n == 0 {
+        return Ok(vec![]);
+    }
+
+    let block_count = n.div_ceil(QK8_0);
+    let required_bytes = block_count * 34; // Q8_0 block size = 34 bytes
+
+    if data.len() < required_bytes {
+        return Err(QuantError::InsufficientData {
+            expected: required_bytes,
+            actual: data.len(),
+        });
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        let support = detect_simd_support();
+        if support.avx2 || support.sse42 {
+            return Ok(dequantize_q8_0_impl(data, n));
+        }
+        Ok(super::quant::dequantize(data, GgufTensorType::Q8_0, n))
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        let support = detect_simd_support();
+        if support.neon {
+            unsafe {
+                return Ok(neon_opt::dequantize_q8_0_neon(data, n));
+            }
+        }
+        return Ok(super::quant::dequantize(data, GgufTensorType::Q8_0, n));
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    Ok(super::quant::dequantize(data, GgufTensorType::Q8_0, n))
+}
+
+/// 安全的 Q4_1 反量化入口
+pub fn safe_dequantize_q4_1(data: &[u8], n: usize) -> Result<Vec<f32>, QuantError> {
+    if n == 0 {
+        return Ok(vec![]);
+    }
+
+    let block_count = n.div_ceil(QK4_1);
+    let required_bytes = block_count * 20; // Q4_1 block size = 20 bytes
+
+    if data.len() < required_bytes {
+        return Err(QuantError::InsufficientData {
+            expected: required_bytes,
+            actual: data.len(),
+        });
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        let support = detect_simd_support();
+        if support.avx2 || support.sse42 {
+            return Ok(dequantize_q4_1_impl(data, n));
+        }
+        Ok(super::quant::dequantize(data, GgufTensorType::Q4_1, n))
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        let support = detect_simd_support();
+        if support.neon {
+            unsafe {
+                return Ok(neon_opt::dequantize_q4_1_neon(data, n));
+            }
+        }
+        return Ok(super::quant::dequantize(data, GgufTensorType::Q4_1, n));
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    Ok(super::quant::dequantize(data, GgufTensorType::Q4_1, n))
+}
+
+/// 通用安全反量化入口（自动选择类型）
+pub fn safe_dequantize(
+    data: &[u8],
+    tensor_type: GgufTensorType,
+    n: usize,
+) -> Result<Vec<f32>, QuantError> {
+    match tensor_type {
+        GgufTensorType::Q4_0 => safe_dequantize_q4_0(data, n),
+        GgufTensorType::Q8_0 => safe_dequantize_q8_0(data, n),
+        GgufTensorType::Q4_1 => safe_dequantize_q4_1(data, n),
+        GgufTensorType::F16 | GgufTensorType::F32 => {
+            // F16/F32 相对安全，直接调用原始实现但添加基本检查
+            if n == 0 {
+                return Ok(vec![]);
+            }
+            Ok(dequantize_simd(data, tensor_type, n))
+        }
+        _ => Err(QuantError::UnsupportedType(tensor_type)),
+    }
+}
 
 pub fn dequantize_simd(data: &[u8], tensor_type: GgufTensorType, n: usize) -> Vec<f32> {
     match tensor_type {
@@ -355,8 +592,14 @@ fn dequantize_f16_impl(data: &[u8], n: usize) -> Vec<f32> {
 #[cfg(target_arch = "x86_64")]
 fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
     use half::f16;
+
+    // 边界情况：空数据或 n=0
+    if n == 0 || data.is_empty() {
+        return vec![0.0f32; n];
+    }
+
     let block_count = n.div_ceil(QK4_0);
-    let mut result = vec![0.0f32; n];
+    let result = vec![0.0f32; n];
 
     for block_idx in 0..block_count {
         let block_offset = block_idx * 18;
@@ -370,24 +613,25 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
         let qs = &data[block_offset + 2..block_offset + 18];
 
         let start = block_idx * QK4_0;
+        // 计算当前 block 实际需要处理的元素数量
+        let elems_in_block = QK4_0.min(n - start);
 
         unsafe {
             #[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
             if is_x86_feature_detected!("avx512f") {
-                let simd_blocks = QK4_0 / 16;
+                let simd_width = 16usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块：确保不越界（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 16;
-                    if start + elems_start >= n {
-                        break;
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查（原为 debug_assert，release 模式下会被移除）
+                    if start + elems_start + simd_width > n {
+                        break; // 越界则停止处理
                     }
 
                     let mut values = [0.0f32; 16];
-                    for j in 0..16 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-
+                    for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
                         let q = if is_high {
@@ -403,21 +647,34 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm512_mul_ps(va, scale_v);
                     _mm512_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
+
+                // 处理剩余元素（标量方式）
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        ((qs[byte_idx] >> 4) as i32) - 8
+                    } else {
+                        ((qs[byte_idx] & 0x0F) as i32) - 8
+                    };
+                    result[idx] = q as f32 * scale;
+                }
             } else if is_x86_feature_detected!("avx2") {
-                let simd_blocks = QK4_0 / 8;
+                let simd_width = 8usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 8;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut values = [0.0f32; 8];
-                    for j in 0..8 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-
+                    for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
                         let q = if is_high {
@@ -433,21 +690,34 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm256_mul_ps(va, scale_v);
                     _mm256_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
+
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        ((qs[byte_idx] >> 4) as i32) - 8
+                    } else {
+                        ((qs[byte_idx] & 0x0F) as i32) - 8
+                    };
+                    result[idx] = q as f32 * scale;
+                }
             } else if is_x86_feature_detected!("sse4.2") {
-                let simd_blocks = QK4_0 / 4;
+                let simd_width = 4usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 4;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut values = [0.0f32; 4];
-                    for j in 0..4 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-
+                    for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
                         let q = if is_high {
@@ -463,53 +733,34 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm_mul_ps(va, scale_v);
                     _mm_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
-            }
-        }
 
-        let simd_done = if cfg!(feature = "nightly_avx512") {
-            #[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
-            {
-                if is_x86_feature_detected!("avx512f") {
-                    16
-                } else {
-                    0
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        ((qs[byte_idx] >> 4) as i32) - 8
+                    } else {
+                        ((qs[byte_idx] & 0x0F) as i32) - 8
+                    };
+                    result[idx] = q as f32 * scale;
                 }
-            }
-            #[cfg(not(all(target_arch = "x86_64", feature = "nightly_avx512")))]
-            {
-                0
-            }
-        } else {
-            #[cfg(target_arch = "x86_64")]
-            {
-                if is_x86_feature_detected!("avx2") {
-                    8
-                } else if is_x86_feature_detected!("sse4.2") {
-                    4
-                } else {
-                    0
-                }
-            }
-            #[cfg(not(target_arch = "x86_64"))]
-            {
-                0
-            }
-        };
-
-        for i in simd_done..QK4_0 {
-            let idx = start + i;
-            if idx >= n {
-                break;
-            }
-
-            let byte_idx = i / 2;
-            let is_high = i % 2 == 0;
-            let q = if is_high {
-                ((qs[byte_idx] >> 4) as i32) - 8
             } else {
-                ((qs[byte_idx] & 0x0F) as i32) - 8
-            };
-            result[idx] = q as f32 * scale;
+                // 无 SIMD 支持时使用标量回退
+                for i in 0..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        ((qs[byte_idx] >> 4) as i32) - 8
+                    } else {
+                        ((qs[byte_idx] & 0x0F) as i32) - 8
+                    };
+                    result[idx] = q as f32 * scale;
+                }
+            }
         }
     }
 
@@ -593,6 +844,12 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 #[cfg(target_arch = "x86_64")]
 fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
     use half::f16;
+
+    // 边界情况：空数据或 n=0
+    if n == 0 || data.is_empty() {
+        return vec![0.0f32; n];
+    }
+
     let block_count = n.div_ceil(QK4_1);
     let mut result = vec![0.0f32; n];
 
@@ -611,25 +868,26 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
         let qs = &data[block_offset + 4..block_offset + 20];
 
         let start = block_idx * QK4_1;
+        // 计算当前 block 实际需要处理的元素数量
+        let elems_in_block = QK4_1.min(n - start);
 
         unsafe {
             use std::arch::x86_64::*;
 
             if is_x86_feature_detected!("avx2") {
-                let simd_blocks = QK4_1 / 8;
+                let simd_width = 8usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 8;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut values = [0.0f32; 8];
-                    for j in 0..8 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-
+                    for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
                         let q = if is_high {
@@ -646,21 +904,34 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm256_add_ps(_mm256_mul_ps(va, scale_v), min_v);
                     _mm256_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
+
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        (qs[byte_idx] >> 4) as f32
+                    } else {
+                        (qs[byte_idx] & 0x0F) as f32
+                    };
+                    result[idx] = q * scale + min_val;
+                }
             } else if is_x86_feature_detected!("sse4.2") {
-                let simd_blocks = QK4_1 / 4;
+                let simd_width = 4usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 4;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut values = [0.0f32; 4];
-                    for j in 0..4 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-
+                    for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
                         let q = if is_high {
@@ -677,36 +948,34 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm_add_ps(_mm_mul_ps(va, scale_v), min_v);
                     _mm_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
-            }
-        }
 
-        #[cfg(target_arch = "x86_64")]
-        let simd_done: usize = {
-            if is_x86_feature_detected!("avx2") {
-                8
-            } else if is_x86_feature_detected!("sse4.2") {
-                4
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        (qs[byte_idx] >> 4) as f32
+                    } else {
+                        (qs[byte_idx] & 0x0F) as f32
+                    };
+                    result[idx] = q * scale + min_val;
+                }
             } else {
-                0
+                // 无 SIMD 支持时使用标量回退
+                for i in 0..elems_in_block {
+                    let idx = start + i;
+                    let byte_idx = i / 2;
+                    let is_high = i % 2 == 0;
+                    let q = if is_high {
+                        (qs[byte_idx] >> 4) as f32
+                    } else {
+                        (qs[byte_idx] & 0x0F) as f32
+                    };
+                    result[idx] = q * scale + min_val;
+                }
             }
-        };
-        #[cfg(not(target_arch = "x86_64"))]
-        let simd_done: usize = 0;
-
-        for i in simd_done..QK4_1 {
-            let idx = start + i;
-            if idx >= n {
-                break;
-            }
-
-            let byte_idx = i / 2;
-            let is_high = i % 2 == 0;
-            let q = if is_high {
-                (qs[byte_idx] >> 4) as f32
-            } else {
-                (qs[byte_idx] & 0x0F) as f32
-            };
-            result[idx] = q * scale + min_val;
         }
     }
 
@@ -794,8 +1063,14 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
 #[cfg(target_arch = "x86_64")]
 fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
     use half::f16;
+
+    // 边界情况：空数据或 n=0
+    if n == 0 || data.is_empty() {
+        return vec![0.0f32; n];
+    }
+
     let block_count = n.div_ceil(QK8_0);
-    let mut result = vec![0.0f32; n];
+    let result = vec![0.0f32; n];
 
     for block_idx in 0..block_count {
         let block_offset = block_idx * 34;
@@ -809,24 +1084,26 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
         let qs = &data[block_offset + 2..block_offset + 34];
 
         let start = block_idx * QK8_0;
+        // 计算当前 block 实际需要处理的元素数量
+        let elems_in_block = QK8_0.min(n - start);
 
         unsafe {
             #[cfg(all(target_arch = "x86_64", feature = "nightly_avx512"))]
             if is_x86_feature_detected!("avx512f") {
-                let simd_blocks = QK8_0 / 16;
+                let simd_width = 16usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 16;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut f32_vals = [0.0f32; 16];
-                    for j in 0..16 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-                        f32_vals[j] = qs[idx] as i8 as f32;
+                    for j in 0..simd_width {
+                        f32_vals[j] = qs[elems_start + j] as i8 as f32;
                     }
 
                     let scale_v = _mm512_set1_ps(scale);
@@ -834,21 +1111,28 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm512_mul_ps(va, scale_v);
                     _mm512_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
+
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    result[idx] = qs[i] as i8 as f32 * scale;
+                }
             } else if is_x86_feature_detected!("avx2") {
-                let simd_blocks = QK8_0 / 8;
+                let simd_width = 8usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 8;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut f32_vals = [0.0f32; 8];
-                    for j in 0..8 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-                        f32_vals[j] = qs[idx] as i8 as f32;
+                    for j in 0..simd_width {
+                        f32_vals[j] = qs[elems_start + j] as i8 as f32;
                     }
 
                     let scale_v = _mm256_set1_ps(scale);
@@ -856,21 +1140,28 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm256_mul_ps(va, scale_v);
                     _mm256_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
+
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    result[idx] = qs[i] as i8 as f32 * scale;
+                }
             } else if is_x86_feature_detected!("sse4.2") {
-                let simd_blocks = QK8_0 / 4;
+                let simd_width = 4usize;
+                let simd_blocks = elems_in_block / simd_width;
+
+                // SIMD 处理完整块（SIGSEGV 修复：运行时检查）
                 for sub_idx in 0..simd_blocks {
-                    let elems_start = sub_idx * 4;
-                    if start + elems_start >= n {
+                    let elems_start = sub_idx * simd_width;
+                    // 运行时边界检查
+                    if start + elems_start + simd_width > n {
                         break;
                     }
 
                     let mut f32_vals = [0.0f32; 4];
-                    for j in 0..4 {
-                        let idx = elems_start + j;
-                        if start + idx >= n {
-                            break;
-                        }
-                        f32_vals[j] = qs[idx] as i8 as f32;
+                    for j in 0..simd_width {
+                        f32_vals[j] = qs[elems_start + j] as i8 as f32;
                     }
 
                     let scale_v = _mm_set1_ps(scale);
@@ -878,31 +1169,20 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let vresult = _mm_mul_ps(va, scale_v);
                     _mm_storeu_ps(result.as_mut_ptr().add(start + elems_start), vresult);
                 }
-            }
-        }
 
-        let simd_done = if cfg!(feature = "nightly_avx512") {
-            16
-        } else if cfg!(target_arch = "x86_64") {
-            unsafe {
-                if is_x86_feature_detected!("avx2") {
-                    8
-                } else if is_x86_feature_detected!("sse4.2") {
-                    4
-                } else {
-                    0
+                // 处理剩余元素
+                let scalar_start = simd_blocks * simd_width;
+                for i in scalar_start..elems_in_block {
+                    let idx = start + i;
+                    result[idx] = qs[i] as i8 as f32 * scale;
+                }
+            } else {
+                // 无 SIMD 支持时使用标量回退
+                for i in 0..elems_in_block {
+                    let idx = start + i;
+                    result[idx] = qs[i] as i8 as f32 * scale;
                 }
             }
-        } else {
-            0
-        };
-
-        for i in simd_done..QK8_0 {
-            let idx = start + i;
-            if idx >= n {
-                break;
-            }
-            result[idx] = qs[i] as i8 as f32 * scale;
         }
     }
 
@@ -973,6 +1253,12 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 
 fn dequantize_q4_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f32> {
     use half::f16;
+
+    // 边界情况
+    if n == 0 || data.is_empty() {
+        return vec![0.0f32; n];
+    }
+
     let block_count = n.div_ceil(QK4_0);
     let mut result = vec![0.0f32; n];
 
@@ -980,14 +1266,20 @@ fn dequantize_q4_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
         return dequantize_q4_0_impl(data, n);
     }
 
-    let blocks_per_thread = block_count.div_ceil(num_threads);
+    // 使用安全的并行方式：按元素数量平均分配
+    let chunks = num_threads.min(n).max(1);
 
-    result
-        .par_chunks_mut(blocks_per_thread * QK4_0)
+    // 使用 par_chunks_mut 安全地分割结果数组
+    // 每个 chunk 处理 n/chunks 个元素，确保不会越界
+    result.par_chunks_mut(n.div_ceil(chunks))
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
-            let start_block = chunk_idx * blocks_per_thread;
-            let end_block = (start_block + blocks_per_thread).min(block_count);
+            let elem_start = chunk_idx * (n.div_ceil(chunks));
+            let elem_end = (elem_start + chunk.len()).min(n);
+
+            // 计算这个 chunk 负责处理的 block 范围
+            let start_block = elem_start / QK4_0;
+            let end_block = elem_end.div_ceil(QK4_0).min(block_count);
 
             for block_idx in start_block..end_block {
                 let block_offset = block_idx * 18;
@@ -1004,8 +1296,14 @@ fn dequantize_q4_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
 
                 for i in 0..QK4_0 {
                     let idx = start + i;
-                    if idx >= n || idx - start >= chunk.len() {
-                        break;
+                    // 确保在当前 chunk 范围内且不越界
+                    if idx >= n || idx < elem_start || idx >= elem_end {
+                        continue;
+                    }
+
+                    let local_idx = idx - elem_start;
+                    if local_idx >= chunk.len() {
+                        continue;
                     }
 
                     let byte_idx = i / 2;
@@ -1015,7 +1313,7 @@ fn dequantize_q4_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
                     } else {
                         ((qs[byte_idx] & 0x0F) as i32) - 8
                     };
-                    chunk[idx - start] = q as f32 * scale;
+                    chunk[local_idx] = q as f32 * scale;
                 }
             }
         });
@@ -1025,6 +1323,12 @@ fn dequantize_q4_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
 
 fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f32> {
     use half::f16;
+
+    // 边界情况
+    if n == 0 || data.is_empty() {
+        return vec![0.0f32; n];
+    }
+
     let block_count = n.div_ceil(QK4_1);
     let mut result = vec![0.0f32; n];
 
@@ -1032,14 +1336,19 @@ fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
         return dequantize_q4_1_impl(data, n);
     }
 
-    let blocks_per_thread = block_count.div_ceil(num_threads);
+    // 使用安全的并行方式：按元素数量平均分配
+    let chunks = num_threads.min(n).max(1);
 
-    result
-        .par_chunks_mut(blocks_per_thread * QK4_1)
+    // 使用 par_chunks_mut 安全地分割结果数组
+    result.par_chunks_mut(n.div_ceil(chunks))
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
-            let start_block = chunk_idx * blocks_per_thread;
-            let end_block = (start_block + blocks_per_thread).min(block_count);
+            let elem_start = chunk_idx * (n.div_ceil(chunks));
+            let elem_end = (elem_start + chunk.len()).min(n);
+
+            // 计算这个 chunk 负责处理的 block 范围
+            let start_block = elem_start / QK4_1;
+            let end_block = elem_end.div_ceil(QK4_1).min(block_count);
 
             for block_idx in start_block..end_block {
                 let block_offset = block_idx * 20;
@@ -1060,8 +1369,14 @@ fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
 
                 for i in 0..QK4_1 {
                     let idx = start + i;
-                    if idx >= n || idx - start >= chunk.len() {
-                        break;
+                    // 确保在当前 chunk 范围内且不越界
+                    if idx >= n || idx < elem_start || idx >= elem_end {
+                        continue;
+                    }
+
+                    let local_idx = idx - elem_start;
+                    if local_idx >= chunk.len() {
+                        continue;
                     }
 
                     let byte_idx = i / 2;
@@ -1071,7 +1386,7 @@ fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
                     } else {
                         (qs[byte_idx] & 0x0F) as f32
                     };
-                    chunk[idx - start] = q * scale + min_val;
+                    chunk[local_idx] = q * scale + min_val;
                 }
             }
         });
@@ -1081,6 +1396,12 @@ fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
 
 fn dequantize_q8_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f32> {
     use half::f16;
+
+    // 边界情况
+    if n == 0 || data.is_empty() {
+        return vec![0.0f32; n];
+    }
+
     let block_count = n.div_ceil(QK8_0);
     let mut result = vec![0.0f32; n];
 
@@ -1088,14 +1409,19 @@ fn dequantize_q8_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
         return dequantize_q8_0_impl(data, n);
     }
 
-    let blocks_per_thread = block_count.div_ceil(num_threads);
+    // 使用安全的并行方式：按元素数量平均分配
+    let chunks = num_threads.min(n).max(1);
 
-    result
-        .par_chunks_mut(blocks_per_thread * QK8_0)
+    // 使用 par_chunks_mut 安全地分割结果数组
+    result.par_chunks_mut(n.div_ceil(chunks))
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
-            let start_block = chunk_idx * blocks_per_thread;
-            let end_block = (start_block + blocks_per_thread).min(block_count);
+            let elem_start = chunk_idx * (n.div_ceil(chunks));
+            let elem_end = (elem_start + chunk.len()).min(n);
+
+            // 计算这个 chunk 负责处理的 block 范围
+            let start_block = elem_start / QK8_0;
+            let end_block = elem_end.div_ceil(QK8_0).min(block_count);
 
             for block_idx in start_block..end_block {
                 let block_offset = block_idx * 34;
@@ -1112,10 +1438,16 @@ fn dequantize_q8_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
 
                 for i in 0..QK8_0 {
                     let idx = start + i;
-                    if idx >= n || idx - start >= chunk.len() {
-                        break;
+                    // 确保在当前 chunk 范围内且不越界
+                    if idx >= n || idx < elem_start || idx >= elem_end {
+                        continue;
                     }
-                    chunk[idx - start] = qs[i] as i8 as f32 * scale;
+
+                    let local_idx = idx - elem_start;
+                    if local_idx >= chunk.len() {
+                        continue;
+                    }
+                    chunk[local_idx] = qs[i] as i8 as f32 * scale;
                 }
             }
         });
@@ -2789,6 +3121,12 @@ pub struct CudaQuantOps {
     device_name: String,
 }
 
+impl Default for CudaQuantOps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CudaQuantOps {
     pub fn new() -> Self {
         Self {
@@ -3074,7 +3412,7 @@ pub fn dequantize_with_prefetch(
         return dequantize_simd(data, tensor_type, n);
     }
 
-    let effective_distance = prefetch_distance.max(1).min(16);
+    let effective_distance = prefetch_distance.clamp(1, 16);
 
     match tensor_type {
         GgufTensorType::Q4_0 => dequantize_q4_0_prefetch(data, n, effective_distance),
@@ -3118,11 +3456,13 @@ fn dequantize_q4_0_prefetch(data: &[u8], n: usize, prefetch_distance: usize) -> 
                 break;
             }
             let byte_idx = i / 2;
+            // 安全访问：使用 .get() 防止越界（SIGSEGV 修复）
+            let qs_byte = qs.get(byte_idx).copied().unwrap_or(0);
             let is_high = i % 2 == 0;
             let q: i32 = if is_high {
-                ((qs[byte_idx] >> 4) as i32) - 8
+                ((qs_byte >> 4) as i32) - 8
             } else {
-                ((qs[byte_idx] & 0x0F) as i32) - 8
+                ((qs_byte & 0x0F) as i32) - 8
             };
             result[idx] = q as f32 * scale;
         }
@@ -3163,7 +3503,9 @@ fn dequantize_q8_0_prefetch(data: &[u8], n: usize, prefetch_distance: usize) -> 
             if idx >= n {
                 break;
             }
-            result[idx] = qs[i] as i8 as f32 * scale;
+            // 安全访问：使用 .get() 防止越界（SIGSEGV 修复）
+            let qs_byte = qs.get(i).copied().unwrap_or(0);
+            result[idx] = qs_byte as i8 as f32 * scale;
         }
     }
 
@@ -3208,11 +3550,13 @@ fn dequantize_q4_1_prefetch(data: &[u8], n: usize, prefetch_distance: usize) -> 
                 break;
             }
             let byte_idx = i / 2;
+            // 安全访问：使用 .get() 防止越界（SIGSEGV 修复）
+            let qs_byte = qs.get(byte_idx).copied().unwrap_or(0);
             let is_high = i % 2 == 0;
             let q: f32 = if is_high {
-                (qs[byte_idx] >> 4) as f32
+                (qs_byte >> 4) as f32
             } else {
-                (qs[byte_idx] & 0x0F) as f32
+                (qs_byte & 0x0F) as f32
             };
             result[idx] = q * scale + min_val;
         }
@@ -3505,22 +3849,22 @@ fn try_avx512_dequant(_data: &[u8], _tensor_type: GgufTensorType, _n: usize) -> 
 fn try_gpu_dequant(data: &[u8], tensor_type: GgufTensorType, n: usize) -> Option<Vec<f32>> {
     // 使用线程本地存储避免锁竞争
     thread_local! {
-        static GPU_OPS: std::cell::OnceCell<MetalQuantOps> = std::cell::OnceCell::new();
+        static GPU_OPS: std::cell::OnceCell<MetalQuantOps> = const { std::cell::OnceCell::new() };
     }
 
     GPU_OPS.with(|ops| {
-        let gpu_ops = ops.get_or_init(|| MetalQuantOps::new());
+        let gpu_ops = ops.get_or_init(MetalQuantOps::new);
         if !gpu_ops.is_available() {
             return None;
         }
 
-        let result = match tensor_type {
+        
+        match tensor_type {
             GgufTensorType::Q4_0 => gpu_ops.dequantize_q4_0_gpu(data, n).ok(),
             GgufTensorType::Q8_0 => gpu_ops.dequantize_q8_0_gpu(data, n).ok(),
             GgufTensorType::Q4_1 => gpu_ops.dequantize_q4_1_gpu(data, n).ok(),
             _ => None,
-        };
-        result
+        }
     })
 }
 

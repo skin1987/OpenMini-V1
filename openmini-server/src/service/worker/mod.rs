@@ -4,8 +4,11 @@
 
 #![allow(dead_code)]
 
+pub mod async_pool;
 pub mod pool;
+#[allow(clippy::module_inception)]
 pub mod worker;
 
+pub use async_pool::{AsyncInferencePool, InferenceTask};
 pub use pool::WorkerPool;
 pub use worker::{get_worker_id, is_worker_process, Worker};

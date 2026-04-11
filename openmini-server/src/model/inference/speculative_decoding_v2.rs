@@ -146,8 +146,7 @@ impl SpeculativeDecodingV2 {
 
         let mut all_candidates = Vec::with_capacity(draft_length);
 
-        for step in 0..draft_length {
-            let probs = &draft_probs[step];
+        for (_step, probs) in draft_probs.iter().enumerate() {
             let _vocab_size = probs.len();
 
             // 选择top-k候选

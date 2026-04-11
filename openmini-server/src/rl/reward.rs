@@ -126,7 +126,7 @@ impl RewardFunction for AccuracyReward {
             self.reward_on_incorrect
         };
 
-        let total = if self.normalize { reward } else { reward };
+        let total = reward; // normalize flag does not affect total for this reward type
 
         RewardResult::new(total, is_correct)
     }
@@ -182,13 +182,13 @@ impl FormatReward {
     fn matches_format(&self, response: &str) -> bool {
         let detected = self.detect_format(response);
 
-        match (&self.expected_format, &detected) {
-            (FormatType::Markdown, FormatType::Markdown) => true,
-            (FormatType::Json, FormatType::Json) => true,
-            (FormatType::Xml, FormatType::Xml) => true,
-            (FormatType::Plain, FormatType::Plain) => true,
-            _ => false,
-        }
+        matches!(
+            (&self.expected_format, &detected),
+            (FormatType::Markdown, FormatType::Markdown)
+                | (FormatType::Json, FormatType::Json)
+                | (FormatType::Xml, FormatType::Xml)
+                | (FormatType::Plain, FormatType::Plain)
+        )
     }
 }
 

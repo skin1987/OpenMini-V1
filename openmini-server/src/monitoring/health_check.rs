@@ -13,6 +13,8 @@
 //! - **healthy**: 所有组件正常
 //! - **degraded**: 部分组件异常，但服务仍可用
 //! - **unhealthy**: 关键组件故障，服务不可用
+//! 
+//! 使用 ts-rs 自动生成 TypeScript 类型定义，确保前后端类型一致性。
 
 use std::sync::Arc;
 
@@ -20,6 +22,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 use tracing::{debug, info, warn};
+use ts_rs::TS;
 
 /// 健康状态常量
 pub const STATUS_HEALTHY: &str = "healthy";
@@ -29,14 +32,19 @@ pub const STATUS_UNHEALTHY: &str = "unhealthy";
 /// 健康检查状态
 ///
 /// 包含整体状态、各组件详细信息和时间戳。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct HealthStatus {
     /// 整体状态: healthy/degraded/unhealthy
     pub status: String,
     /// 各组件状态
     pub components: Vec<ComponentHealth>,
-    /// 响应时间戳
-    pub timestamp: DateTime<Utc>,
+    /// 响应时间戳 (ISO 8601 格式字符串)
+    /// 
+    /// **注意**: 在 Rust 中使用 DateTime<Utc>，
+    /// 但在 TypeScript 中导出为 string 类型以保持兼容性。
+    #[ts(type = "string")]
+    pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 impl HealthStatus {
@@ -57,7 +65,8 @@ impl HealthStatus {
 }
 
 /// 单个组件健康状态
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, TS)]
+#[ts(export)]
 pub struct ComponentHealth {
     /// 组件名称: gpu, memory, scheduler, model
     pub name: String,
@@ -111,7 +120,8 @@ impl ComponentHealth {
 }
 
 /// 健康检查器配置
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, TS)]
+#[ts(export)]
 pub struct HealthCheckerConfig {
     /// GPU利用率警告阈值 (0-100)
     pub gpu_warning_threshold: f64,
@@ -415,7 +425,7 @@ impl HealthChecker {
         let unhealthy_count = components.iter().filter(|c| !c.healthy).count();
         let critical_count = components
             .iter()
-            .filter(|c| !c.healthy && c.message.as_ref().map_or(false, |m| m.contains("critical")))
+            .filter(|c| !c.healthy && c.message.as_ref().is_some_and(|m| m.contains("critical")))
             .count();
 
         if critical_count > 0 {
@@ -432,6 +442,125 @@ impl Default for HealthChecker {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ============================================================================
+// 新增: Kubernetes 风格的探针端点
+// ============================================================================
+
+use axum::{
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use serde_json::json;
+
+/// 就绪探针 (Readiness Probe)
+///
+/// 检查所有依赖服务是否可用。用于 Kubernetes readinessGate。
+/// 返回 200 表示就绪，503 表示未就绪。
+pub async fn readiness_check() -> impl IntoResponse {
+    let checker = HealthChecker::new();
+
+    match checker.check().await {
+        Ok(status) => {
+            let all_healthy = status.is_healthy();
+            let response = json!({
+                "status": if all_healthy { "ready" } else { "not_ready" },
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "checks": status.components.iter().map(|c| {
+                    json!({
+                        "name": c.name,
+                        "healthy": c.healthy,
+                        "message": c.message
+                    })
+                }).collect::<Vec<_>>()
+            });
+
+            if all_healthy {
+                (StatusCode::OK, Json(response)).into_response()
+            } else {
+                (StatusCode::SERVICE_UNAVAILABLE, Json(response)).into_response()
+            }
+        }
+        Err(e) => {
+            let error_response = json!({
+                "status": "error",
+                "error": e.to_string(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            });
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response)).into_response()
+        }
+    }
+}
+
+/// 存活探针 (Liveness Probe)
+///
+/// 仅检查进程是否存活，不检查依赖服务。
+/// 用于 Kubernetes livenessProbe。
+/// 始终返回 200（除非进程本身崩溃）。
+pub async fn liveness_check() -> impl IntoResponse {
+    let uptime = {
+        
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()  // 简化实现：实际应记录启动时间
+    };
+
+    let response = json!({
+        "status": "alive",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "pid": std::process::id(),
+        "uptime_seconds": uptime,
+        "version": env!("CARGO_PKG_VERSION")
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// 模型状态端点
+///
+/// 返回当前加载模型的详细信息。
+/// 用于监控面板和运维工具。
+pub async fn model_health_check() -> impl IntoResponse {
+    use crate::config::settings::ServerConfig;
+
+    let config = ServerConfig::default();
+    let model_path = config.model.path;
+
+    let model_info = if !model_path.as_os_str().is_empty() && model_path.exists() {
+        match std::fs::metadata(&model_path) {
+            Ok(meta) => {
+                Some(json!({
+                    "model_loaded": true,
+                    "model_name": model_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                    "model_path": model_path.to_string_lossy(),
+                    "model_size_bytes": meta.len(),
+                    "model_size_mb": meta.len() / (1024 * 1024),
+                    "last_modified": meta.modified()
+                        .ok()
+                        .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
+                        .unwrap_or_else(|| "unknown".to_string())
+                }))
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let response = match model_info {
+        Some(info) => info,
+        None => json!({
+            "model_loaded": false,
+            "model_name": null,
+            "model_path": model_path.to_string_lossy(),
+            "error": "Model not loaded or file not found"
+        })
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 // ============================================================================

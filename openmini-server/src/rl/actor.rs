@@ -161,13 +161,12 @@ impl ActorNetwork {
 
         let mut log_probs = Vec::with_capacity(input_ids.len());
 
-        for i in 0..input_ids.len().min(seq_len) {
+        for (i, &token_id) in input_ids.iter().enumerate().take(seq_len) {
             let row_start = i * vocab_size;
             let row = &logits_data[row_start..row_start + vocab_size];
             let max_logit = row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let sum_exp: f32 = row.iter().map(|x| (x - max_logit).exp()).sum();
             let log_sum_exp = sum_exp.ln();
-            let token_id = input_ids[i];
             let log_prob = if token_id < vocab_size {
                 (row[token_id] - max_logit).ln() - log_sum_exp
             } else {

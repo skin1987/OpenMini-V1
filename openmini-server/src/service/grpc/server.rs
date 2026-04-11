@@ -342,7 +342,7 @@ pub async fn chat(service: &OpenMiniService, request: ChatRequest) -> Result<Cha
                 usage: None,
             };
 
-            if tx.blocking_send(Ok(response)).is_err() {
+            if tx.send(Ok(response)).await.is_err() {
                 return Err(anyhow::anyhow!("通道已关闭"));
             }
 
@@ -462,7 +462,7 @@ pub async fn image_understanding_stream(
                     finished: false,
                 };
 
-                if tx.blocking_send(Ok(response)).is_err() {
+                if tx.send(Ok(response)).await.is_err() {
                     return Err(anyhow::anyhow!("通道已关闭"));
                 }
 

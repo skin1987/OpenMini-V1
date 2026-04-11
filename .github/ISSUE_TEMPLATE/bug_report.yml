@@ -1,92 +1,203 @@
----
 name: 🐛 Bug Report
 about: Create a report to help us improve
 title: '[BUG] <short description>'
 labels: 'bug'
 assignees: ''
----
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🐛 Bug Description
 
-## 🐛 Bug Description
+        **Clear and concise description of what the bug is.**
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the bug...
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen
+      placeholder: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+      placeholder: What actually happened?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ## 📋 Environment
 
-**Clear and concise description of what the bug is.**
+        **Please complete the following information:**
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: Operating system
+      placeholder: e.g., macOS 14.2, Ubuntu 22.04, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: architecture
+    attributes:
+      label: Architecture
+      description: System architecture
+      placeholder: e.g., Apple Silicon M2, x86_64, ARM64
+    validations:
+      required: false
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust Version
+      description: Output of `rustc --version`
+      placeholder: e.g., rustc 1.75.0
+    validations:
+      required: true
+  - type: input
+    id: openmini-version
+    attributes:
+      label: OpenMini Version
+      description: Version or commit hash
+      placeholder: e.g., v1.2.0-beta.1, abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: hardware-backend
+    attributes:
+      label: Hardware Backend
+      description: Which hardware backend are you using?
+      options:
+        - Metal
+        - CUDA
+        - CPU
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: gpu-model
+    attributes:
+      label: GPU Model
+      description: GPU model if applicable
+      placeholder: e.g., AMD Radeon Pro 560, RTX 4090
+    validations:
+      required: false
+  - type: textarea
+    id: version-info
+    attributes:
+      label: Version Info
+      description: Run this command and paste the output
+      placeholder: "rustc --version && cargo --version && ./target/release/openmini-server --version"
+      render: bash
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        ## 📝 Error Logs / Stack Trace
+  - type: textarea
+    id: error-logs
+    attributes:
+      label: Error Logs / Stack Trace
+      description: Please paste any relevant error messages or stack traces here
+      placeholder: Paste error logs here
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain your problem
+      placeholder: Drag and drop or paste images here
+    validations:
+      required: false
+  - type: textarea
+    id: code-sample
+    attributes:
+      label: Code Sample (if applicable)
+      description: Minimal code example that reproduces the issue
+      placeholder: "// Paste code here"
+      render: rust
+    validations:
+      required: false
+  - type: textarea
+    id: possible-solution
+    attributes:
+      label: Possible Solution (optional)
+      description: Suggest a fix or reason for the bug if you can
+      placeholder: Not obligatory, but suggestions are welcome!
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here
+      placeholder: Any other context?
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have checked that this issue hasn't been reported already
+          required: true
+        - label: I have checked that this is not a feature request (use Feature Request template instead)
+          required: true
+        - label: I'm willing to contribute a fix for this issue (assign me!)
+          required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority Assessment
+      description: How does this bug affect your usage?
+      options:
+        - Critical - Blocks all functionality / Crash on startup
+        - High - Major feature broken / Data loss possible
+        - Medium - Workaround exists but inconvenient
+        - Low - Minor inconvenience / Cosmetic issue
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      description: How often can you reproduce this issue?
+      options:
+        - Always (100% reproducible)
+        - Often (>50% of the time)
+        - Sometimes (<50% of the time)
+        - Rarely (hard to reproduce)
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ---
 
-## 🔍 Steps to Reproduce
-
-**Steps to reproduce the behavior:**
-
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
-
-**Expected behavior:**
-*A clear and concise description of what you expected to happen.*
-
-**Actual behavior:**
-*What actually happened.*
-
-## 📋 Environment
-
-**Please complete the following information:**
-
-- **OS**: [e.g., macOS 14.2, Ubuntu 22.04]
-- **Architecture**: [e.g., Apple Silicon M2, x86_64]
-- **Rust Version**: [Output of `rustc --version`]
-- **OpenMini Version**: [e.g., v1.2.0-beta.1, commit hash]
-- **Hardware Backend**: [e.g., Metal, CUDA, CPU]
-- **GPU Model**: [if applicable, e.g., AMD Radeon Pro 560, RTX 4090]
-
-```bash
-# Run this command and paste output:
-rustc --version && cargo --version && ./target/release/openmini-server --version
-```
-
-## 📝 Error Logs / Stack Trace
-
-**Please paste any relevant error messages or stack traces here:**
-
-```
-[Paste error logs here]
-```
-
-**If applicable, add screenshots to help explain your problem:**
-
-## 💻 Code Sample (if applicable)
-
-**Minimal code example that reproduces the issue:**
-
-```rust
-// Paste code here
-```
-
-## 🔧 Possible Solution (optional)
-
-*Not obligatory, but suggest a fix or reason for the bug if you can.*
-
-## 📊 Additional Context
-
-**Add any other context about the problem here:**
-
-- [ ] I have checked that this issue hasn't been reported already
-- [ ] I have checked that this is not a feature request (use Feature Request template instead)
-- [ ] I'm willing to contribute a fix for this issue (assign me!)
-
-## ⚡ Priority Assessment
-
-**How does this bug affect your usage?**
-
-- [ ] Critical - Blocks all functionality / Crash on startup
-- [ ] High - Major feature broken / Data loss possible
-- [ ] Medium - Workaround exists but inconvenient
-- [ ] Low - Minor inconvenience / Cosmetic issue
-
-**Frequency:**
-
-- [ ] Always (100% reproducible)
-- [ ] Often (>50% of the time)
-- [ ] Sometimes (<50% of the time)
-- [ ] Rarely (hard to reproduce)
-
----
-
-**Thank you for reporting! We'll investigate as soon as possible. 🙏**
+        **Thank you for reporting! We'll investigate as soon as possible. 🙏**

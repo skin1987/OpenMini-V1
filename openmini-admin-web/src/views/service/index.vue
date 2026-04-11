@@ -1,56 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, VideoPause, WarningFilled } from '@element-plus/icons-vue'
+import { Refresh, VideoPause } from '@element-plus/icons-vue'
+import { getServiceStatus, getWorkerList, restartService, stopService } from '@/api/service'
 
 const loading = ref(false)
 
-const serviceInfo = ref({
-  version: 'v2.1.0',
-  listenAddress: '0.0.0.0:8080',
-  uptime: '7天12小时35分',
-  pid: 12345,
-  connections: 156
-})
+const serviceInfo = ref<Record<string, any>>({})
 
-const workerList = ref([
-  {
-    id: 1,
-    status: 'online' as const,
-    pid: 12346,
-    startTime: '2026-04-02 08:30:00',
-    restartCount: 0,
-    cpuUsage: 42,
-    memoryUsage: 256
-  },
-  {
-    id: 2,
-    status: 'online' as const,
-    pid: 12347,
-    startTime: '2026-04-02 08:30:00',
-    restartCount: 2,
-    cpuUsage: 58,
-    memoryUsage: 320
-  },
-  {
-    id: 3,
-    status: 'offline' as const,
-    pid: 0,
-    startTime: '-',
-    restartCount: 0,
-    cpuUsage: 0,
-    memoryUsage: 0
-  },
-  {
-    id: 4,
-    status: 'online' as const,
-    pid: 12349,
-    startTime: '2026-04-03 14:20:00',
-    restartCount: 1,
-    cpuUsage: 35,
-    memoryUsage: 198
-  }
-])
+const workerList = ref<any[]>([])
+
+const serviceStatus = ref('')
 
 const confirmVisible = ref(false)
 const actionType = ref('')
@@ -60,7 +20,9 @@ function getStatusType(status: string) {
     online: 'success',
     offline: 'danger',
     starting: 'warning',
-    stopping: 'info'
+    stopping: 'info',
+    running: 'success',
+    stopped: 'danger'
   }
   return map[status] || 'info'
 }
@@ -70,14 +32,54 @@ function getStatusText(status: string) {
     online: '运行中',
     offline: '离线',
     starting: '启动中',
-    stopping: '停止中'
+    stopping: '停止中',
+    running: '运行中',
+    stopped: '已停止'
   }
   return map[status] || status
 }
 
+async function fetchData() {
+  loading.value = true
+  try {
+    const [statusRes, workersRes] = await Promise.all([
+      getServiceStatus(),
+      getWorkerList()
+    ])
+    if (statusRes.data) {
+      const data = statusRes.data
+      serviceInfo.value = {
+        version: data.version || '-',
+        listenAddress: data.upstream || data.listen_address || '-',
+        uptime: data.uptime || '-',
+        pid: data.pid || '-',
+        connections: data.connections || 0
+      }
+      serviceStatus.value = data.status || ''
+    }
+    if (workersRes.data && workersRes.data.workers) {
+      workerList.value = workersRes.data.workers.map((w: any, index: number) => ({
+        id: w.id || index + 1,
+        status: w.status || 'offline',
+        pid: w.pid || 0,
+        startTime: w.start_time || w.startTime || '-',
+        restartCount: w.restart_count || w.restartCount || 0,
+        cpuUsage: w.cpu_usage || w.cpuUsage || 0,
+        memoryUsage: w.memory_usage || w.memoryUsage || 0
+      }))
+    }
+  } catch (error) {
+    ElMessage.error('获取服务状态失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function handleRestartWorker(row: any) {
   try {
+    await restartService()
     ElMessage.success(`Worker-${row.id} 重启成功`)
+    await fetchData()
   } catch (error) {
     ElMessage.error('重启失败')
   }
@@ -89,15 +91,23 @@ function showConfirm(action: string) {
 }
 
 async function handleConfirm() {
-  if (actionType.value === 'restart') {
-    ElMessage.success('服务优雅重启成功')
-  } else if (actionType.value === 'stop') {
-    ElMessage.warning('服务已停止')
+  try {
+    if (actionType.value === 'restart') {
+      await restartService()
+      ElMessage.success('服务优雅重启成功')
+    } else if (actionType.value === 'stop') {
+      await stopService()
+      ElMessage.warning('服务已停止')
+    }
+    confirmVisible.value = false
+    await fetchData()
+  } catch (error) {
+    ElMessage.error(actionType.value === 'restart' ? '重启失败' : '停止失败')
   }
-  confirmVisible.value = false
 }
 
 onMounted(() => {
+  fetchData()
 })
 </script>
 

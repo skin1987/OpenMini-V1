@@ -27,6 +27,9 @@ pub mod cuda;
 #[cfg(feature = "vulkan")]
 pub mod vulkan;
 
+#[cfg(feature = "vulkan")]
+pub mod vulkan_compute;
+
 use anyhow::Result;
 use ndarray::Array2;
 

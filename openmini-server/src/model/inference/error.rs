@@ -170,7 +170,7 @@ impl InferenceError {
     pub fn io(message: impl Into<String>) -> Self {
         Self::IoError {
             message: message.into(),
-            source: std::io::Error::new(std::io::ErrorKind::Other, "no source error"),
+            source: std::io::Error::other("no source error"),
         }
     }
 

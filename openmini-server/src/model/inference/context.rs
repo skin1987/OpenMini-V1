@@ -203,6 +203,7 @@ pub struct InferenceContext {
 
 /// 层缓存类型
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum LayerCache {
     /// MLA 潜在缓存
     MLA(MLALatentCache),

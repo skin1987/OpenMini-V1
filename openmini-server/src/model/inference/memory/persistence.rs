@@ -868,15 +868,15 @@ impl Persistence {
             let mut reader = BufReader::new(src_file);
 
             for entry in &mut entries {
-                reader.seek(SeekFrom::Start((*entry).offset))?;
-                let mut buf = vec![0u8; (*entry).length as usize];
+                reader.seek(SeekFrom::Start(entry.offset))?;
+                let mut buf = vec![0u8; entry.length as usize];
                 reader.read_exact(&mut buf)?;
 
                 writer.write_all(&buf)?;
 
-                (*entry).offset = new_offset;
-                new_offset += (*entry).length;
-                new_data_size += (*entry).length;
+                entry.offset = new_offset;
+                new_offset += entry.length;
+                new_data_size += entry.length;
             }
         }
 

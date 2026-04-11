@@ -7,10 +7,10 @@
 //! - 启动 gRPC 网关服务
 //! - 处理优雅关闭信号
 
-// 允许文档缺失和未使用代码（内部实现）
-#![allow(missing_docs)]
-#![allow(dead_code)]
-#![allow(unused_imports)]
+// Clippy 配置：允许预期的 cfg 条件值和函数参数过多
+#![allow(unexpected_cfgs)]
+#![allow(clippy::too_many_arguments)]
+
 //!
 //! # 架构概述
 //!
@@ -33,7 +33,9 @@
 // ============================================================================
 
 mod config;
+mod error;
 mod hardware;
+mod kernel;
 mod model;
 mod monitoring;
 mod service;
@@ -49,6 +51,8 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::ServerConfig;
+use service::core_actor::PerCoreActor;
+use service::router::{BalanceStrategy, CoreRouter};
 use service::thread::ThreadPool;
 
 // ============================================================================
@@ -70,7 +74,7 @@ use service::thread::ThreadPool;
 /// # 环境变量
 ///
 /// - `RUST_LOG`: 控制日志级别，默认为 "info"
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ========================================================================
     // 日志系统初始化
@@ -176,6 +180,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
 
     // ========================================================================
+    // Per-Core Actor 池初始化（Multi-Core Launcher）
+    // ========================================================================
+
+    let num_cores = num_cpus::get();
+    info!("Initializing Per-Core Actor pool ({} cores)...", num_cores);
+
+    let mut actor_handles = Vec::with_capacity(num_cores);
+    let mut actor_tasks = Vec::with_capacity(num_cores);
+
+    for core_id in 0..num_cores {
+        let (tx, rx) = tokio::sync::mpsc::channel::<service::core_actor::CoreRequest>(100);
+        actor_handles.push(service::router::ActorHandle::new(core_id, tx));
+
+        let actor = PerCoreActor::new(core_id, rx);
+        actor_tasks.push(tokio::spawn(async move {
+            actor.run().await;
+        }));
+
+        info!("Core-{} Actor spawned", core_id);
+    }
+
+    let _core_router = Arc::new(CoreRouter::new(actor_handles, BalanceStrategy::RoundRobin));
+    info!("CoreRouter created with {} actors (RoundRobin strategy)", num_cores);
+
+    // ========================================================================
+    // 异步推理池创建
+    // ========================================================================
+
+    info!("Creating async inference pool...");
+    let (inference_pool, _inference_shutdown) = service::worker::AsyncInferencePool::create(
+        1000,
+        8,
+        std::time::Duration::from_millis(10),
+        |tasks| {
+            tasks
+                .iter()
+                .map(|t| service::worker::async_pool::InferenceResult {
+                    session_id: t.session_id.clone(),
+                    text: format!("Processed: {}", t.prompt),
+                    finished: true,
+                })
+                .collect()
+        },
+    );
+    let inference_pool = Arc::new(inference_pool);
+
+    // ========================================================================
     // gRPC 网关启动
     // ========================================================================
 
@@ -183,8 +234,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = config.server.host.parse()?;
     info!("Creating gRPC gateway on {}...", addr);
 
-    // 创建 gRPC 网关，将请求分发到线程池和 Worker 池
-    let gateway = service::server::Gateway::new(addr, thread_pool);
+    // 创建 gRPC 网关，将请求分发到线程池和推理池
+    let gateway = service::server::Gateway::new(addr, thread_pool, inference_pool);
 
     // 设置关闭信号监听器
     let shutdown_signal = setup_shutdown_signal();
@@ -222,6 +273,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 关闭 Worker 进程池，等待所有 Worker 完成当前任务
     worker_pool.shutdown();
+
+    // 等待所有 Per-Core Actor 任务完成
+    info!("Waiting for {} Core Actors to shutdown...", actor_tasks.len());
+    for (i, task) in actor_tasks.into_iter().enumerate() {
+        if let Err(e) = task.await {
+            warn!("Core-{} Actor task error: {}", i, e);
+        }
+    }
+    info!("All Core Actors stopped");
 
     info!("Server stopped");
 

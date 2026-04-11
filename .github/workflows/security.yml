@@ -1,0 +1,424 @@
+# OpenMini Security Scanning Pipeline
+# 功能：每日自动安全扫描、依赖漏洞监测、Secret检测
+# 触发条件：每日 UTC 02:00 定时运行 + 手动触发
+
+name: Security Scan
+
+on:
+  schedule:
+    # 每天 UTC 02:00 运行 (北京时间 10:00)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      full_scan:
+        description: '执行完整扫描（包括深度依赖分析）'
+        required: false
+        default: false
+        type: boolean
+
+# 权限配置：需要写入权限以创建 Issue
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+  actions: read
+  pull-requests: read
+
+env:
+  CARGO_TERM_COLOR: always
+  SEVERITY_THRESHOLD: high  # 报告此级别及以上的漏洞
+
+jobs:
+  # ============================================================
+  # Job 1: 依赖漏洞扫描 (cargo audit)
+  # 监测已知 CVE 漏洞和 advisory 数据库
+  # ============================================================
+  vulnerability-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # 缓存 Cargo 依赖
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+          key: ${{ runner.os }}-cargo-vuln-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-vuln-
+
+      # 安装 cargo-audit
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      # 更新 advisory 数据库
+      - name: Update advisory database
+        run: cargo audit fetch
+
+      # 执行漏洞扫描
+      - name: Run vulnerability scan
+        id: vuln_scan
+        run: |
+          echo "🔍 开始依赖漏洞扫描..."
+          echo "扫描时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          cargo audit 2>&1 | tee vulnerability_report.txt
+          VULN_EXIT=$?
+
+          # 分析扫描结果
+          if grep -q "CRITICAL\|Vulnerability" vulnerability_report.txt; then
+            echo "🚨 发现安全漏洞！"
+            echo "vulnerabilities_found=true" >> $GITHUB_OUTPUT
+
+            # 提取漏洞信息
+            echo "=== 漏洞详情 ===" >> $GITHUB_STEP_SUMMARY
+            cat vulnerability_report.txt >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ 未发现已知漏洞"
+            echo "vulnerabilities_found=false" >> $GITHUB_OUTPUT
+          fi
+
+          exit $VULN_EXIT
+        continue-on-error: true
+
+      # 上传漏洞报告
+      - name: Upload vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulnerability-report-${{ github.run_id }}
+          path: vulnerability_report.txt
+          retention-days: 30
+
+  # ============================================================
+  # Job 2: 许可证合规检查 (cargo deny)
+  # 检测不合规的开源许可证
+  # ============================================================
+  license-compliance:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # 缓存
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-deny-
+
+      # 安装 cargo-deny
+      - name: Install cargo-deny
+        run: cargo install cargo-deny
+
+      # 执行许可证检查
+      - name: Check license compliance
+        id: license_check
+        run: |
+          echo "📋 开始许可证合规检查..."
+          echo "检查时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          # 检查是否存在配置文件
+          if [ -f "deny.toml" ] || [ -f ".cargo/deny.toml" ]; then
+            cargo deny check licenses bans sources 2>&1 | tee license_report.txt
+            LICENSE_EXIT=$?
+
+            if [ $LICENSE_EXIT -ne 0 ]; then
+              echo "⚠️  发现许可证合规问题"
+              echo "license_issues=true" >> $GITHUB_OUTPUT
+            else
+              echo "✅ 许可证合规检查通过"
+              echo "license_issues=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "ℹ️  未找到 deny.toml 配置文件"
+            echo "生成默认许可证报告..."
+            cargo deny list 2>&1 | tee license_report.txt || true
+            echo "license_issues=unknown" >> $GITHUB_OUTPUT
+            echo "💡 建议: 创建 .cargo/deny.toml 配置许可证策略"
+          fi
+        continue-on-error: true
+
+      # 上传许可证报告
+      - name: Upload license report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report-${{ github.run_id }}
+          path: license_report.txt
+          retention-days: 30
+
+  # ============================================================
+  # Job 3: Secret 检测 (Gitleaks)
+  # 扫描代码历史和当前版本中的敏感信息
+  # ============================================================
+  secret-scan:
+    name: Secret Detection Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 需要完整 git 历史
+
+      # 安装 Gitleaks
+      - name: Setup Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+
+      # 使用官方 Gitleaks action 进行扫描
+      - name: Run Gitleaks secret detection
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          verbose: true
+          config-path: .gitleaks.toml  # 如果存在自定义配置
+          report-format: json
+          report-path: gitleaks-report.json
+          fail-on-findings: false  # 不阻断流水线，但会记录
+        continue-on-error: true
+
+      # 分析扫描结果
+      - name: Analyze Gitleaks findings
+        if: always()
+        run: |
+          echo "🔐 Secret 检测完成"
+          echo "扫描时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+          if [ -f gitleaks-report.json ] && [ -s gitleaks-report.json ]; then
+            LEAKS_COUNT=$(jq '.[] | length' gitleaks-report.json 2>/dev/null || echo "0")
+
+            if [ "$LEAKS_COUNT" -gt 0 ]; then
+              echo "🚨 发现 $LEAKS_COUNT 个潜在的秘密泄露！"
+              echo "### ⚠️ Secret 检测警报" >> $GITHUB_STEP_SUMMARY
+              echo "**发现 $LEAKS_COUNT 个潜在敏感信息泄露**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**建议操作:**" >> $GITHUB_STEP_SUMMARY
+              echo "1. 立即撤销可能泄露的凭证" >> $GITHUB_STEP_SUMMARY
+              echo "2. 使用 \`git filter-repo\` 或 BFG 清除历史记录" >> $GITHUB_STEP_SUMMARY
+              echo "3. 轮换所有受影响的密钥和令牌" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**详细信息:**" >> $GITHUB_STEP_SUMMARY
+              jq '.' gitleaks-report.json >> $GITHUB_STEP_SUMMARY
+              echo "secrets_found=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "✅ 未检测到秘密泄露"
+              echo "secrets_found=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "✅ Gitleaks 扫描完成，未发现问题"
+            echo "secrets_found=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GITHUB_OUTPUT: ${{ env.GITHUB_OUTPUT }}
+
+      # 上传 Secret 检测报告
+      - name: Upload secret scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secret-scan-report-${{ github.run_id }}
+          path: gitleaks-report.json
+          retention-days: 90  # Secret 报告保留更长时间
+
+  # ============================================================
+  # Job 4: 依赖过时检查
+  # 检查是否有可更新的依赖版本
+  # ============================================================
+  dependency-check:
+    name: Outdated Dependencies Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # 缓存
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+          key: ${{ runner.os }}-cargo-dep-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-dep-
+
+      # 安装工具
+      - name: Install dependency checking tools
+        run: |
+          cargo install cargo-outdated
+          cargo install cargo-tree
+
+      # 检查过时的依赖
+      - name: Check outdated dependencies
+        id: outdated
+        run: |
+          echo "📦 检查过时的依赖..."
+          cargo outdated --root-deps-only 2>&1 | tee outdated_report.txt || true
+          echo "✅ 依赖检查完成"
+        continue-on-error: true
+
+      # 生成依赖树
+      - name: Generate dependency tree
+        run: cargo tree --depth 1 > dependency_tree.txt 2>&1 || true
+        continue-on-error: true
+
+      # 上传报告
+      - name: Upload dependency reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-report-${{ github.run_id }}
+          path: |
+            outdated_report.txt
+            dependency_tree.txt
+          retention-days: 14
+
+  # ============================================================
+  # Job 5: 自动创建 Issue (当发现高危问题时)
+  # 条件：CRITICAL 漏洞或 Secret 泄露
+  # ============================================================
+  create-security-issue:
+    name: Create Security Issue (if needed)
+    runs-on: ubuntu-latest
+    needs: [vulnerability-scan, secret-scan, license-compliance]
+    if: always()  # 即使前面的 job 失败也执行
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 下载所有扫描报告
+      - name: Download vulnerability report
+        uses: actions/download-artifact@v4
+        with:
+          name: vulnerability-report-${{ github.run_id }}
+          path: ./reports/vulnerability
+        continue-on-error: true
+
+      - name: Download secret scan report
+        uses: actions/download-artifact@v4
+        with:
+          name: secret-scan-report-${{ github.run_id }}
+          path: ./reports/secrets
+        continue-on-error: true
+
+      - name: Download license report
+        uses: actions/download-artifact@v4
+        with:
+          name: license-report-${{ github.run_id }}
+          path: ./reports/license
+        continue-on-error: true
+
+      # 分析并决定是否需要创建 Issue
+      - name: Analyze and create issue if needed
+        run: |
+          #!/bin/bash
+          set -e
+
+          echo "==========================================="
+          echo "   安全扫描结果分析与 Issue 创建"
+          echo "==========================================="
+          echo ""
+
+          SHOULD_CREATE_ISSUE=false
+          ISSUE_TITLE=""
+          ISSUE_BODY=""
+          LABELS=""
+
+          # 检查漏洞扫描结果
+          if [ -f "./reports/vulnerability/vulnerability_report.txt" ]; then
+            if grep -q "CRITICAL\|Vulnerability" ./reports/vulnerability/vulnerability_report.txt; then
+              echo "⚠️  发现安全漏洞，准备创建 Issue..."
+              SHOULD_CREATE_ISSUE=true
+              ISSUE_TITLE="🚨 安全警报: 发现依赖漏洞 $(date +%Y-%m-%d)"
+              ISSUE_BODY="## 🔴 安全漏洞警报\n\n"
+              ISSUE_BODY+="**扫描时间:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')\n\n"
+              ISSUE_BODY+="### 漏洞详情\n\`\`\`\n"
+              ISSUE_BODY+="$(cat ./reports/vulnerability/vulnerability_report.txt)\n"
+              ISSUE_BODY+="\`\`\`\n\n"
+              ISSUE_BODY+="### 建议操作\n"
+              ISSUE_BODY+="1. 立即审查受影响的依赖项\n"
+              ISSUE_BODY+="2. 升级到修复了漏洞的版本\n"
+              ISSUE_BODY+="3. 如果无法升级，考虑实施缓解措施\n\n"
+              ISSUE_BODY+="---\n*此 Issue 由自动化安全扫描系统生成*\n"
+              LABELS="security,critical,priority-high"
+            fi
+          fi
+
+          # 检查 Secret 泄露结果
+          if [ -f "./reports/secrets/gitleaks-report.json" ]; then
+            LEAKS_COUNT=$(jq '.[] | length' ./reports/secrets/gitleaks-report.json 2>/dev/null || echo "0")
+            if [ "$LEAKS_COUNT" -gt 0 ]; then
+              echo "⚠️  发现秘密泄露，准备创建 Issue..."
+              SHOULD_CREATE_ISSUE=true
+              ISSUE_TITLE="🔐 安全警报: 检测到潜在秘密泄露 $(date +%Y-%m-%d)"
+              ISSUE_BODY="## 🟠 Secret 泄露警报\n\n"
+              ISSUE_BODY+="**扫描时间:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')\n\n"
+              ISSUE_BODY+="### 检测到的潜在泄露\n"
+              ISSUE_BODY+="Gitleaks 检测到 **$LEAKS_COUNT** 个可能的敏感信息泄露。\n\n"
+              ISSUE_BODY+="### 立即行动\n"
+              ISSUE_BODY+="1. **立即撤销** 所有可能泄露的凭证（API 密钥、密码、token）\n"
+              ISSUE_BODY+="2. **轮换** 受影响的密钥和证书\n"
+              ISSUE_BODY+="3. **清理 Git 历史** 使用 \`git filter-repo\` 或 BFG Repo Cleaner\n"
+              ISSUE_BODY+="4. **审查访问日志** 检查是否有异常访问\n\n"
+              ISSUE_BODY+="### 详细信息\n\`\`\`json\n"
+              ISSUE_BODY+="$(cat ./reports/secrets/gitleaks-report.json)\n"
+              ISSUE_BODY+="\`\`\`\n\n"
+              ISSUE_BODY+="---\n*此 Issue 由自动化安全扫描系统生成*\n"
+              LABELS="security,secret-leak,priority-critical"
+            fi
+          fi
+
+          # 如果需要创建 Issue
+          if [ "$SHOULD_CREATE_ISSUE" = true ]; then
+            echo "创建安全 Issue..."
+
+            # 使用 GitHub CLI 创建 Issue
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --body "$ISSUE_BODY" \
+              --label "$LABELS" \
+              --assignee ""  # 可指定维护者
+
+            echo "✅ 安全 Issue 已创建"
+          else
+            echo "✅ 未发现严重安全问题，无需创建 Issue"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 生成最终摘要
+      - name: Generate final summary
+        if: always()
+        run: |
+          echo "## 📊 安全扫描摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 检查项 | 状态 | 详情 |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 依赖漏洞扫描 | ${{ needs.vulnerability-scan.result }} | [查看报告](./reports/vulnerability) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret 检测 | ${{ needs.secret-scan.result }} | [查看报告](./reports/secrets) |" >> $GITHUB_STEP_SUMMARY
+          echo "| 许可证合规 | ${{ needs.license-compliance.result }} | [查看报告](./reports/license) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**扫描时间:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*此报告由 [Security Scan 工作流](./actions/workflows/security.yml) 自动生成*" >> $GITHUB_STEP_SUMMARY

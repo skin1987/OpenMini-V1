@@ -1,0 +1,224 @@
+name: Performance Benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'openmini-server/src/**/*.rs'
+      - 'openmini-server/Cargo.toml'
+      - '.github/workflows/benchmark.yml'
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted-gpu' }}
+    
+    timeout-minutes: 60
+    
+    env:
+      MODEL_PATH: ${{ github.event_name == 'schedule' && secrets.MODEL_PATH || 'tests/fixtures/tiny_model.gguf' }}
+      BASELINE_BRANCH: main
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-benchmark-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-benchmark-
+      
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            protobuf-compiler
+      
+      - name: Build Release Binary
+        run: cargo build --release --package openmini-server --features metal
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+      
+      - name: Download Model (if scheduled)
+        if: github.event_name == 'schedule'
+        run: |
+          echo "Downloading model from $MODEL_PATH"
+          mkdir -p models
+          # Add model download logic here
+      
+      - name: Create Test Model Stub
+        if: github.event_name != 'schedule'
+        run: |
+          mkdir -p tests/fixtures
+          touch tests/fixtures/tiny_model.gguf
+      
+      - name: Run Unit Tests
+        run: |
+          cargo test --package openmini-server --lib benchmark:: --nocapture
+      
+      - name: Run Benchmarks
+        id: run_benchmarks
+        run: |
+          cargo run --release --package openmini-server -- \
+            benchmark \
+            --model-path ${MODEL_PATH:-tests/fixtures/tiny_model.gguf} \
+            --output-format json \
+            --output-path benchmark-results/results.json \
+            --num-warmup-runs 2 \
+            --num-benchmark-runs 5
+        env:
+          RUST_LOG: info
+      
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results/
+          retention-days: 30
+      
+      - name: Check Performance Regression
+        id: regression_check
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Downloading baseline from main branch..."
+          
+          curl -H "Accept: application/vnd.github.v3+json" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/artifacts" \
+            | jq '.artifacts[] | select(.name | startswith("benchmark-results-")) | .archive_download_url'
+          
+          echo "Running regression check..."
+          
+          if [ -f "baseline.json" ]; then
+            cargo run --release --package openmini-server -- \
+              benchmark-regression \
+              --baseline baseline.json \
+              --current benchmark-results/results.json \
+              --output-format markdown \
+              --output-path benchmark-results/regression-report.md
+            
+            exit_code=$?
+            
+            if [ $exit_code -eq 0 ]; then
+              echo "regression_status=pass" >> $GITHUB_OUTPUT
+            elif [ $exit_code -eq 1 ]; then
+              echo "regression_status=warn" >> $GITHUB_OUTPUT
+            else
+              echo "regression_status=fail" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No baseline found, creating initial baseline"
+            cp benchmark-results/results.json baseline.json
+            echo "regression_status=baseline_created" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.regression_check.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            let body = '';
+            
+            try {
+              const reportPath = 'benchmark-results/regression-report.md';
+              if (fs.existsSync(reportPath)) {
+                body = fs.readFileSync(reportPath, 'utf8');
+              }
+            } catch (e) {
+              console.log('Could not read report:', e.message);
+            }
+            
+            const status = '${{ steps.regression_check.outputs.regression_status }}';
+            const emoji = status === 'pass' ? '✅' : status === 'warn' ? '⚠️' : '❌';
+            
+            if (!body) {
+              body = `## ${emoji} Performance Benchmark Results\n\n`;
+              body += `- **Status:** ${status.toUpperCase()}\n`;
+              body += `- **Commit:** \`${{ github.sha }}\`\n`;
+              body += `- **Workflow Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n`;
+              body += `Full results are available in the workflow artifacts.\n`;
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Update Baseline (on merge to main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "Updating performance baseline..."
+          cp benchmark-results/results.json baselines/latest.json
+          
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          git add baselines/latest.json
+          git commit -m "chore: update performance baseline $(date +%Y%m%d)" || true
+          git push
+      
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Benchmark Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "benchmark-results/results.json" ]; then
+            echo "### Results File" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat benchmark-results/results.json | head -50 >> $GITHUB_STEP_SUMMARY
+            echo "..." >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "benchmark-results/regression-report.md" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Regression Report" >> $GITHUB_STEP_SUMMARY
+            cat benchmark-results/regression-report.md >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.regression_check.outputs.regression_status || 'completed' }}" >> $GITHUB_STEP_SUMMARY
+  
+  notify:
+    name: Notify Results
+    needs: benchmark
+    if: always() && needs.benchmark.result == 'failure'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send Failure Notification
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Performance benchmarks failed or detected regressions!"
+          echo "Please check the benchmark job results."

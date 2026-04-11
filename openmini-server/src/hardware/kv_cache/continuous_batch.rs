@@ -375,12 +375,7 @@ impl BatchScheduler {
         if let Some(req) = self.running_requests.get_mut(&id) {
             return Some(req);
         }
-        for req in &mut self.waiting_queue {
-            if req.id == id {
-                return Some(req);
-            }
-        }
-        None
+        self.waiting_queue.iter_mut().find(|req| req.id == id)
     }
 
     /// 添加生成的token

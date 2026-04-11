@@ -84,10 +84,10 @@ pub fn quantize_int4(data: &[f32]) -> Result<(Vec<u8>, f32)> {
     let scale = max_abs / 7.0;
 
     if scale == 0.0 {
-        return Ok((vec![0u8; (data.len() + 1) / 2], 1.0));
+        return Ok((vec![0u8; data.len().div_ceil(2)], 1.0));
     }
 
-    let mut packed = Vec::with_capacity((data.len() + 1) / 2);
+    let mut packed = Vec::with_capacity(data.len().div_ceil(2));
 
     for chunk in data.chunks(2) {
         let low = (chunk[0] / scale).round().clamp(-8.0, 7.0) as i8;

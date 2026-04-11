@@ -208,11 +208,7 @@ impl CountSampler {
     /// 检查是否应该记录当前日志
     pub fn should_log(&mut self) -> bool {
         self.counter += 1;
-        if self.counter % self.interval == 0 {
-            true
-        } else {
-            false
-        }
+        self.counter % self.interval == 0
     }
 
     /// 获取当前计数
