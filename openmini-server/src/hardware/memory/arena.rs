@@ -215,6 +215,26 @@ impl Arena {
     pub fn is_empty(&self) -> bool {
         self.used() == 0
     }
+
+    /// 分配指定大小的内存（返回 Result）
+    pub fn allocate(&self, size: usize) -> Result<*mut u8, String> {
+        self.alloc(size, 8).ok_or_else(|| format!("Arena allocation failed: requested {} bytes", size))
+    }
+
+    /// 分配 GEMM 矩阵内存 (m x n f32)
+    pub fn gemm(&self, m: usize, n: usize) -> Result<*mut u8, String> {
+        self.allocate(m * n * 4)
+    }
+
+    /// 分配压缩 GEMM 内存 (seq_len x latent_dim f32)
+    pub fn gemm_compress(&self, seq_len: usize, latent_dim: usize) -> Result<*mut u8, String> {
+        self.allocate(seq_len * latent_dim * 4)
+    }
+
+    /// 分配融合 GEMM+SiLU 内存 (seq x intermediate f32)
+    pub fn fused_gemm_silu(&self, seq: usize, intermediate: usize) -> Result<*mut u8, String> {
+        self.allocate(seq * intermediate * 4)
+    }
 }
 
 impl Drop for Arena {
@@ -236,6 +256,12 @@ impl Drop for Arena {
 
 unsafe impl Send for Arena {}
 unsafe impl Sync for Arena {}
+
+impl Clone for Arena {
+    fn clone(&self) -> Self {
+        Arena::new(self.capacity)
+    }
+}
 
 #[cfg(test)]
 mod tests {

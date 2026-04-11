@@ -15,4 +15,8 @@ quantization: string,
 /**
  * 上下文长度
  */
-context_length: number, };
+context_length: number, 
+/**
+ * 架构类型: native | deepseek_v3 | gemma3
+ */
+architecture: string, };

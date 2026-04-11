@@ -31,3 +31,24 @@ pub mod http {
     pub mod types;
     pub mod sensitive_filter;
 }
+
+/// 分布式推理模块 (可选功能)
+///
+/// 基于 Tokio Mesh 的多节点推理架构，支持任务分发和结果聚合。
+/// 需要启用 `distributed` feature 才能使用。
+///
+/// ## 功能特性
+///
+/// - 节点发现与注册
+/// - 任务分发与负载均衡
+/// - 结果收集与聚合
+/// - 心跳检测与健康监控
+///
+/// ## 使用示例
+///
+/// ```ignore
+/// #[cfg(feature = "distributed")]
+/// use openmini_server::service::distributed::{Coordinator, WorkerNode, MeshNode};
+/// ```
+#[cfg(feature = "distributed")]
+pub mod distributed;

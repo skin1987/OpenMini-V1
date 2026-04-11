@@ -19,6 +19,9 @@ use super::model::MultimodalTransformer;
 use super::quant_loader::QuantizedWeightLoader;
 use super::sampler::GenerateParams;
 use super::tokenizer::Tokenizer;
+use super::vision::{GemmaImageProcessor, GemmaImageProcessorConfig, SigLIPEncoder};
+
+use crate::hardware::memory::arena::Arena;
 
 /// 推理统计信息
 #[derive(Debug, Clone, Default)]
@@ -137,8 +140,14 @@ pub struct InferenceEngine {
     tokenizer: Arc<Tokenizer>,
     /// 模型配置
     config: ModelConfig,
-    /// 图像预处理器
+    /// 图像预处理器（标准模式）
     image_preprocessor: ImagePreprocessor,
+    /// Gemma3 图像处理器（896×896 + SigLIP normalize）
+    gemma_processor: GemmaImageProcessor,
+    /// SigLIP 视觉编码器
+    siglip_encoder: Option<Arc<SigLIPEncoder>>,
+    /// Arena 内存池（用于推理热路径的内存分配）
+    arena: Option<Arena>,
 }
 
 impl InferenceEngine {
@@ -267,16 +276,30 @@ impl InferenceEngine {
         // 创建图像预处理器
         let image_preprocessor = ImagePreprocessor::new(ImagePreprocessorConfig::default());
 
+        // 创建 Gemma3 图像处理器（896×896 + SigLIP normalize）
+        let gemma_processor = GemmaImageProcessor::new(GemmaImageProcessorConfig::default());
+
+        // 创建 Arena 内存池 (64MB)
+        let arena = Some(Arena::new(64 * 1024 * 1024));
+
         Ok(Self {
             model: Arc::new(model),
             tokenizer: Arc::new(tokenizer),
             config,
             image_preprocessor,
+            gemma_processor,
+            siglip_encoder: None,
+            arena,
         })
     }
 
     /// 文本生成
     pub fn generate(&self, prompt: &str, params: &GenerateParams) -> InferenceResult<String> {
+        // 使用 Arena 内存池进行推理（如果可用）
+        if let Some(ref arena) = self.arena {
+            arena.reset();
+        }
+
         let tokens = self
             .tokenizer
             .encode(prompt)
@@ -301,10 +324,11 @@ impl InferenceEngine {
     /// - `image`: 图像输入 (H, W, 3)，RGB 格式，u8 类型
     /// - `params`: 生成参数
     ///
-    /// # 图像预处理
-    /// - 自动将图像调整到 224×224 像素（双线性插值）
-    /// - 像素值归一化由模型内部处理（u8 → f32 / 255.0）
-    /// - 支持任意尺寸输入，无需手动预处理
+    /// # 处理流程
+    /// 1. 使用 GemmaImageProcessor 预处理图像（resize到896×896 + normalize）
+    /// 2. 调用 SigLIPEncoder::encode() 提取视觉特征
+    /// 3. 将视觉特征与文本token组合为多模态prompt
+    /// 4. 调用模型forward生成响应
     ///
     /// # 返回
     /// 生成的文本
@@ -314,21 +338,68 @@ impl InferenceEngine {
         image: &ndarray::Array3<u8>,
         params: &GenerateParams,
     ) -> InferenceResult<String> {
-        // 预处理图像（自动 resize 到目标尺寸）
+        // 步骤1: 使用 GemmaImageProcessor 预处理图像（resize到896×896 + normalize）
         let processed = self
-            .image_preprocessor
-            .resize_only(image)
+            .gemma_processor
+            .preprocess(image)
             .map_err(|e| InferenceError::image_preprocess(e.to_string()))?;
 
-        let tokens = self
+        // 将 f32 图像转换回 u8 格式（SigLIP encode 需要 u8 输入）
+        let image_u8: ndarray::Array3<u8> = processed.mapv(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8);
+
+        // 步骤2: 调用 SigLIPEncoder::encode() 提取视觉特征
+        let visual_features = if let Some(ref encoder) = self.siglip_encoder {
+            encoder
+                .encode(&image_u8)
+                .map_err(|e| InferenceError::generation(e.to_string()))?
+        } else {
+            // 如果没有 SigLIP 编码器，回退到传统模式
+            let fallback_processed = self
+                .image_preprocessor
+                .resize_only(image)
+                .map_err(|e| InferenceError::image_preprocess(e.to_string()))?;
+
+            let tokens = self
+                .tokenizer
+                .encode(prompt)
+                .map_err(|e| InferenceError::tokenization(e.to_string()))?;
+
+            // 调用多模态生成（传入预处理后的图像）
+            let generated_ids = self
+                .model
+                .generate_multimodal_with_params(&tokens, Some(&fallback_processed), params)
+                .map_err(|e| InferenceError::generation(e.to_string()))?;
+
+            let generated_text = self
+                .tokenizer
+                .decode(&generated_ids)
+                .map_err(|e| InferenceError::tokenization(e.to_string()))?;
+            return Ok(generated_text);
+        };
+
+        // 步骤3: 编码文本并构建多模态 prompt
+        let text_tokens = self
             .tokenizer
             .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
-        // 调用多模态生成（传入预处理后的图像）
+        // 计算图像 token 数量 (基于 patch 数量)
+        let num_image_tokens = self.gemma_processor.num_image_tokens(image.shape()[0], image.shape()[1]);
+
+        // 转换为 usize 类型以匹配 build_multimodal_prompt 签名
+        let text_tokens_usize: Vec<usize> = text_tokens.iter().map(|&t| t as usize).collect();
+
+        // 使用 build_multimodal_prompt 组合视觉和文本 tokens
+        let multimodal_tokens =
+            super::engine::build_multimodal_prompt(&text_tokens_usize, num_image_tokens);
+
+        // 转换回 u32 类型以匹配 generate_with_visual_features 签名
+        let multimodal_tokens_u32: Vec<u32> = multimodal_tokens.iter().map(|&t| t as u32).collect();
+
+        // 步骤4: 调用模型 forward 生成响应（传入视觉特征）
         let generated_ids = self
             .model
-            .generate_multimodal_with_params(&tokens, Some(&processed), params)
+            .generate_with_visual_features(&multimodal_tokens_u32, Some(&visual_features), params)
             .map_err(|e| InferenceError::generation(e.to_string()))?;
 
         let generated_text = self
@@ -526,6 +597,7 @@ pub struct StreamGenerator {
     model: Arc<MultimodalTransformer>,
     tokenizer: Arc<Tokenizer>,
     image_preprocessor: ImagePreprocessor,
+    gemma_processor: GemmaImageProcessor,
 }
 
 impl StreamGenerator {
@@ -534,6 +606,7 @@ impl StreamGenerator {
             model: Arc::new(model),
             tokenizer: Arc::new(tokenizer),
             image_preprocessor: ImagePreprocessor::new(ImagePreprocessorConfig::default()),
+            gemma_processor: GemmaImageProcessor::new(GemmaImageProcessorConfig::default()),
         }
     }
 
@@ -542,6 +615,7 @@ impl StreamGenerator {
             model: Arc::clone(&engine.model),
             tokenizer: Arc::clone(&engine.tokenizer),
             image_preprocessor: ImagePreprocessor::new(ImagePreprocessorConfig::default()),
+            gemma_processor: GemmaImageProcessor::new(GemmaImageProcessorConfig::default()),
         }
     }
 

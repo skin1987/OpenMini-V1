@@ -71,6 +71,7 @@ use std::time::Instant;
 
 use super::dsa::{self, DSATopKConfig};
 use super::error::{InferenceError, InferenceResult};
+use super::gemm_engine::get_gemm_engine_manager;
 use super::sampler::GenerateParams;
 
 impl From<ndarray::ShapeError> for InferenceError {
@@ -276,6 +277,7 @@ pub struct ModelConfig {
     // ====== AttnRes 配置 ======
     pub use_attnres: bool, // 是否启用（默认 true，向后兼容无需配置）
     pub attnres_num_blocks: Option<usize>, // None = 自适应，Some(n) = 手动指定
+    pub latent_dim: Option<usize>, // MLA 潜在维度，None 表示使用默认值
 }
 
 impl Default for ModelConfig {
@@ -308,6 +310,7 @@ impl Default for ModelConfig {
             // ====== AttnRes 默认值 ======
             use_attnres: true,
             attnres_num_blocks: None,
+            latent_dim: None,
         }
     }
 }
@@ -672,10 +675,31 @@ pub struct FFNWeights {
 
 impl FFNWeights {
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
-        let gate = x.dot(&self.gate_proj.t());
-        let up = x.dot(&self.up_proj.t());
-        let hidden = silu(gate) * up;
-        hidden.dot(&self.down_proj.t())
+        let engine = get_gemm_engine_manager();
+
+        match engine.engine().fused_gemm_silu(x, &self.gate_proj, &self.up_proj, None) {
+            Ok(result) => {
+                let down_proj_t = self.down_proj.t().to_owned();
+                match engine.engine().matmul(&result, &down_proj_t) {
+                    Ok(output) => output,
+                    Err(_) => result.dot(&down_proj_t),
+                }
+            }
+            Err(_) => {
+                let gate = x.dot(&self.gate_proj.t());
+                let up = x.dot(&self.up_proj.t());
+                let hidden = silu(gate) * up;
+                hidden.dot(&self.down_proj.t())
+            }
+        }
+    }
+
+    /// 使用 GEMM 引擎的 FFN 前向传播（返回 Result）
+    pub fn forward_gemm(&self, x: &Array2<f32>) -> InferenceResult<Array2<f32>> {
+        let engine = get_gemm_engine_manager();
+        let hidden = engine.engine().fused_gemm_silu(x, &self.gate_proj, &self.up_proj, None)?;
+        let down_proj_t = self.down_proj.t().to_owned();
+        engine.engine().matmul(&hidden, &down_proj_t)
     }
 }
 
@@ -979,7 +1003,16 @@ pub struct TransformerLayerWeights {
 
 /// Linear 投影（封装矩阵乘法 x @ weight.t()）
 pub fn linear(x: &Array2<f32>, weight: &Array2<f32>) -> Array2<f32> {
-    x.dot(&weight.t())
+    let engine = get_gemm_engine_manager();
+    let weight_t = weight.t().to_owned();
+    engine.engine().matmul(x, &weight_t).unwrap_or_else(|_| x.dot(&weight_t))
+}
+
+/// 使用 GEMM 引擎的线性投影（返回 Result）
+pub fn linear_gemm(x: &Array2<f32>, weight: &Array2<f32>) -> InferenceResult<Array2<f32>> {
+    let engine = get_gemm_engine_manager();
+    let weight_t = weight.t().to_owned();
+    engine.engine().matmul(x, &weight_t)
 }
 
 /// RMS Norm（完全向量化实现）
@@ -1308,9 +1341,9 @@ fn prepare_qkv(
 ) -> InferenceResult<(Array3<f32>, Array3<f32>, Array3<f32>)> {
     let seq_len = x.nrows();
 
-    let q = linear(x, q_proj);
-    let k = linear(x, k_proj);
-    let v = linear(x, v_proj);
+    let q = linear_gemm(x, q_proj)?;
+    let k = linear_gemm(x, k_proj)?;
+    let v = linear_gemm(x, v_proj)?;
 
     let q = apply_rotary_emb(&q, num_heads, head_dim, rope_theta, positions)?;
     let k = apply_rotary_emb(&k, num_kv_heads, head_dim, rope_theta, positions)?;
@@ -1535,7 +1568,7 @@ impl AttentionWeights {
             )
             .map_err(|e| InferenceError::generation(format!("DSA attention failed: {}", e)))?;
 
-            let output = linear(&dsa_output, &self.o_proj);
+            let output = linear_gemm(&dsa_output, &self.o_proj)?;
             return Ok(output);
         }
 
@@ -1545,7 +1578,7 @@ impl AttentionWeights {
 
         let output = compute_attention_output(&attn, &v_expanded);
 
-        let output = linear(&output, &self.o_proj);
+        let output = linear_gemm(&output, &self.o_proj)?;
         Ok(output)
     }
 }
@@ -3829,6 +3862,45 @@ impl MultimodalTransformer {
 
             embedding =
                 self.fuse_image_features_with_validation(&embedding, &image_features, tokens)?;
+        }
+
+        let mut state = self.init_generation_state(&embedding)?;
+        self.process_initial_embedding(&mut state, &embedding, params)?;
+
+        if state.next_token == 0 {
+            return Ok(state.output);
+        }
+
+        for _ in 1..params.max_new_tokens {
+            match self.generation_step(&mut state, params, false)? {
+                StepResult::Stop => break,
+                StepResult::Continue => {}
+            }
+        }
+
+        Ok(state.output)
+    }
+
+    /// 使用预计算的视觉特征进行多模态生成
+    ///
+    /// # 参数
+    /// - `tokens`: 输入 token 序列（包含图像占位符 tokens）
+    /// - `visual_features`: 预计算的视觉特征 (num_patches, hidden_dim)
+    /// - `params`: 生成参数配置
+    ///
+    /// # 返回
+    /// 生成的 token 序列
+    pub fn generate_with_visual_features(
+        &self,
+        tokens: &[u32],
+        visual_features: Option<&Array2<f32>>,
+        params: &GenerateParams,
+    ) -> InferenceResult<Vec<u32>> {
+        let mut embedding = self.get_token_embedding(tokens)?;
+
+        if let Some(features) = visual_features {
+            embedding =
+                self.fuse_image_features_with_validation(&embedding, features, tokens)?;
         }
 
         let mut state = self.init_generation_state(&embedding)?;

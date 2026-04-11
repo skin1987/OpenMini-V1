@@ -30,7 +30,34 @@ arena_size_mb = 256
 [model]
 path = "models/openmini-v1-q4_k_m.gguf"
 quantization = "Q4_K_M"
-context_length = 4096
+context_length = 131072
+
+# ===== 架构对齐配置 =====
+architecture = "native"
+
+[moe]
+strategy = "cyclic"
+cycle_period = 3
+ffn_prefix_layers = 3
+num_routing_experts = 8
+num_shared_experts = 0
+top_k = 2
+capacity_factor = 1.25
+load_balance = true
+
+[vision]
+encoder = "none"
+image_size = 224
+num_image_tokens = 256
+
+[engine]
+gemm_backend = "auto"
+enable_arena = true
+arena_size_mb = 64
+fp8_kv_cache = false
+target_device = "auto"
+dsa_threshold = 1024
+max_batch_size = 1
 
 [worker]
 # DEPRECATED: TaskScheduler 已替代 WorkerPool 多进程架构

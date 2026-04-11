@@ -17,6 +17,7 @@ grpc = ["dep:tonic", "dep:prost", "dep:prost-build", "dep:tokio-stream"]
 metal = ["dep:metal", "dep:objc"]
 monitoring = ["dep:reqwest"]
 compression = ["dep:zstd", "dep:lz4"]
+distributed = []  # 分布式推理模块（基于 Tokio Mesh）
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -75,11 +76,16 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid
 zstd = { version = "0.13", optional = true }
 lz4 = { version = "1.24", optional = true }
 ts-rs = { version = "8.0", features = ["serde-compat"] }
+candle-core = "0.8"
 
 [build-dependencies]
 prost-build = "0.13"
 
+[[bench]]
+name = "inference_bench"
+harness = false
+
 [dev-dependencies]
 tempfile = "3"
-criterion = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 approx = "0.5"

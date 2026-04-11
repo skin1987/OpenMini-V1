@@ -6,6 +6,7 @@ pub mod dataloader;
 pub mod loss;
 pub mod monitor;
 pub mod optimizer;
+pub mod pipeline;
 pub mod safetensors;
 pub mod tokenizer;
 pub mod trainer;

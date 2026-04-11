@@ -10,9 +10,26 @@
 use anyhow::{anyhow, Result};
 use ndarray::{Array3, Array4};
 
+/// 图像预处理器类型
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProcessorType {
+    /// 标准预处理器 (224×224, ImageNet)
+    Standard,
+    /// Gemma3 预处理器 (896×896, SigLIP)
+    Gemma3,
+}
+
+impl Default for ProcessorType {
+    fn default() -> Self {
+        ProcessorType::Standard
+    }
+}
+
 /// 图像预处理器配置
 #[derive(Debug, Clone)]
 pub struct ImagePreprocessorConfig {
+    /// 预处理器类型
+    pub processor_type: ProcessorType,
     /// 目标高度
     pub target_height: usize,
     /// 目标宽度
@@ -28,11 +45,25 @@ pub struct ImagePreprocessorConfig {
 impl Default for ImagePreprocessorConfig {
     fn default() -> Self {
         Self {
+            processor_type: ProcessorType::Standard,
             target_height: 224,
             target_width: 224,
             normalize: true,
             mean: [0.485, 0.456, 0.406], // ImageNet 均值
             std: [0.229, 0.224, 0.225],  // ImageNet 标准差
+        }
+    }
+}
+
+impl ImagePreprocessorConfig {
+    pub fn gemma3_config() -> Self {
+        Self {
+            processor_type: ProcessorType::Gemma3,
+            target_height: 896,
+            target_width: 896,
+            normalize: true,
+            mean: [0.5, 0.5, 0.5], // Gemma3 均值
+            std: [0.5, 0.5, 0.5],  // Gemma3 标准差
         }
     }
 }
@@ -257,6 +288,7 @@ mod tests {
     fn test_image_preprocess_rgb_to_tensor() {
         // RGB图像转Tensor - 测试2x2 RGB图像的完整预处理流程
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 2,
             target_width: 2,
             normalize: false,
@@ -332,6 +364,7 @@ mod tests {
     fn test_image_preprocess_empty_input() {
         // 空输入测试（0尺寸图像）
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 0,
             target_width: 0,
             normalize: true,
@@ -354,6 +387,7 @@ mod tests {
     fn test_image_resize_bilinear() {
         // 双线性插值缩放测试 - 从小尺寸放大到大尺寸
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 8,
             target_width: 8,
             normalize: false,
@@ -384,6 +418,7 @@ mod tests {
     fn test_image_normalize() {
         // 图像归一化验证
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 16,
             target_width: 16,
             normalize: true,
@@ -412,6 +447,7 @@ mod tests {
     fn test_to_model_format() {
         // 测试转换为模型输入格式 (1, C, H, W)
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 2,
             target_width: 2,
             normalize: false,
@@ -430,6 +466,7 @@ mod tests {
     fn test_custom_config() {
         // 测试自定义配置
         let custom_config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 512,
             target_width: 512,
             normalize: false,
@@ -451,6 +488,7 @@ mod tests {
     fn test_resize_downsample() {
         // 测试缩小图像
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 112,
             target_width: 112,
             normalize: false,
@@ -479,6 +517,7 @@ mod tests {
     fn test_no_normalize_mode() {
         // 测试不归一化模式
         let config = ImagePreprocessorConfig {
+            processor_type: ProcessorType::Standard,
             target_height: 10,
             target_width: 10,
             normalize: false,

@@ -14,6 +14,8 @@
 pub mod benchmark;
 pub mod config;
 pub mod db;
+pub mod distributed;
+pub mod enterprise;
 pub mod error;
 pub mod hardware;
 pub mod kernel;

@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+use crate::model::inference::model::ModelConfig;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MLAConfig {
     pub hidden_size: usize,
@@ -32,6 +34,19 @@ impl Default for MLAConfig {
 }
 
 impl MLAConfig {
+    pub fn from_model_config(config: &ModelConfig) -> Self {
+        Self {
+            hidden_size: config.hidden_size,
+            num_attention_heads: config.num_attention_heads,
+            num_key_value_heads: config.num_key_value_heads,
+            head_dim: config.head_dim,
+            latent_dim: config.latent_dim.unwrap_or(512),
+            use_decoupled_rope: true,
+            rope_theta: config.rope_theta,
+            max_seq_len: config.max_position_embeddings,
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

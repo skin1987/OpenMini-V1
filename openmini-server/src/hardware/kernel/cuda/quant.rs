@@ -273,13 +273,13 @@ impl QuantizationEngine {
 
         for _ in 0..num_blocks {
             // 读取scales (32 x fp16 = 64 bytes)
-            let scales: Vec<f16> = (0..32)
+            let scales: Vec<F16> = (0..32)
                 .map(|i| {
                     let idx = offset + i * 2;
                     if idx + 1 < data.len() {
-                        f16::from_bits(u16::from_le_bytes([data[idx], data[idx + 1]]))
+                        F16::from_bits(u16::from_le_bytes([data[idx], data[idx + 1]]))
                     } else {
-                        f16::from(1.0)
+                        F16::from(1.0)
                     }
                 })
                 .collect();
@@ -287,13 +287,13 @@ impl QuantizationEngine {
             offset += 64;
 
             // 读取mins (32 x fp16 = 64 bytes)
-            let mins: Vec<f16> = (0..32)
+            let mins: Vec<F16> = (0..32)
                 .map(|i| {
                     let idx = offset + i * 2;
                     if idx + 1 < data.len() {
-                        f16::from_bits(u16::from_le_bytes([data[idx], data[idx + 1]]))
+                        F16::from_bits(u16::from_le_bytes([data[idx], data[idx + 1]]))
                     } else {
-                        f16::from(0.0)
+                        F16::from(0.0)
                     }
                 })
                 .collect();
@@ -593,9 +593,9 @@ impl QuantizationEngine {
 
 /// 半精度浮点辅助类型（用于量化scale/min存储）
 #[derive(Clone, Copy, Debug)]
-struct f16(u16);
+struct F16(u16);
 
-impl f16 {
+impl F16 {
     fn from_bits(bits: u16) -> Self {
         Self(bits)
     }
@@ -680,7 +680,7 @@ mod tests {
         
         // 填充scales (fp16, 全部设为1.0)
         for i in 0..32 {
-            let scale_bytes = f16::from(1.0).0.to_le_bytes();
+            let scale_bytes = F16::from(1.0).0.to_le_bytes();
             data[i * 2] = scale_bytes[0];
             data[i * 2 + 1] = scale_bytes[1];
         }
@@ -817,10 +817,10 @@ mod tests {
 
     #[test]
     fn test_f16_conversion() {
-        let one = f16::from_bits(0x3C00); // 1.0 in f16
+        let one = F16::from_bits(0x3C00); // 1.0 in f16
         assert!((one.to_f32() - 1.0).abs() < 0.001);
 
-        let zero = f16::from_bits(0x0000); // 0.0 in f16
+        let zero = F16::from_bits(0x0000); // 0.0 in f16
         assert_eq!(zero.to_f32(), 0.0);
     }
 }

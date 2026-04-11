@@ -24,6 +24,15 @@ pub struct ServerConfig {
     pub memory: MemorySettings,
     /// 模型加载设置
     pub model: ModelSettings,
+    /// MoE 配置
+    #[serde(default)]
+    pub moe: MoESettings,
+    /// 视觉编码器配置
+    #[serde(default)]
+    pub vision: VisionSettings,
+    /// 引擎配置
+    #[serde(default)]
+    pub engine: EngineSettings,
     /// Worker 进程设置
     pub worker: WorkerSettings,
     /// Per-Core Actor 设置
@@ -113,7 +122,107 @@ pub struct ModelSettings {
     pub quantization: String,
     /// 上下文长度
     pub context_length: usize,
+    /// 架构类型: native | deepseek_v3 | gemma3
+    #[serde(default = "default_architecture")]
+    pub architecture: String,
 }
+
+fn default_architecture() -> String {
+    "native".to_string()
+}
+
+/// MoE (Mixture of Experts) 配置
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default, TS)]
+#[ts(export)]
+pub struct MoESettings {
+    /// 策略: cyclic | full_layer | hybrid
+    #[serde(default = "default_moe_strategy")]
+    pub strategy: String,
+    /// 循环周期
+    #[serde(default = "default_moe_cycle_period")]
+    pub cycle_period: usize,
+    /// FullLayer策略时的FFN前缀层数
+    #[serde(default = "default_moe_ffn_prefix_layers")]
+    pub ffn_prefix_layers: usize,
+    /// 路由专家数量
+    #[serde(default = "default_moe_num_routing_experts")]
+    pub num_routing_experts: usize,
+    /// 共享专家数量
+    #[serde(default = "default_moe_num_shared_experts")]
+    pub num_shared_experts: usize,
+    /// Top-K 选择数
+    #[serde(default = "default_moe_top_k")]
+    pub top_k: usize,
+    /// 容量因子
+    #[serde(default = "default_moe_capacity_factor")]
+    pub capacity_factor: f64,
+    /// 是否启用负载均衡
+    #[serde(default = "default_moe_load_balance")]
+    pub load_balance: bool,
+}
+
+fn default_moe_strategy() -> String { "cyclic".to_string() }
+fn default_moe_cycle_period() -> usize { 3 }
+fn default_moe_ffn_prefix_layers() -> usize { 3 }
+fn default_moe_num_routing_experts() -> usize { 8 }
+fn default_moe_num_shared_experts() -> usize { 0 }
+fn default_moe_top_k() -> usize { 2 }
+fn default_moe_capacity_factor() -> f64 { 1.25 }
+fn default_moe_load_balance() -> bool { true }
+
+/// 视觉编码器配置
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default, TS)]
+#[ts(export)]
+pub struct VisionSettings {
+    /// 编码器类型: none | siglip
+    #[serde(default = "default_vision_encoder")]
+    pub encoder: String,
+    /// 图像尺寸
+    #[serde(default = "default_vision_image_size")]
+    pub image_size: usize,
+    /// 图像token数量
+    #[serde(default = "default_vision_num_image_tokens")]
+    pub num_image_tokens: usize,
+}
+
+fn default_vision_encoder() -> String { "none".to_string() }
+fn default_vision_image_size() -> usize { 224 }
+fn default_vision_num_image_tokens() -> usize { 256 }
+
+/// 引擎配置
+#[derive(Debug, Clone, Deserialize, serde::Serialize, Default, TS)]
+#[ts(export)]
+pub struct EngineSettings {
+    /// GEMM后端: auto | candle | ndarray
+    #[serde(default = "default_engine_gemm_backend")]
+    pub gemm_backend: String,
+    /// 是否启用Arena分配器
+    #[serde(default = "default_engine_enable_arena")]
+    pub enable_arena: bool,
+    /// Arena大小(MB)
+    #[serde(default = "default_engine_arena_size_mb")]
+    pub arena_size_mb: usize,
+    /// 是否使用FP8 KV Cache
+    #[serde(default = "default_engine_fp8_kv_cache")]
+    pub fp8_kv_cache: bool,
+    /// 目标设备: auto | cpu | cuda | metal
+    #[serde(default = "default_engine_target_device")]
+    pub target_device: String,
+    /// DSA阈值
+    #[serde(default = "default_engine_dsa_threshold")]
+    pub dsa_threshold: usize,
+    /// 最大批处理大小
+    #[serde(default = "default_engine_max_batch_size")]
+    pub max_batch_size: usize,
+}
+
+fn default_engine_gemm_backend() -> String { "auto".to_string() }
+fn default_engine_enable_arena() -> bool { true }
+fn default_engine_arena_size_mb() -> usize { 64 }
+fn default_engine_fp8_kv_cache() -> bool { false }
+fn default_engine_target_device() -> String { "auto".to_string() }
+fn default_engine_dsa_threshold() -> usize { 1024 }
+fn default_engine_max_batch_size() -> usize { 1 }
 
 /// Worker 进程设置
 #[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
@@ -186,6 +295,31 @@ impl Default for ServerConfig {
                 path: PathBuf::from("models/openmini-v1-q4_k_m.gguf"),
                 quantization: "Q4_K_M".to_string(),
                 context_length: 4096,
+                architecture: "native".to_string(),
+            },
+            moe: MoESettings {
+                strategy: "cyclic".to_string(),
+                cycle_period: 3,
+                ffn_prefix_layers: 3,
+                num_routing_experts: 8,
+                num_shared_experts: 0,
+                top_k: 2,
+                capacity_factor: 1.25,
+                load_balance: true,
+            },
+            vision: VisionSettings {
+                encoder: "none".to_string(),
+                image_size: 224,
+                num_image_tokens: 256,
+            },
+            engine: EngineSettings {
+                gemm_backend: "auto".to_string(),
+                enable_arena: true,
+                arena_size_mb: 64,
+                fp8_kv_cache: false,
+                target_device: "auto".to_string(),
+                dsa_threshold: 1024,
+                max_batch_size: 1,
             },
             worker: WorkerSettings {
                 count: 1,

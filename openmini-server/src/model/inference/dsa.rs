@@ -82,6 +82,7 @@ use std::sync::{Once, OnceLock};
 use crate::hardware::gpu::{GpuBackend, GpuOps};
 use crate::hardware::simd::{create_simd_ops, SimdOps};
 use crate::hardware::{CpuAffinity, HyperthreadTopology, TaskType};
+use crate::model::inference::error::InferenceResult;
 
 // ============================================================================
 // DSA 错误类型
@@ -320,6 +321,15 @@ where
     S2: ndarray::Data<Elem = f32>,
 {
     q.dot(&k_full.t())
+}
+
+pub fn lightning_indexer_with_engine(
+    q: &Array2<f32>,
+    k_full: &Array2<f32>,
+    engine: &dyn crate::model::inference::gemm_engine::GemmEngine,
+) -> InferenceResult<Array2<f32>> {
+    let k_t = k_full.t().to_owned();
+    engine.matmul(q, &k_t)
 }
 
 /// GPU 加速的 Lightning Indexer
