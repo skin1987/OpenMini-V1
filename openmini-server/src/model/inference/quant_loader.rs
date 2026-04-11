@@ -190,13 +190,13 @@ impl QuantizedWeightLoader {
         for expert_idx in 0..num_experts {
             let expert_prefix = format!("{}.experts.{}", prefix, expert_idx);
             let gate_proj = self
-                .load_tensor(&format!("{}.gate_proj", expert_prefix))
+                .load_tensor_with_fallback(&format!("{}.gate_proj", expert_prefix), layer_idx, expert_idx)
                 .map(|w| w.data)?;
             let up_proj = self
-                .load_tensor(&format!("{}.up_proj", expert_prefix))
+                .load_tensor_with_fallback(&format!("{}.up_proj", expert_prefix), layer_idx, expert_idx)
                 .map(|w| w.data)?;
             let down_proj = self
-                .load_tensor(&format!("{}.down_proj", expert_prefix))
+                .load_tensor_with_fallback(&format!("{}.down_proj", expert_prefix), layer_idx, expert_idx)
                 .map(|w| w.data)?;
             experts.push(FfnWeightArrays {
                 gate_proj,
@@ -214,6 +214,37 @@ impl QuantizedWeightLoader {
             router,
             top_k,
         })
+    }
+
+    fn load_tensor_with_fallback(
+        &self,
+        name: &str,
+        layer_idx: usize,
+        expert_idx: usize,
+    ) -> Result<QuantizedWeights> {
+        if let Ok(tensor) = self.load_tensor(name) {
+            return Ok(tensor);
+        }
+
+        let fallback_names = vec![
+            format!("deepseek_v3.model.layers.{}.ffn.experts.{}.gate_proj", layer_idx, expert_idx),
+            format!("deepseek_v3.model.layers.{}.ffn.experts.{}.up_proj", layer_idx, expert_idx),
+            format!("deepseek_v3.model.layers.{}.ffn.experts.{}.down_proj", layer_idx, expert_idx),
+            format!("deepseek_v3.model.layers.{}.ffn.experts.{}", layer_idx, expert_idx),
+        ];
+
+        for fallback_name in &fallback_names {
+            if name.contains("gate_proj") && fallback_name.contains("gate_proj") ||
+               name.contains("up_proj") && fallback_name.contains("up_proj") ||
+               name.contains("down_proj") && fallback_name.contains("down_proj")
+            {
+                if let Ok(tensor) = self.load_tensor(fallback_name) {
+                    return Ok(tensor);
+                }
+            }
+        }
+
+        self.load_tensor(name)
     }
 
     pub fn load_embedding_weights(&self) -> Result<Array2<f32>> {

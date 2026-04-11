@@ -888,12 +888,15 @@ impl TrainingConfig14B {
     ///
     /// 基于硬件利用率假设进行粗略估计
     pub fn estimate_training_time_secs(&self) -> u64 {
-        let flops_per_step = self.estimate_flops_per_token() * self.training.effective_batch_size() as u64;
-        let total_flops = flops_per_step * self.training.total_steps as u64;
+        let flops_per_token = self.estimate_flops_per_token();
+        // 使用 f64 避免溢出
+        let total_flops_f64 = flops_per_token as f64
+            * self.training.effective_batch_size() as f64
+            * self.training.total_steps as f64;
 
         // 假设 8xH100 的有效算力约为 400 TFLOPS (BF16)
-        let effective_tflops = self.hardware.num_gpus as u64 * 50; // 每张卡约50 TFLOPS
-        let seconds = total_flops as f64 / (effective_tflops as f64 * 1e12);
+        let effective_tflops = self.hardware.num_gpus as f64 * 50.0; // 每张卡约50 TFLOPS
+        let seconds = total_flops_f64 / (effective_tflops * 1e12);
 
         (seconds.max(1.0)) as u64
     }

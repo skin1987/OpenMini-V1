@@ -1,0 +1,25 @@
+#version 450
+
+// 向量加法 Compute Shader
+// 每个 work group 处理 256 个元素
+layout(local_size_x = 256) in;
+
+// 输入缓冲区 A（只读）
+layout(std430, binding = 0) readonly buffer InputA { float a[]; };
+
+// 输入缓冲区 B（只读）
+layout(std430, binding = 1) readonly buffer InputB { float b[]; };
+
+// 输出缓冲区（可写）
+layout(std430, binding = 2) buffer Output { float result[]; };
+
+void main() {
+    // 获取当前线程的全局 ID
+    uint idx = gl_GlobalInvocationID.x;
+
+    // 边界检查，防止越界访问
+    if (idx < result.length()) {
+        // 执行向量加法：result[i] = a[i] + b[i]
+        result[idx] = a[idx] + b[idx];
+    }
+}

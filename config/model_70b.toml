@@ -1,0 +1,186 @@
+# ============================================================
+# OpenMini-70B Dense Model Training Configuration
+# ============================================================
+# 70B参数量密集型多模态Transformer模型完整训练配置
+# 基于 DeepSeek-V3 架构设计，支持 256K 长上下文
+# 目标: 生产级通用大语言模型，对标 Llama-3-70B / Qwen-72B
+# ============================================================
+
+[model]
+# 模型基本信息
+name = "OpenMini-70B"
+architecture = "MultimodalTransformer"
+
+# 模型规模参数 (70B ~ 70.5B 参数)
+vocab_size = 152064              # 词表大小（与Qwen2.5对齐，支持多语言）
+hidden_size = 8192               # 隐藏层维度 (8K)
+intermediate_size = 28672        # FFN中间层维度 (8192 * 3.5, 接近DeepSeek-V3比例)
+num_attention_heads = 64         # 注意力头数
+num_key_value_heads = 16         # GQA: KV头数 (64/4=16, 每4个Query共享1个KV)
+num_hidden_layers = 80           # Transformer层数 (比14B更深，提升表达能力)
+max_position_embeddings = 262144 # 最大序列长度 (256K context, 支持长文档)
+
+# RMSNorm参数
+rms_norm_eps = 1e-6              # RMSNorm epsilon
+rope_theta = 10000.0             # RoPE基础频率
+rope_scaling_type = "linear"     # RoPE扩展类型 (支持256K)
+
+[moe]
+# MoE (Mixture of Experts) 配置
+# 70B-Dense版本不使用MoE，保留配置以兼容框架和未来236B-MoE扩展
+mode = "dense"                   # 运行模式: dense | moe
+num_experts = 256                # 专家数量（MoE模式启用，Dense模式下忽略）
+num_experts_per_tok = 8          # 每token激活专家数（MoE模式）
+router_aux_loss_coef = 0.001     # 路由辅助损失系数
+router_z_loss_coef = 0.0001      # 路由z-loss系数
+shared_expert_ratio = 0.0        # 共享专家比例（Dense模式为0）
+
+[mla]
+# MLA (Multi-head Latent Attention) 配置
+# DeepSeek-V3风格的压缩注意力机制，显著降低KV Cache显存占用
+latent_dim = 2048                # 潜在表示维度 (14B的2倍，匹配hidden_size增长)
+compress_ratio = 4.0             # 压缩比 (KV Cache压缩到原来的1/4)
+num_kv_heads = 16                # 压缩后的KV头数 (与GQA的KV头数对齐)
+
+[training]
+# 预训练超参数配置 - 针对70B大规模训练优化
+batch_size = 512                 # 全局有效batch size (14B的2倍)
+micro_batch_size = 8             # 单设备micro-batch size (适配H100 80GB)
+gradient_accumulation_steps = 64 # 梯度累积步数 (512 / 8 = 64)
+learning_rate = 2e-4             # 峰值学习率 (略低于14B的3e-4，大规模训练更稳定)
+weight_decay = 0.01              # 权重衰减
+warmup_steps = 10000             # Warmup步数 (更长warmup确保稳定)
+total_steps = 1000000            # 总训练步数 (2000B tokens / 512 batch / ~4K seq)
+save_steps = 10000               # Checkpoint保存间隔 (每10K步保存)
+eval_steps = 5000                # 评估间隔 (每5K步评估)
+dtype = "bf16"                   # 训练精度 (bf16混合精度，H100原生支持)
+
+# 梯度裁剪与累积
+max_grad_norm = 1.0              # 最大梯度范数
+grad_accum_dtype = "fp32"        # 累积精度 (FP32保证数值稳定性)
+gradient_checkpointing = true    # 激活检查点 (节省显存，70B必须开启)
+
+# 学习率调度
+lr_scheduler_type = "cosine"     # 调度器类型: cosine | linear | cosine_with_restarts
+min_lr_ratio = 0.1               # 最小学习率比例 (相对于峰值，最终lr=2e-5)
+
+[data]
+# 数据配置 - 大规模多源预训练数据混合 (总计2000B tokens)
+train_tokens = "2000B"           # 总训练tokens (14B的2.5倍，Chinchilla最优)
+code_tokens = "300B"             # 代码数据占比 (15%, 强化推理能力)
+chinese_tokens = "500B"          # 中文数据占比 (25%, 强化中文能力)
+math_tokens = "200B"             # 数学数据占比 (10%, 强化数学推理)
+science_tokens = "400B"          # 科学数据占比 (20%, STEM知识)
+
+# 数据格式与打包
+data_format = "pretokenized"     # 预分词格式 (加速数据加载)
+max_seq_length = 8192            # 最大序列长度 (用于打包，平衡效率与长程依赖)
+packed_sequence = true           # 是否使用序列打包 (提升GPU利用率>95%)
+
+[hardware]
+# 硬件资源配置 - 64x H100 集群
+num_gpus = 64                    # GPU数量 (64x H100 80GB SXM5)
+gpu_type = "H100"                # GPU型号 (H100 SXM5, 989 TFLOPS BF16 Tensor Core)
+gpu_memory_gb = 80               # 单卡显存(GB)
+total_memory_gb = 5120           # 总显存(GB) = 64 * 80
+
+# 并行策略 - 3D并行 (TP + PP + DP/ZeRO)
+tp_degree = 8                    # 张量并行度 (每卡承载 8192/8=1024 维)
+pp_degree = 8                    # 流水线并行度 (80层 / 8 = 10层/stage)
+dp_degree = 1                    # 数据并行度 (由TPxPP自动计算: 64/(8*8)=1)
+# 实际使用 ZeRO-3 进行数据并行的内存分片
+
+# 显存优化策略
+activation_checkpointing = true  # 激活检查点 (节省~40%激活显存)
+offload_optimizer = false        # 优化器状态卸载到CPU (NVLink高速互联下不需要)
+mixed_precision = true           # 混合精度训练 (BF16权重+FP32优化器状态)
+fsdp_sharding = "full"           # FSDP分片策略: full | grad_op | hybrid
+
+# 性能估算
+estimated_time_weeks = 16        # 预估训练时间 (周) = 100万步 * ~10s/step / 3600 / 24 / 7
+
+[sft]
+# SFT (Supervised Fine-Tuning) 配置
+epochs = 2                       # 微调轮数 (70B通常2轮足够)
+learning_rate = 5e-6             # SFT学习率（比预训练低2个数量级）
+lora_rank = 128                  # LoRA秩 (14B的2倍，更大模型需要更高秩)
+lora_alpha = 256                 # LoRA alpha参数 (rank * 2)
+lora_dropout = 0.05              # LoRA dropout
+lora_target_modules = [          # LoRA目标模块
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+]
+
+# SFT损失配置
+mask_prompt_loss = true          # 屏蔽prompt部分的loss
+response_length_max = 4096       # 最大响应长度
+gradient_checkpointing = true    # SFT阶段也使用梯度检查点
+
+[grpo]
+# GRPO (Group Relative Policy Optimization) 配置
+# 用于RLHF阶段的策略优化，针对70B模型调优
+group_size = 128                 # 组大小（每个prompt生成128个响应，14B的2倍）
+kl_coef = 0.001                  # KL散度惩罚系数
+clip_range = 0.2                 # PPO clip范围
+entropy_coef = 0.01              # 熵奖励系数
+advantage_norm_eps = 1e-8        # 优势归一化epsilon
+grad_clip_norm = 1.0             # GRPO梯度裁剪
+
+# 奖励函数配置
+reward_accuracy_weight = 0.7     # 准确性奖励权重
+reward_format_weight = 0.3       # 格式奖励权重
+
+[evaluation]
+# 评估基准测试配置
+benchmarks = [
+    "MMLU",                      # 多任务语言理解 (57 subjects)
+    "HumanEval",                 # 代码生成 (Python)
+    "GSM8K",                     # 数学推理 (小学水平)
+    "C-Eval",                    # 中文综合评估
+    "MMMU",                      # 多模态大学理解
+    "GPQA",                      # 研究生级科学问答
+]
+
+# 目标分数 (与Llama-3-70B/Qwen-72B竞争)
+target_scores = { MMLU = 80.0, HumanEval = 75.0, GSM8K = 85.0 }
+
+[checkpoint]
+# Checkpoint管理配置
+output_dir = "./checkpoints/70b-dense"
+save_strategy = "steps"          # steps | epoch | best
+save_total_limit = 5             # 最多保留checkpoint数量 (单个checkpoint约140GB FP16)
+resume_from_checkpoint = ""      # 断点续训路径（留空则从头开始）
+
+# 从14B扩展配置（可选）
+base_model_path = "./checkpoints/14b-base"  # 14B base checkpoint路径
+expansion_strategy = "scaled_copy"           # 扩展策略: random_init | scaled_copy | interpolation
+
+[logging]
+log_every_n_steps = 10           # 日志输出间隔
+logging_dir = "./logs/70b-training"
+save_metrics_history = true      # 保存指标历史
+wandb_project = "openmini-70b"   # Weights & Biases项目名
+wandb_run_name = ""              # 运行名称（自动生成）
+
+[early_stopping]
+enabled = true                   # 启用早停
+patience = 10                    # 连续无改善次数阈值
+min_delta = 0.001                # 最小改善幅度
+monitor_metric = "val_loss"      # 监控指标
+mode = "min"                     # min (越小越好) | max (越大越好)
+
+# ============================================================
+# 扩展路径说明:
+#
+# 70B-Dense -> 236B-MoE 扩展计划:
+# 1. 保持 hidden_size=8192 不变
+# 2. 将 FFN 层替换为 MoE: 256 experts, top-8 routing
+# 3. 活跃参数保持 ~70B, 总参数增至 ~236B
+# 4. MLA latent_dim 增至 3072 以支持更高效的KV压缩
+# 5. 训练数据增加至 4000B tokens
+# ============================================================

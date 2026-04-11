@@ -35,6 +35,7 @@ pub mod sampler;
 pub mod sliding_window;
 pub mod speculative_decoding_v2;
 pub mod tokenizer;
+pub mod tpa;
 pub mod vision;
 
 // 重导出常用类型

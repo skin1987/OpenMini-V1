@@ -1,0 +1,38 @@
+#version 450
+
+// 矩阵乘法 Compute Shader
+// 使用 16x16 的 work group 大小以优化共享内存使用
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// 矩阵 A 缓冲区（只读），按行优先存储，维度 M x K
+layout(std430, binding = 0) readonly buffer MatA { float A[]; };
+
+// 矩阵 B 缓冲区（只读），按行优先存储，维度 K x N
+layout(std430, binding = 1) readonly buffer MatB { float B[]; };
+
+// 输出矩阵 C 缓冲区（可写），按行优先存储，维度 M x N
+layout(std430, binding = 2) buffer MatC { float C[]; };
+
+// Push constants 用于传递矩阵维度参数
+// 限制：最多 128 字节（这里使用 12 字节）
+layout(push_constant) uniform Params {
+    uint M;  // 矩阵 A 的行数 / 矩阵 C 的行数
+    uint N;  // 矩阵 B 的列数 / 矩阵 C 的列数
+    uint K;  // 矩阵 A 的列数 / 矩阵 B 的行数
+};
+
+void main() {
+    // 获取当前线程的全局 ID（对应输出矩阵 C 的行列索引）
+    uint i = gl_GlobalInvocationID.x;
+    uint j = gl_GlobalInvocationID.y;
+
+    // 边界检查
+    if (i < M && j < N) {
+        // 计算矩阵乘法的点积：C[i][j] = sum(A[i][k] * B[k][j], k=0..K-1)
+        float sum = 0.0;
+        for (uint k = 0; k < K; k++) {
+            sum += A[i * K + k] * B[k * N + j];
+        }
+        C[i * N + j] = sum;
+    }
+}

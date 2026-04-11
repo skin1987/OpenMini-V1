@@ -535,6 +535,18 @@ pub struct ModelConfig {
     pub rms_norm_eps: f32,
     /// RoPE 基础频率
     pub rope_theta: f32,
+    /// 模型架构类型
+    pub architecture: Architecture,
+    /// 是否为 MoE 架构
+    pub is_moe: bool,
+    /// MoE 专家数量（仅 MoE 架构有效）
+    pub num_experts: usize,
+    /// MoE Top-K 选择数量（仅 MoE 架构有效）
+    pub top_k: usize,
+    /// 是否使用 MLA（Multi-head Latent Attention）
+    pub use_mla: bool,
+    /// MLA 潜在维度（仅 MLA 架构有效）
+    pub mla_latent_dim: usize,
 }
 
 impl From<super::model::ModelConfig> for ModelConfig {
@@ -549,12 +561,24 @@ impl From<super::model::ModelConfig> for ModelConfig {
             max_position_embeddings: config.max_position_embeddings,
             rms_norm_eps: config.rms_norm_eps,
             rope_theta: config.rope_theta,
+            architecture: Architecture::Llama,
+            is_moe: config.moe_num_experts > 0,
+            num_experts: config.moe_num_experts,
+            top_k: config.moe_top_k,
+            use_mla: config.use_mla,
+            mla_latent_dim: config.mla_latent_dim,
         }
     }
 }
 
 impl From<ModelConfig> for super::model::ModelConfig {
     fn from(config: ModelConfig) -> Self {
+        let head_dim = if config.num_attention_heads > 0 {
+            config.hidden_size / config.num_attention_heads
+        } else {
+            super::model::DEFAULT_HIDDEN_SIZE / super::model::DEFAULT_NUM_ATTENTION_HEADS
+        };
+
         Self {
             vocab_size: config.vocab_size,
             hidden_size: config.hidden_size,
@@ -562,10 +586,14 @@ impl From<ModelConfig> for super::model::ModelConfig {
             num_hidden_layers: config.num_hidden_layers,
             num_attention_heads: config.num_attention_heads,
             num_key_value_heads: config.num_key_value_heads,
-            head_dim: config.hidden_size / config.num_attention_heads,
+            head_dim,
             max_position_embeddings: config.max_position_embeddings,
             rms_norm_eps: config.rms_norm_eps,
             rope_theta: config.rope_theta,
+            moe_num_experts: if config.is_moe { config.num_experts } else { 0 },
+            moe_top_k: if config.is_moe { config.top_k } else { 2 },
+            use_mla: config.use_mla,
+            mla_latent_dim: if config.use_mla { config.mla_latent_dim } else { 512 },
             ..Default::default()
         }
     }
@@ -2036,40 +2064,24 @@ impl GgufFile {
     /// # Returns
     /// 模型配置
     pub fn get_model_config(&self) -> Result<ModelConfig> {
-        // 首先读取架构名称，决定键名前缀
         let architecture_str = self
             .metadata
             .get_string("general.architecture")
             .unwrap_or("llama");
 
-        // 使用 Architecture enum 解析（支持 12 种架构）
         let arch = Architecture::from_str(architecture_str);
         let prefix = arch.parameter_prefix();
 
-        // 特殊处理：MoE 架构和 Packed QKV 架构（用于调试和监控）
-        // 可以在未来添加日志记录，当前仅作为架构识别的扩展点
-        let _arch = arch; // 抑制未使用警告，保留架构信息供未来使用
-        let _prefix = prefix; // 抑制未使用警告
+        let is_moe = arch.is_moe();
+        let use_mla = arch.uses_mla();
 
         let vocab_size = self
             .metadata
             .get_u64("general.vocab_size")
             .unwrap_or(DEFAULT_VOCAB_SIZE as u64) as usize;
 
-        // 【关键修复】Phi Bug 修复：
-        // 原代码的回退顺序是: prefix -> llama -> qwen2 -> gemma
-        // 当架构是 Phi 时，prefix="phi"，但如果 phi.* 参数不存在，
-        // 会错误地回退到 llama.*，导致参数读取错误。
-        //
-        // 新逻辑：
-        // 1. 优先使用当前架构的前缀
-        // 2. 然后按兼容性顺序尝试其他前缀（phi 优先于 llama！）
-        // 3. 最后使用默认值
-
-        // 定义参数回退优先级列表（从高到低）
-        // Phi 架构现在会正确地在 llama 之前被尝试
         let fallback_prefixes: Vec<&str> = match arch {
-            Architecture::Phi => vec!["phi", "llama", "qwen2", "gemma"], // Phi 优先！
+            Architecture::Phi => vec!["phi", "llama", "qwen2", "gemma"],
             Architecture::Mistral => vec!["mistral", "llama", "qwen2"],
             Architecture::Mixtral => vec!["mixtral", "mistral", "llama"],
             Architecture::DeepSeekV3 => vec!["deepseek_v3", "deepseek", "mixtral", "llama"],
@@ -2078,19 +2090,15 @@ impl GgufFile {
             Architecture::Baichuan => vec!["baichuan", "llama", "qwen2"],
             Architecture::Falcon => vec!["falcon", "llama"],
             Architecture::StableLM => vec!["stablelm", "llama", "qwen2"],
-            _ => vec![prefix, "llama", "qwen2", "gemma"], // 默认顺序
+            _ => vec![prefix, "llama", "qwen2", "gemma"],
         };
 
-        // 辅助函数：按照回退优先级列表读取 u32 参数
         let get_param_u32 = |key_suffix: &str| -> Option<u32> {
-            // 先尝试主前缀
             if let Some(val) = self.metadata.get_u32(&format!("{}.{}", prefix, key_suffix)) {
                 return Some(val);
             }
-            // 再按回退列表尝试
             for &fallback_prefix in &fallback_prefixes {
                 if fallback_prefix != prefix {
-                    // 避免重复尝试
                     if let Some(val) =
                         self.metadata.get_u32(&format!("{}.{}", fallback_prefix, key_suffix))
                     {
@@ -2101,13 +2109,10 @@ impl GgufFile {
             None
         };
 
-        // 辅助函数：按照回退优先级列表读取 f32 参数
         let get_param_f32 = |key_suffix: &str| -> Option<f32> {
-            // 先尝试主前缀
             if let Some(val) = self.metadata.get_f32(&format!("{}.{}", prefix, key_suffix)) {
                 return Some(val);
             }
-            // 再按回退列表尝试
             for &fallback_prefix in &fallback_prefixes {
                 if fallback_prefix != prefix {
                     if let Some(val) =
@@ -2120,7 +2125,6 @@ impl GgufFile {
             None
         };
 
-        // 读取所有配置参数（使用统一的回退逻辑）
         let hidden_size = get_param_u32("embedding_length").unwrap_or(DEFAULT_HIDDEN_SIZE as u32) as usize;
 
         let intermediate_size =
@@ -2142,17 +2146,34 @@ impl GgufFile {
         let rms_norm_eps =
             get_param_f32("attention.layer_norm_rms_epsilon").unwrap_or(DEFAULT_RMS_NORM_EPS);
 
-        // 【特殊处理】RoPE theta 根据架构选择不同的默认值
-        // - Yi: 5000000.0
-        // - Baichuan: 0.0 (使用 ALiBi)
-        // - ChatGLM: 10000.0
-        // - 其他: DEFAULT_ROPE_THETA (1000000.0)
         let default_rope_theta = arch.default_rope_theta();
         let rope_theta = get_param_f32("rope.freq_base").unwrap_or(default_rope_theta);
 
-        // 如果 Baichuan 的 rope_theta 为 0.0，说明不使用 RoPE（使用 ALiBi）
-        // 注意：此信息可用于未来调试，当前不输出日志
         let _baichuan_no_rope = arch == Architecture::Baichuan && rope_theta == 0.0;
+
+        let (num_experts, top_k, mla_latent_dim) = match arch {
+            Architecture::DeepSeekV3 => {
+                let experts = get_param_u32("expert_count")
+                    .or_else(|| get_param_u32("moe.num_experts"))
+                    .unwrap_or(64) as usize;
+                let tk = get_param_u32("top_k")
+                    .or_else(|| get_param_u32("moe.top_k"))
+                    .unwrap_or(6) as usize;
+                let latent = get_param_u32("mla.latent_dim")
+                    .unwrap_or(512) as usize;
+                (experts, tk, latent)
+            }
+            Architecture::Mixtral => {
+                let experts = get_param_u32("expert_count")
+                    .or_else(|| get_param_u32("moe.num_experts"))
+                    .unwrap_or(8) as usize;
+                let tk = get_param_u32("top_k")
+                    .or_else(|| get_param_u32("moe.top_k"))
+                    .unwrap_or(2) as usize;
+                (experts, tk, 512)
+            }
+            _ => (0, 2, 512),
+        };
 
         Ok(ModelConfig {
             vocab_size,
@@ -2164,6 +2185,12 @@ impl GgufFile {
             max_position_embeddings,
             rms_norm_eps,
             rope_theta,
+            architecture: arch,
+            is_moe,
+            num_experts,
+            top_k,
+            use_mla,
+            mla_latent_dim,
         })
     }
 

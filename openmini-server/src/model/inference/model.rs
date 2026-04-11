@@ -72,6 +72,7 @@ use std::time::Instant;
 use super::dsa::{self, DSATopKConfig};
 use super::error::{InferenceError, InferenceResult};
 use super::gemm_engine::get_gemm_engine_manager;
+use super::gguf::{MoEWeightsV2, FFNWeights as GGUFFNWeights};
 use super::sampler::GenerateParams;
 
 impl From<ndarray::ShapeError> for InferenceError {
@@ -227,13 +228,13 @@ pub const IM_END_TOKEN_ID: usize = 151648;
 /// 默认词汇表大小
 const DEFAULT_VOCAB_SIZE: usize = 151936;
 /// 默认隐藏层维度
-const DEFAULT_HIDDEN_SIZE: usize = 3584;
+pub const DEFAULT_HIDDEN_SIZE: usize = 3584;
 /// 默认中间层维度
 const DEFAULT_INTERMEDIATE_SIZE: usize = 18944;
 /// 默认隐藏层数
 const DEFAULT_NUM_HIDDEN_LAYERS: usize = 28;
 /// 默认注意力头数
-const DEFAULT_NUM_ATTENTION_HEADS: usize = 32;
+pub const DEFAULT_NUM_ATTENTION_HEADS: usize = 32;
 /// 默认 KV 头数
 const DEFAULT_NUM_KEY_VALUE_HEADS: usize = 8;
 /// 默认最大位置编码
@@ -989,6 +990,7 @@ pub struct TransformerLayerWeights {
     pub mla: Option<MLAWeights>,
     pub ffn: FFNWeights,
     pub moe: MoEWeights,
+    pub moe_v2: Option<MoEWeightsV2>,
     pub input_layernorm: Array1<f32>,
     pub post_attention_layernorm: Array1<f32>,
     pub mhc_dynamic_proj: Option<Array2<f32>>,
@@ -1784,6 +1786,7 @@ impl TransformerLayerWeights {
                 top_k: config.moe_top_k,
                 modality_embeds: None,
             },
+            moe_v2: None,
             input_layernorm: Array1::ones(config.hidden_size),
             post_attention_layernorm: Array1::ones(config.hidden_size),
             mhc_dynamic_proj: if config.use_mhc {
@@ -1867,6 +1870,7 @@ impl TransformerLayerWeights {
                 top_k: moe_top_k,
                 modality_embeds: None,
             },
+            moe_v2: None,
             input_layernorm: q_weights.input_layernorm.clone(),
             post_attention_layernorm: q_weights.post_attention_layernorm.clone(),
             mhc_dynamic_proj: if config.use_mhc {
@@ -1982,7 +1986,90 @@ impl TransformerLayerWeights {
 
         let normed2 = rms_norm(&hidden, &self.post_attention_layernorm, config.rms_norm_eps);
 
-        if layer_idx % 3 == 2 {
+        if let Some(moe_v2) = &self.moe_v2 {
+            let x_3d = normed2.clone().insert_axis(Axis(0));
+            let (ffn_out_3d, _loss) = moe_v2.forward(&x_3d)
+                .map_err(|e| InferenceError::generation(format!("MoE V2 forward failed: {}", e)))?;
+            let ffn_out = ffn_out_3d.index_axis_move(Axis(0), 0);
+            if config.use_mhc {
+                if let (Some(ref dyn_proj), Some(ref sta_proj)) =
+                    (&self.mhc_dynamic_proj, &self.mhc_static_proj)
+                {
+                    let h_3d = hidden
+                        .clone()
+                        .into_shape_with_order((
+                            seq_len,
+                            config.head_dim,
+                            config.num_attention_heads,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC reshape h failed: {}", e))
+                        })?;
+                    let d_3d = ffn_out
+                        .clone()
+                        .into_shape_with_order((
+                            seq_len,
+                            config.head_dim,
+                            config.num_attention_heads,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC reshape ffn failed: {}", e))
+                        })?;
+                    let out_3d = mhc_residual(
+                        &h_3d,
+                        &d_3d,
+                        dyn_proj,
+                        sta_proj,
+                        config.num_attention_heads,
+                        config.head_dim,
+                        config.mhc_sinkhorn_iterations,
+                        config.mhc_epsilon,
+                    )?;
+                    let output = out_3d
+                        .into_shape_with_order((
+                            seq_len,
+                            config.num_attention_heads * config.head_dim,
+                        ))
+                        .map_err(|e| {
+                            InferenceError::generation(format!("mHC 3D→2D reshape failed: {}", e))
+                        })?;
+
+                    if config.use_attnres {
+                        if let Some(bs) = block_summary {
+                            if bs.is_block_end(layer_idx) {
+                                let _ = bs.update_summary(&output, layer_idx);
+                            }
+                        }
+                    }
+
+                    Ok(output)
+                } else {
+                    let output = hidden + ffn_out;
+
+                    if config.use_attnres {
+                        if let Some(bs) = block_summary {
+                            if bs.is_block_end(layer_idx) {
+                                let _ = bs.update_summary(&output, layer_idx);
+                            }
+                        }
+                    }
+
+                    Ok(output)
+                }
+            } else {
+                let output = hidden + ffn_out;
+
+                if config.use_attnres {
+                    if let Some(bs) = block_summary {
+                        if bs.is_block_end(layer_idx) {
+                            let _ = bs.update_summary(&output, layer_idx);
+                        }
+                    }
+                }
+
+                Ok(output)
+            }
+        } else if layer_idx % 3 == 2 {
             let moe_out = self.moe.forward(&normed2, None)?;
             if config.use_mhc {
                 if let (Some(ref dyn_proj), Some(ref sta_proj)) =
