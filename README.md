@@ -14,26 +14,26 @@ OpenMini-V1 is a production-grade LLM inference server built entirely in Rust, l
 
 | Metric | Result |
 |--------|--------|
-| DSA Integration Tests | 3/3 passed |
-| RL Module Tests | 105/105 passed |
-| Metal GPU Tests | 23/23 passed |
-| Clippy Errors | 0 errors |
-| Release Build | Success (5m31s) |
+| DSA Integration Tests | ✅ 3/3 passed |
+| RL Module Tests | ✅ 105/105 passed |
+| Metal GPU Tests | ✅ 23/23 passed |
+| Clippy Errors | ✅ 0 errors |
+| Release Build | ✅ Success (5m31s) |
 
 ---
 
 ## Features
 
-- Multi-Hardware Acceleration: CPU (AVX/NEON/SIMD), CUDA, Metal (Apple Silicon), Vulkan (experimental)
-- Advanced Attention: Dynamic Sparse Attention (DSA), Flash Attention 3, Paged KV Cache
-- Quantization: GGUF loader, INT8/INT4 quantization, SIMD-accelerated inference
-- Reinforcement Learning: GRPO algorithm, Actor-Reward architecture, Keep Routing & Sampling Mask
-- Service Layer: gRPC gateway (tonic), HTTP REST API (axum), Worker process pool
-- Monitoring: Prometheus metrics exporter, health check endpoints, structured logging
-- Admin Panel: Vue3 + TypeScript management dashboard (`openmini-admin-web/`)
-- Database Layer: MemoryStore, SessionManager, MessagePool abstraction
-- CI/CD: GitHub Actions pipeline + local `act` runner support
-- Docker: Multi-stage build with docker-compose one-click deployment
+- **Multi-Hardware Acceleration**: CPU (AVX/NEON/SIMD), CUDA, Metal (Apple Silicon), Vulkan (experimental)
+- **Advanced Attention**: Dynamic Sparse Attention (DSA), Flash Attention 3, Paged KV Cache
+- **Quantization**: GGUF loader, INT8/INT4 quantization, SIMD-accelerated inference
+- **Reinforcement Learning**: GRPO algorithm, Actor-Reward architecture, Keep Routing & Sampling Mask
+- **Service Layer**: gRPC gateway (tonic), HTTP REST API (axum), Worker process pool
+- **Monitoring**: Prometheus metrics exporter, health check endpoints, structured logging
+- **Admin Panel**: Vue3 + TypeScript management dashboard (`openmini-admin-web/`)
+- **Database Layer**: MemoryStore, SessionManager, MessagePool abstraction
+- **CI/CD**: GitHub Actions pipeline + local `act` runner support
+- **Docker**: Multi-stage build with docker-compose one-click deployment
 
 ---
 
@@ -141,7 +141,6 @@ docker build -t openmini-server .
 # Or use docker-compose (includes optional monitoring stack)
 docker compose up -d
 ```
-
 The image exposes:
 - Port `50051` — gRPC API
 - Port `8080` — HTTP REST API
