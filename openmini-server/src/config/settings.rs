@@ -18,7 +18,9 @@ use ts_rs::TS;
 pub struct ServerConfig {
     /// 服务器基础设置
     pub server: ServerSettings,
-    /// 线程池设置
+    /// 统一任务调度器设置 (推荐使用，替代 thread_pool 和 worker)
+    pub scheduler: SchedulerSettings,
+    /// 线程池设置 (DEPRECATED: 请使用 scheduler.max_concurrent)
     pub thread_pool: ThreadPoolSettings,
     /// 内存管理设置
     pub memory: MemorySettings,
@@ -33,7 +35,7 @@ pub struct ServerConfig {
     /// 引擎配置
     #[serde(default)]
     pub engine: EngineSettings,
-    /// Worker 进程设置
+    /// Worker 进程设置 (DEPRECATED: TaskScheduler 已替代)
     pub worker: WorkerSettings,
     /// Per-Core Actor 设置
     #[serde(default)]
@@ -44,6 +46,32 @@ pub struct ServerConfig {
     #[serde(default)]
     pub database: DatabaseSettings,
 }
+
+/// 统一任务调度器配置 (TaskScheduler)
+///
+/// 替代原有的 [thread_pool] 和 [worker] 配置，
+/// 提供基于 Tokio Runtime 的单进程高效任务调度。
+#[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
+#[ts(export)]
+pub struct SchedulerSettings {
+    /// 最大并发任务数 (默认 = CPU 核心数)
+    pub max_concurrent: usize,
+    /// 任务队列容量 (超出将返回错误)
+    pub queue_capacity: usize,
+    /// 任务类型: "blocking" | "async" | "auto"
+    #[serde(default = "default_scheduler_worker_type")]
+    pub worker_type: String,
+    /// 批处理大小
+    #[serde(default = "default_scheduler_batch_size")]
+    pub batch_size: usize,
+    /// 批处理超时 (ms)
+    #[serde(default = "default_scheduler_batch_timeout_ms")]
+    pub batch_timeout_ms: u64,
+}
+
+fn default_scheduler_worker_type() -> String { "auto".to_string() }
+fn default_scheduler_batch_size() -> usize { 8 }
+fn default_scheduler_batch_timeout_ms() -> u64 { 5 }
 
 /// Per-Core Actor 设置
 #[derive(Debug, Clone, Default, Deserialize, serde::Serialize, TS)]
@@ -281,6 +309,13 @@ impl Default for ServerConfig {
                 max_connections: 10000,
                 request_timeout_ms: 60000,
             },
+            scheduler: SchedulerSettings {
+                max_concurrent: num_cpus::get().max(1),
+                queue_capacity: 1000,
+                worker_type: "auto".to_string(),
+                batch_size: 8,
+                batch_timeout_ms: 5,
+            },
             thread_pool: ThreadPoolSettings {
                 size: num_cpus::get(),
                 stack_size_kb: 8192,
@@ -476,6 +511,11 @@ host = "127.0.0.1"
 port = 8080
 max_connections = 50
 request_timeout_ms = 30000
+
+[scheduler]
+max_concurrent = 4
+queue_capacity = 100
+worker_type = "auto"
 
 [thread_pool]
 size = 4

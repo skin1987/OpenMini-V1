@@ -874,29 +874,26 @@ mod tests {
 
     #[test]
     fn test_weight_split_consistency() {
-        // 验证切分后重新组合能得到原始权重
         let config = DistributedConfig::for_local_testing(2);
         let tp = TensorParallelManager::new(&config).unwrap();
 
         let original: Array2<f32> =
             Array::from_shape_fn((6, 10), |(i, j)| (i * 10 + j) as f32);
 
-        // 测试列并行切分
         let col_shards = tp.column_parallel_weight(&original);
-        let reconstructed: Vec<f32> = col_shards
-            .iter()
-            .flat_map(|s| s.iter().copied())
-            .collect();
-        let original_flat: Vec<f32> = original.iter().copied().collect();
-        assert_eq!(reconstructed, original_flat);
+        let col_reconstructed: Array2<f32> = ndarray::concatenate(
+            Axis(1),
+            &col_shards.iter().map(|s| s.view()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(col_reconstructed, original);
 
-        // 测试行并行切分
         let row_shards = tp.row_parallel_weight(&original);
         let row_reconstructed: Array2<f32> = ndarray::concatenate(
             Axis(0),
             &row_shards.iter().map(|s| s.view()).collect::<Vec<_>>(),
         )
         .unwrap();
-        assert_eq!(row_reconstructed.shape(), original.shape());
+        assert_eq!(row_reconstructed, original);
     }
 }

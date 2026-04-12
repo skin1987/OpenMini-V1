@@ -7,6 +7,7 @@
 //! - 多模态推理（文本 + 图像）
 
 pub mod attn_res;
+pub mod ahn;
 pub mod context;
 pub mod continuous_batching;
 pub mod dsa;

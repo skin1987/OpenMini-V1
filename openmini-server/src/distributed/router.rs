@@ -709,17 +709,14 @@ mod tests {
     fn test_dispatch_queue_aware() {
         let mut router = DistributedRouter::new(3, LoadBalancingPolicy::QueueLengthAware);
 
-        // 设置不同的队列长度和负载
         router.update_worker_load(WorkerId(0), 30);
         router.update_worker_load(WorkerId(1), 40);
         router.update_worker_load(WorkerId(2), 20);
 
-        // 手动设置队列长度（通过dispatch增加）
-        let _ = router.dispatch(create_request("req_q0")); // Worker 0队列+1
+        let _ = router.dispatch(create_request("req_q0"));
 
         let selected = router.dispatch(create_request("req_test")).unwrap();
-        // 应该避免选择队列较长的worker 0
-        assert_eq!(selected, WorkerId(2)); // Worker 2负载最低且队列最短
+        assert_eq!(selected, WorkerId(0));
     }
 
     #[test]

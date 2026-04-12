@@ -4481,6 +4481,7 @@ mod tests {
             } else {
                 None
             },
+            moe_v2: None,
             attnres_pseudo_query: if config.use_attnres {
                 Some(Array1::zeros(config.hidden_size))
             } else {

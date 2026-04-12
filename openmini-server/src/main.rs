@@ -3,30 +3,30 @@
 //! 本模块是 OpenMini 推理服务器的启动入口，负责：
 //! - 初始化日志系统
 //! - 加载服务器配置
-//! - 创建并管理 Worker 进程池
-//! - 启动 gRPC 网关服务
+//! - 创建统一任务调度器 (TaskScheduler)
+//! - 启动网关服务
 //! - 处理优雅关闭信号
-
-// Clippy 配置：允许预期的 cfg 条件值和函数参数过多
-#![allow(unexpected_cfgs)]
-#![allow(clippy::too_many_arguments)]
-
 //!
 //! # 架构概述
 //!
-//! OpenMini 服务器采用多进程架构：
-//! - 主进程：负责启动和管理 Worker 进程，运行 gRPC 网关
-//! - Worker 进程：执行实际的模型推理任务
+//! OpenMini 服务器采用 **TaskScheduler 单进程架构**：
+//! - 主进程：运行 TaskScheduler 统一调度所有推理任务
+//! - 基于 Tokio Runtime 的异步任务调度
+//! - 使用 spawn_blocking 处理 CPU 密集型推理任务
 //!
 //! # 启动流程
 //!
 //! 1. 初始化日志系统（支持 RUST_LOG 环境变量）
-//! 2. 检测是否为 Worker 进程，如果是则直接运行 Worker 逻辑
-//! 3. 加载服务器配置文件
-//! 4. 初始化内存监控器
-//! 5. 创建线程池和 Worker 池
-//! 6. 启动 gRPC 网关服务
+//! 2. 加载服务器配置文件
+//! 3. 初始化内存监控器
+//! 4. 创建 TaskScheduler 统一任务调度器
+//! 5. 创建 AsyncInferencePool 用于请求排队
+//! 6. 启动网关服务
 //! 7. 等待关闭信号并优雅退出
+
+// Clippy 配置：允许预期的 cfg 条件值和函数参数过多
+#![allow(unexpected_cfgs)]
+#![allow(clippy::too_many_arguments)]
 
 // ============================================================================
 // 模块声明
@@ -51,9 +51,8 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::ServerConfig;
-use service::core_actor::PerCoreActor;
-use service::router::{BalanceStrategy, CoreRouter};
-use service::thread::ThreadPool;
+use service::scheduler::{SchedulerConfig, TaskScheduler};
+use service::worker::AsyncInferencePool;
 
 // ============================================================================
 // 主函数
@@ -63,9 +62,9 @@ use service::thread::ThreadPool;
 ///
 /// 使用 Tokio 异步运行时，执行以下流程：
 /// 1. 初始化日志订阅器
-/// 2. 检测并启动 Worker 进程（如果是子进程模式）
-/// 3. 初始化主进程的各项组件
-/// 4. 启动 gRPC 服务并等待关闭信号
+/// 2. 初始化主进程的各项组件
+/// 3. 启动 TaskScheduler 和网关服务
+/// 4. 等待关闭信号并优雅退出
 ///
 /// # 返回值
 ///
@@ -80,8 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 日志系统初始化
     // ========================================================================
 
-    // 配置日志订阅器，支持通过 RUST_LOG 环境变量控制日志级别
-    // 默认日志级别为 info，输出格式为标准格式
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
@@ -90,27 +87,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // ========================================================================
-    // Worker 进程检测与启动
-    // ========================================================================
-
-    // 检查当前进程是否为 Worker 进程
-    // Worker 进程由主进程通过 fork 创建，用于执行推理任务
-    if service::worker::is_worker_process() {
-        if let Some(id) = service::worker::get_worker_id() {
-            info!("Starting worker {} with pid {}", id, std::process::id());
-            let worker = service::worker::Worker::new(id);
-            worker.run();
-            info!("Worker {} exited", id);
-        }
-        // Worker 进程执行完毕后直接退出
-        return Ok(());
-    }
-
-    // ========================================================================
     // 主进程初始化
     // ========================================================================
 
-    info!("OpenMini Server starting...");
+    info!("OpenMini Server starting (TaskScheduler mode)...");
 
     let _hardware_profile = hardware::detect_hardware();
     let cpu_backend = hardware::CpuBackend::create();
@@ -123,28 +103,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     info!("CPU Info:\n{}", cpu_info);
 
-    info!(
-        "Hardware: {} CPU cores, {} GB max memory",
-        num_cpus::get(),
-        config::ServerConfig::default().memory.max_memory_gb
-    );
-
     // ========================================================================
     // 配置加载
     // ========================================================================
 
     let config = load_config();
     info!(
-        "Configuration loaded: {} workers, {} max connections",
-        config.worker.count, config.server.max_connections
+        "Configuration loaded: scheduler(max_concurrent={}, queue_capacity={}), {} max connections",
+        config.scheduler.max_concurrent,
+        config.scheduler.queue_capacity,
+        config.server.max_connections
     );
 
     // ========================================================================
     // 内存监控器初始化
     // ========================================================================
 
-    // 创建内存监控器，用于跟踪内存使用情况
-    // 当内存使用接近限制时，会触发警告或拒绝新请求
     info!(
         "Initializing memory monitor (max {} GB)...",
         config.memory.max_memory_gb
@@ -154,65 +128,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     // ========================================================================
-    // 线程池创建
+    // TaskScheduler 统一任务调度器创建 (替代旧的 ThreadPool + WorkerPool + CoreRouter)
     // ========================================================================
 
-    // 创建线程池用于并行处理请求
-    // 线程池大小由配置文件决定，通常设置为 CPU 核心数
+    let scheduler_config = SchedulerConfig::new(
+        config.scheduler.max_concurrent,
+        config.scheduler.queue_capacity,
+    )
+    .with_batching(config.scheduler.batch_size, config.scheduler.batch_timeout_ms);
+
     info!(
-        "Creating thread pool ({} threads)...",
-        config.thread_pool.size
+        max_concurrent = scheduler_config.max_concurrent,
+        queue_capacity = scheduler_config.queue_capacity,
+        batch_size = scheduler_config.batch_size,
+        batch_timeout_ms = scheduler_config.batch_timeout_ms,
+        "Creating TaskScheduler..."
     );
-    let thread_pool = Arc::new(ThreadPool::new(config.thread_pool.size));
+    let task_scheduler = Arc::new(TaskScheduler::new(&scheduler_config));
+    info!("TaskScheduler initialized successfully");
 
     // ========================================================================
-    // Worker 进程池创建
-    // ========================================================================
-
-    // 创建 Worker 进程池，每个 Worker 独立运行模型推理
-    // Worker 数量由配置决定，通常根据 GPU 数量和内存限制设置
-    info!(
-        "Initializing worker pool ({} workers)...",
-        config.worker.count
-    );
-    let worker_pool = Arc::new(service::worker::WorkerPool::new(
-        config.worker.clone().into(),
-    )?);
-
-    // ========================================================================
-    // Per-Core Actor 池初始化（Multi-Core Launcher）
-    // ========================================================================
-
-    let num_cores = num_cpus::get();
-    info!("Initializing Per-Core Actor pool ({} cores)...", num_cores);
-
-    let mut actor_handles = Vec::with_capacity(num_cores);
-    let mut actor_tasks = Vec::with_capacity(num_cores);
-
-    for core_id in 0..num_cores {
-        let (tx, rx) = tokio::sync::mpsc::channel::<service::core_actor::CoreRequest>(100);
-        actor_handles.push(service::router::ActorHandle::new(core_id, tx));
-
-        let actor = PerCoreActor::new(core_id, rx);
-        actor_tasks.push(tokio::spawn(async move {
-            actor.run().await;
-        }));
-
-        info!("Core-{} Actor spawned", core_id);
-    }
-
-    let _core_router = Arc::new(CoreRouter::new(actor_handles, BalanceStrategy::RoundRobin));
-    info!("CoreRouter created with {} actors (RoundRobin strategy)", num_cores);
-
-    // ========================================================================
-    // 异步推理池创建
+    // 异步推理池创建 (用于请求排队和批处理)
     // ========================================================================
 
     info!("Creating async inference pool...");
-    let (inference_pool, _inference_shutdown) = service::worker::AsyncInferencePool::create(
-        1000,
-        8,
-        std::time::Duration::from_millis(10),
+    let (inference_pool, _inference_shutdown) = AsyncInferencePool::create(
+        config.scheduler.queue_capacity,
+        config.scheduler.batch_size,
+        std::time::Duration::from_millis(config.scheduler.batch_timeout_ms),
         |tasks| {
             tasks
                 .iter()
@@ -225,19 +168,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
     let inference_pool = Arc::new(inference_pool);
+    info!("AsyncInferencePool created successfully");
 
     // ========================================================================
-    // gRPC 网关启动
+    // 网关启动
     // ========================================================================
 
-    // 解析服务器监听地址
     let addr: SocketAddr = config.server.host.parse()?;
-    info!("Creating gRPC gateway on {}...", addr);
+    info!("Creating gateway on {}...", addr);
 
-    // 创建 gRPC 网关，将请求分发到线程池和推理池
-    let gateway = service::server::Gateway::new(addr, thread_pool, inference_pool);
+    let gateway = service::server::Gateway::new(addr, inference_pool);
 
-    // 设置关闭信号监听器
     let shutdown_signal = setup_shutdown_signal();
 
     info!(
@@ -245,22 +186,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.server.host, config.server.port
     );
     info!("Ready to accept connections!");
+    info!("Architecture: TaskScheduler (single-process,Tokio-based)");
 
     // ========================================================================
     // 主事件循环
     // ========================================================================
 
-    // 使用 tokio::select! 同时等待网关运行和关闭信号
-    // 任一事件触发都会继续执行
     tokio::select! {
         result = gateway.run() => {
-            // 网关运行出错时记录错误
             if let Err(e) = result {
                 error!("Gateway error: {}", e);
             }
         }
         _ = shutdown_signal => {
-            // 收到关闭信号（Ctrl+C 或 SIGTERM）
             info!("Shutdown signal received");
         }
     }
@@ -271,17 +209,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Shutting down gracefully...");
 
-    // 关闭 Worker 进程池，等待所有 Worker 完成当前任务
-    worker_pool.shutdown();
-
-    // 等待所有 Per-Core Actor 任务完成
-    info!("Waiting for {} Core Actors to shutdown...", actor_tasks.len());
-    for (i, task) in actor_tasks.into_iter().enumerate() {
-        if let Err(e) = task.await {
-            warn!("Core-{} Actor task error: {}", i, e);
-        }
+    info!("Shutting down TaskScheduler...");
+    if let Err(e) = task_scheduler.shutdown().await {
+        warn!("TaskScheduler shutdown error: {}", e);
     }
-    info!("All Core Actors stopped");
+    info!("TaskScheduler stopped");
+
+    info!(
+        completed = task_scheduler.completed_count(),
+        failed = task_scheduler.failed_count(),
+        "Final statistics"
+    );
 
     info!("Server stopped");
 
@@ -293,21 +231,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // ============================================================================
 
 /// 加载服务器配置
-///
-/// 尝试从 `config/server.toml` 文件加载配置。
-/// 如果文件不存在或加载失败，则使用默认配置。
-///
-/// # 返回值
-///
-/// 返回服务器配置对象
-///
-/// # 配置文件格式
-///
-/// 配置文件使用 TOML 格式，包含以下部分：
-/// - `[server]`: 服务器配置（主机、端口、最大连接数等）
-/// - `[worker]`: Worker 进程配置（数量、内存限制等）
-/// - `[thread_pool]`: 线程池配置
-/// - `[memory]`: 内存限制配置
 fn load_config() -> ServerConfig {
     let config_path = std::path::Path::new("config/server.toml");
 
@@ -318,30 +241,16 @@ fn load_config() -> ServerConfig {
                 return config;
             }
             Err(e) => {
-                // 配置文件解析失败时使用默认配置
                 warn!("Failed to load config file: {}, using defaults", e);
             }
         }
     }
 
-    // 使用默认配置
     ServerConfig::default()
 }
 
 /// 设置关闭信号监听器
-///
-/// 监听以下信号：
-/// - `Ctrl+C` (SIGINT): 用户中断
-/// - `SIGTERM`: 终止信号（如 systemd stop）
-///
-/// 在 Unix 系统上同时监听两种信号，
-/// 在非 Unix 系统上只监听 Ctrl+C。
-///
-/// # 返回值
-///
-/// 返回一个 Future，当收到关闭信号时完成
 async fn setup_shutdown_signal() {
-    // Ctrl+C 信号处理
     let ctrl_c = async {
         if let Err(e) = signal::ctrl_c().await {
             error!("Failed to install Ctrl+C handler: {}", e);
@@ -349,7 +258,6 @@ async fn setup_shutdown_signal() {
         }
     };
 
-    // Unix 系统特有的 SIGTERM 信号处理
     #[cfg(unix)]
     let terminate = async {
         match signal::unix::signal(signal::unix::SignalKind::terminate()) {
@@ -362,11 +270,9 @@ async fn setup_shutdown_signal() {
         }
     };
 
-    // 非 Unix 系统使用 pending future（永不完成）
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
-    // 等待任一信号
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},

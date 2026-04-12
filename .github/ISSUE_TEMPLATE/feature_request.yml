@@ -1,16 +1,38 @@
-name: \u2728 Feature Request
-about: Suggest an idea for this project
-title: '[FEATURE] <short description>'
-labels: 'enhancement'
-assignees: ''
----
+name: Feature Request
+description: Suggest an idea for OpenMini-V1
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: "## 功能需求"
 
-## Feature Description
-**Clear description of what this solves.**
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你的用例是什么？
+      description: 描述你想解决的问题
+      placeholder: 我想要使用OpenMini来...
+    validations:
+      required: true
 
-## Proposed Solution
-**Describe what you want to happen.**
+  - type: textarea
+    id: solution
+    attributes:
+      label: 你希望的解决方案
+      description: 你认为应该如何实现
+    validations:
+      required: true
 
-## Alternatives Considered
-- **Option A:** ... (pros/cons)
-- **Option B:** ... (pros/cons)
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你考虑过的替代方案
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 你是否愿意贡献代码实现？
+      options:
+        - label: 是的，我愿意提交PR
+        - label: 可能需要一些指导
+        - label: 暂时没有时间

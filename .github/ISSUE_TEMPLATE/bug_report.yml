@@ -1,33 +1,63 @@
-name: \u{1f41b} Bug Report
-about: Create a report to help us improve
-title: '[BUG] <short description>'
-labels: 'bug'
-assignees: ''
----
+name: Bug Report
+description: File a bug report to help us improve OpenMini-V1
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug 描述
+        简要描述这个bug
 
-## Bug Description
-**Clear description of the bug.**
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何复现这个问题
+      placeholder: |
+        1. 运行 `...`
+        2. 输入 `...`
+        3. 观察到 `...`
+    validations:
+      required: true
 
-## Steps to Reproduce
-1. Go to '...'
-2. Click on '....'
-3. See error
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 你期望发生什么
 
-**Expected behavior:**
-**Actual behavior:**
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么
 
-## Environment
-- **OS**: [e.g., macOS 14.2, Ubuntu 22.04]
-- **Architecture**: [e.g., Apple Silicon M2, x86_64]
-- **Rust Version**:
-- **OpenMini Version**:
-- **Hardware Backend**: [e.g., Metal, CUDA, CPU]
+  - type: dropdown
+    id: component
+    attributes:
+      label: 影响模块
+      options:
+        - Inference Engine (FA3/NSA/Kascade)
+        - Model Loading (GGUF)
+        - Quantization
+        - GPU/CUDA
+        - Training (GRPO)
+        - gRPC Server
+        - Benchmark
+        - Other
 
-```bash
-rustc --version && cargo --version
-```
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      placeholder: |
+        - OS: [e.g., macOS 15, Ubuntu 22.04]
+        - Rust version: [e.g., 1.82]
+        - GPU: [e.g., RTX 4090 / Apple M3]
+        - Model: [e.g., llama-8b-Q4_K_M]
 
-## Error Logs
-```
-Paste error logs here
-```
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志/错误信息
+      render: shell

@@ -5,10 +5,16 @@
 //! - 请求解析和路由
 //! - 会话管理
 //! - 流式响应
+//!
+//! ## 架构说明 (TaskScheduler 模式)
+//!
+//! 本网关已迁移至 TaskScheduler 单进程架构：
+//! - 不再依赖 ThreadPool（已移除）
+//! - 使用 AsyncInferencePool 进行请求排队和批处理
+//! - 实际任务调度由外层 TaskScheduler 负责
 
 #![allow(dead_code)]
 
-use crate::service::thread::ThreadPool;
 use crate::service::worker::{AsyncInferencePool, InferenceTask};
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
@@ -20,6 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::Sender;
 use tokio::time::timeout;
+use rayon::ThreadPool;
 
 use super::connection::ConnectionPool;
 
@@ -267,12 +274,11 @@ pub struct GatewayStatsSnapshot {
 
 /// TCP 网关服务
 ///
-/// 监听 TCP 连接，解析请求并分发到工作线程池处理。
+/// 监听 TCP 连接，解析请求并通过 AsyncInferencePool 分发处理。
+/// (TaskScheduler 模式: 不再使用 ThreadPool)
 pub struct Gateway {
     /// 监听地址
     addr: SocketAddr,
-    /// 工作线程池
-    worker_pool: Arc<ThreadPool>,
     /// 连接池
     connection_pool: ConnectionPool,
     /// 统计信息
@@ -292,22 +298,20 @@ pub struct Gateway {
 }
 
 impl Gateway {
-    /// 创建新的网关
-    pub fn new(addr: SocketAddr, worker_pool: Arc<ThreadPool>, inference_pool: Arc<AsyncInferencePool>) -> Self {
-        Self::with_options(addr, worker_pool, inference_pool, 100, 100)
+    /// 创建新的网关 (TaskScheduler 模式)
+    pub fn new(addr: SocketAddr, inference_pool: Arc<AsyncInferencePool>) -> Self {
+        Self::with_options(addr, inference_pool, 100, 100)
     }
 
     /// 使用自定义选项创建网关
     pub fn with_options(
         addr: SocketAddr,
-        worker_pool: Arc<ThreadPool>,
         inference_pool: Arc<AsyncInferencePool>,
         max_connections: usize,
         max_concurrent: usize,
     ) -> Self {
         Self {
             addr,
-            worker_pool,
             connection_pool: ConnectionPool::new(max_connections),
             stats: Arc::new(GatewayStats::new()),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
@@ -353,7 +357,7 @@ impl Gateway {
                     let stats = Arc::clone(&self.stats);
                     let shutdown_flag = Arc::clone(&self.shutdown_flag);
                     let sessions = self.sessions.clone();
-                    let worker_pool = Arc::clone(&self.worker_pool);
+                    
                     let connection_limiter = Arc::clone(&self.connection_limiter);
                     let buffer_pool = Arc::clone(&self.buffer_pool);
                     let inference_pool = Arc::clone(&self.inference_pool);
@@ -365,7 +369,6 @@ impl Gateway {
                             stats,
                             shutdown_flag,
                             sessions,
-                            worker_pool,
                             connection_limiter,
                             buffer_pool,
                             inference_pool,
@@ -395,7 +398,6 @@ impl Gateway {
         stats: Arc<GatewayStats>,
         shutdown_flag: Arc<AtomicBool>,
         sessions: Arc<DashMap<String, Sender<Response>>>,
-        _worker_pool: Arc<ThreadPool>,
         connection_limiter: Arc<ConnectionLimiter>,
         buffer_pool: Arc<BufferPool>,
         inference_pool: Arc<AsyncInferencePool>,
@@ -685,11 +687,10 @@ impl GatewayBuilder {
         self
     }
 
-    /// 构建网关
-    pub fn build(self, worker_pool: Arc<ThreadPool>, inference_pool: Arc<AsyncInferencePool>) -> Gateway {
+    /// 构建网关 (TaskScheduler 模式)
+    pub fn build(self, inference_pool: Arc<AsyncInferencePool>) -> Gateway {
         Gateway::with_options(
             self.addr,
-            worker_pool,
             inference_pool,
             self.max_connections,
             self.max_concurrent,

@@ -1101,7 +1101,7 @@ mod tests {
 
         // 检查概率和为 1
         for row in 0..2 {
-            let sum: f32 = scores.slice(s![row, ..]).iter().sum();
+            let _sum: f32 = scores.slice(s![row, ..]).iter().sum(); // 原始分数和（用于验证）
             let prob_sum: f32 = probs.slice(s![row, ..]).iter().sum();
             assert!((prob_sum - 1.0).abs() < 1e-5, "Probabilities should sum to 1");
         }

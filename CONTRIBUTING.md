@@ -1,548 +1,227 @@
-# 贡献指南 (Contributing Guide)
+# Contributing to OpenMini-V1
 
-感谢您对 OpenMini-V1 项目的关注！我们欢迎所有形式的贡献，包括但不限于代码提交、文档改进、问题报告和建议反馈。
+感谢你对 OpenMini-V1 项目的关注！本文档将指导你如何参与贡献。
 
-## 🎯 项目简介
+## 开发环境搭建
 
-OpenMini-V1 是一个开源的大语言模型推理服务框架，致力于提供高效、易用、可扩展的本地化 AI 推理解决方案。我们的目标是让每个开发者都能轻松部署和使用大语言模型。
+### 前置条件
 
-## 🤝 贡献理念
+- **Rust**: 1.82+ (stable)
+- **Cargo**: 随 Rust 安装
+- **Git**: 版本控制
+- (可选) **CUDA**: 11.8+ (GPU开发)
 
-### 核心价值观
-
-- **质量优先 (Quality First)**: 每一行代码都应经过深思熟虑，确保稳定性和可维护性
-- **测试驱动 (Test-Driven Development)**: 新功能必须配备完善的单元测试和集成测试
-- **文档先行 (Documentation First)**: API 变更和新功能必须有清晰的文档说明
-- **社区协作 (Community Collaboration)**: 尊重每一位贡献者，保持开放包容的沟通氛围
-
-### 贡献方式
-
-1. **代码贡献**: 修复 Bug、添加新功能、性能优化
-2. **文档贡献**: 改进文档、翻译文档、编写教程
-3. **问题反馈**: 报告 Bug、提出功能建议、分享使用经验
-4. **代码审查**: 帮助审查他人的 PR，提升代码质量
-
----
-
-## 🛠️ 开发环境配置
-
-### 系统要求
-
-| 组件 | 最低版本 | 推荐版本 |
-|------|---------|---------|
-| Rust | 1.75+ | 最新 stable |
-| Node.js | 18+ | 20 LTS |
-| Python | 3.10+ | 3.11+ |
-| CUDA (GPU) | 11.8+ | 12.1+ |
-| 内存 | 16GB | 32GB+ |
-
-### 环境安装步骤
-
-#### 1. 安装 Rust 工具链
-
-```bash
-# 安装 rustup (如果尚未安装)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# 添加到 PATH
-source $HOME/.cargo/env
-
-# 验证安装
-rustc --version
-cargo --version
-```
-
-#### 2. 安装 Node.js 和 pnpm
-
-```bash
-# 使用 nvm 安装 Node.js
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-nvm install 20
-nvm use 20
-
-# 安装 pnpm
-npm install -g pnpm
-```
-
-#### 3. 安装 Python 依赖
-
-```bash
-# 创建虚拟环境 (推荐)
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或 venv\Scripts\activate  # Windows
-
-# 安装开发依赖
-pip install openai httpx aiohttp pytest pytest-cov mypy ruff
-```
-
-#### 4. 克隆项目并构建
+### 快速开始
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-org/OpenMini-V1.git
-cd OpenMini-V1
+git clone https://github.com/openmini/openmini-v1.git
+cd openmini-v1
 
-# 构建后端 (Rust)
+# 编译
+cd openmini-server
 cargo build --release
-
-# 构建前端 (Vue)
-cd frontend
-pnpm install
-pnpm build
-cd ..
 
 # 运行测试
 cargo test
-pnpm test
+
+# 代码格式化
+cargo fmt
+
+# 静态检查
+cargo clippy -- -D warnings
 ```
 
-### IDE 配置推荐
+## 项目结构
 
-#### VS Code (推荐)
-
-安装以下扩展：
-
-- **rust-analyzer**: Rust 语言支持
-- **Volar**: Vue 3 开发支持
-- **ESLint + Prettier**: 代码格式化和检查
-- **Python**: Python 语言支持
-- **Error Lens**: 内联错误显示
-
-#### 配置文件
-
-项目根目录包含以下配置文件：
-- `.vscode/settings.json`: VS Code 工作区设置
-- `.editorconfig`: 编辑器统一配置
-- `.prettierrc`: Prettier 格式化规则
-
----
-
-## 📝 代码规范
-
-### Rust 代码规范
-
-#### 命名约定
-
-```rust
-// 类型和 Trait: PascalCase
-struct ChatCompletionRequest;
-trait ModelLoader;
-
-// 函数和方法: snake_case
-fn create_chat_completion() {}
-fn load_model_from_path() {}
-
-// 常量: SCREAMING_SNAKE_CASE
-const MAX_TOKEN_LIMIT: usize = 4096;
-
-// 模块和文件: snake_case
-mod chat_completions;
-// 文件: chat_completions.rs
+```
+openmini-v1/
+├── openmini-server/          # 核心推理服务器
+│   ├── src/
+│   │   ├── model/inference/  # 推理引擎 (FA3, NSA, Kascade...)
+│   │   ├── hardware/         # GPU/CPU/内存管理
+│   │   ├── training/         # 训练管线
+│   │   ├── benchmark/        # 性能基准
+│   │   ├── distributed/      # 分布式推理
+│   │   └── enterprise/       # 企业版功能
+│   └── Cargo.toml
+├── config/                   # 模型配置
+└── docs/                     # 文档
 ```
 
-#### 错误处理
+## 代码规范
 
-```rust
-// ✅ 正确: 使用 thiserror 定义错误类型
-use thiserror::Error;
+### Rustfmt
 
-#[derive(Debug, Error)]
-pub enum ApiError {
-    #[error("模型未找到: {model_name}")]
-    ModelNotFound { model_name: String },
-
-    #[error("请求超时")]
-    RequestTimeout,
-
-    #[error("内部服务器错误: {0}")]
-    Internal(String),
-}
-
-// ✅ 正确: 使用 ? 操作符传播错误
-async fn process_request(req: Request) -> Result<Response, ApiError> {
-    let validated = validate_request(req)?;
-    let result = execute(validated).await?;
-    Ok(result)
-}
-
-// ❌ 避免: 不要使用 unwrap() 在生产代码中
-let value = option.unwrap(); // 危险!
-```
-
-#### Clippy 规则
-
-项目强制执行以下 Clippy lint 规则：
-
-```toml
-# Cargo.toml 或 .clippy.toml
-[lints.clippy]
-# 正确性
-all = "warn"
-pedantic = "warn"
-
-# 允许的例外 (需在 PR 中说明理由)
-module_inception = "allow"
-must_use_candidate = "allow"
-```
-
-运行 Clippy 检查：
+项目使用标准 `rustfmt` 格式化：
 
 ```bash
-# 检查所有 lint
-cargo clippy --all-targets --all-features -- -D warnings
-
-# 自动修复部分问题
-cargo clippy --fix
+cargo fmt --all
 ```
 
-### TypeScript/Vue 前端规范
+### Clippy
 
-#### TypeScript 规范
+提交前必须通过 clippy 检查：
 
-```typescript
-// ✅ 使用接口定义类型
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp?: Date;
-}
-
-// ✅ 使用 const 断言
-const MODEL_OPTIONS = ['openmini-7b', 'openmini-13b'] as const;
-type ModelName = typeof MODEL_OPTIONS[number];
-
-// ❌ 避免使用 any
-function processData(data: any) { ... } // 不推荐
-function processData<T>(data: T): ProcessedData<T> { ... } // 推荐
+```bash
+cargo clippy -- -D warnings
 ```
 
-#### Vue 组件规范
+### 命名约定
 
-```vue
-<template>
-  <!-- 使用语义化的 HTML -->
-  <section class="chat-container">
-    <ChatMessage
-      v-for="msg in messages"
-      :key="msg.id"
-      :message="msg"
-      @retry="handleRetry"
-    />
-  </section>
-</template>
+| 类型 | 约定 | 示例 |
+|------|------|------|
+| 结构体/枚举 | PascalCase | `FlashAttention3` |
+| 函数/方法 | snake_case | `compute_top_k` |
+| 常量 | UPPER_SNAKE_CASE | `MAX_SEQ_LEN` |
+| 模块 | snake_case | `flash_attention_3` |
 
-<script setup lang="ts">
-// Composition API + <script setup>
-import { ref, computed } from 'vue';
-import type { ChatMessage } from '@/types';
+## 提交信息格式
 
-// Props 和 Emits 明确定义
-const props = defineProps<{
-  messages: ChatMessage[];
-}>();
-
-const emit = defineEmits<{
-  retry: [messageId: string];
-}>();
-</script>
-
-<style scoped>
-/* 使用 scoped 避免样式污染 */
-.chat-container {
-  @apply flex flex-col gap-4;
-}
-</style>
-```
-
-### Commit Message 规范
-
-采用 **Conventional Commits** 规范（中文描述）：
-
-#### 格式
+使用 Conventional Commits 规范：
 
 ```
 <type>(<scope>): <subject>
 
 <body>
-
-<footer>
 ```
 
-#### Type 列表
+**Type**: feat, fix, docs, style, refactor, test, chore, perf
 
-| Type | 描述 | 示例 |
-|------|------|------|
-| `feat` | 新功能 | `feat(chat): 添加流式输出支持` |
-| `fix` | Bug 修复 | `fix(api): 修复长连接超时问题` |
-| `docs` | 文档更新 | `docs(readme): 更新安装说明` |
-| `style` | 代码格式 | `style(rust): 统一导入顺序` |
-| `refactor` | 重构 | `refactor(loader): 重构模型加载逻辑` |
-| `perf` | 性能优化 | `perf(inference): 减少 GPU 内存分配` |
-| `test` | 测试相关 | `test(chat): 添加边界条件测试` |
-| `chore` | 构建/工具 | `chore(deps): 更新依赖版本` |
-
-#### 示例
-
+**示例**:
 ```
-feat(chat): 添加多轮对话上下文管理
+feat(inference): add NSA sparse attention implementation
 
-- 实现对话历史自动截断逻辑
-- 支持自定义上下文窗口大小
-- 添加最大轮次限制配置
-
-Closes #123
+- Implement TokenCompressor for global information preservation
+- Add TopKSelector for key detail retention
+- Integrate with MLA path selection logic
 ```
 
----
+## PR 流程
 
-## 🧪 测试要求
+1. **Fork** 并创建分支: `git checkout -b feature/my-feature`
+2. **编码**: 遵循代码规范
+3. **测试**: `cargo test` 全部通过
+4. **格式化**: `cargo fmt && cargo clippy`
+5. **提交**: 使用规范的 commit message
+6. **Push** 并创建 PR
 
-### 单元测试覆盖率
+### PR 描述模板
 
-- **最低要求**: >80% 行覆盖率
-- **目标**: >90% 行覆盖率
-- **关键路径**: 必须达到 100% 覆盖率（API 处理、安全验证）
+```markdown
+## 变更类型
+- [ ] Bug修复
+- [ ] 新功能
+- [ ] 性能优化
+- [ ] 文档更新
 
-#### Rust 测试示例
+## 描述
+简要描述你的变更
+
+## 测试
+- [ ] 单元测试已添加/更新
+- [ ] 集成测试已通过
+- [ ] 无回归问题
+
+## 关联Issue
+Closes #xxx
+```
+
+## 测试要求
+
+### 新功能必须包含：
+
+1. **单元测试**: 覆盖核心逻辑路径
+2. **边界测试**: 处理极端输入
+3. **集成测试**: 与现有模块的交互
+
+### 测试命名规范：
+
+```rust
+#[test]
+fn test_<module>_<function>_<scenario>() {
+    // ✅ 正确
+}
+
+// 示例:
+fn test_nsa_forward_long_sequence() {}
+fn test_kascade_reuse_strategy_adaptive() {}
+fn test_flash_attention_fp8_precision() {}
+```
+
+## Issue 标签说明
+
+| 标签 | 含义 |
+|------|------|
+| `bug` | 缺陷报告 |
+| `enhancement` | 新功能请求 |
+| `good first issue` | 适合新手 |
+| `help wanted` | 需要社区帮助 |
+| `performance` | 性能优化 |
+| `paper` | 论文实现 |
+
+## 性能要求
+
+对于性能敏感代码：
+
+1. 使用 `criterion` crate 编写 benchmark
+2. 在 PR 中提供 before/after 对比数据
+3. 注释关键优化点
 
 ```rust
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod benchmarks {
+    use criterion::{black_box, criterion_group, Criterion};
 
-    #[test]
-    fn test_chat_completion_validation() {
-        // Arrange
-        let request = ChatCompletionRequest::new("test-model", vec![
-            Message::user("Hello")
-        ]);
-
-        // Act
-        let result = validate_request(&request);
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_streaming_response() {
-        // 异步测试示例
-        let service = create_test_service().await;
-        let response = service.stream_chat(request).await;
-
-        assert!(response.is_ok());
-        // 验证流式响应格式
+    fn bench_forward(c: &mut Criterion) {
+        c.bench_function("nsa_forward", |b| {
+            b.iter(|| nsa.forward(black_box(&input)));
+        });
     }
 }
 ```
 
-#### 运行测试
+## 文档要求
 
-```bash
-# 运行所有测试
-cargo test
+### 公共 API 必须包含：
 
-# 运行特定模块测试
-cargo test --lib chat::
-
-# 显示覆盖率
-cargo tarpaulin --out Html
-
-# 运行前端测试
-pnpm test
-
-# 运行 E2E 测试
-pnpm test:e2e
-```
-
-### 集成测试编写规范
+1. 功能描述
+2. 参数说明
+3. 返回值说明
+4. 使用示例
+5. Panic 条件（如有）
 
 ```rust
-// tests/integration/chat_api.rs
-use reqwest::Client;
-use serde_json::json;
-
-#[tokio::test]
-async fn test_chat_completion_endpoint() {
-    let client = Client::new();
-    
-    let response = client
-        .post("http://localhost:8080/v1/chat/completions")
-        .json(&json!({
-            "model": "openmini-7b",
-            "messages": [{"role": "user", "content": "Hi"}]
-        }))
-        .send()
-        .await
-        .expect("请求失败");
-
-    assert_eq!(response.status(), 200);
-    
-    let body: serde_json::Value = response.json().await.unwrap();
-    assert!(body["choices"].is_array());
-}
+/// NSA 三路稀疏注意力前向传播
+///
+/// # Arguments
+/// * `q` - Query tensor [batch, seq_len, num_heads * head_dim]
+/// * `k` - Key tensor
+/// * `v` - Value tensor
+///
+/// # Returns
+/// Attention output with same shape as q
+///
+/// # Example
+/// ```
+/// let output = nsa.forward(&q, &k, &v)?;
+/// ```
+pub fn forward(&self, q: &Array3<f32>, k: &Array3<f32>, v: &Array3<f32>) -> Result<Array3<f32>> { ... }
 ```
 
-### 性能基准测试
+## 安全漏洞报告
 
-```rust
-#[bench]
-fn bench_token_generation(b: &mut Bencher) {
-    let model = load_test_model();
-    b.iter(|| {
-        model.generate_tokens(black_box("测试输入"));
-    });
-}
+发现安全问题时，请发送邮件至 security@openmini.ai，不要公开 Issue。
 
-// 运行基准测试
-// cargo bench
-```
+## 行为准则
 
----
+- 尊重所有贡献者
+- 建设性讨论技术方案
+- 帮助新人成长
+- 关注代码质量而非个人
 
-## 🔀 PR 流程
+## 联系方式
 
-### PR 标题格式
-
-遵循 Conventional Commits 格式：
-
-```
-type(scope): description
-```
-
-**示例**:
-- `feat(api): 添加 embedding 接口支持`
-- `fix(ui): 修复移动端布局溢出问题`
-- `docs(contributing): 补充测试指南章节`
-
-### PR Checklist 模板
-
-每次提交 PR 前，请确保完成以下检查：
-
-```markdown
-## PR Description
-
-### 变更概述
-[简要描述本次变更的内容和目的]
-
-### 变更类型
-- [ ] 🚀 新功能 (Feature)
-- [ ] 🐛 Bug 修复 (Bug Fix)
-- [ ] 📝 文档更新 (Documentation)
-- [ ] 🎨 代码重构 (Refactoring)
-- [ ] ⚡ 性能优化 (Performance)
-
-### 测试情况
-- [ ] 所有现有测试通过 (`cargo test` && `pnpm test`)
-- [ ] 新增功能的单元测试覆盖率 >80%
-- [ ] 集成测试已通过 (如适用)
-- [ ] 手动测试已完成
-
-### 代码质量
-- [ ] 无新增 Clippy 警告 (`cargo clippy` 通过)
-- [ ] 代码格式符合规范 (`cargo fmt` && `pnpm format`)
-- [ ] 无 ESLint/Prettier 警告
-- [ ] 大型 PR 已拆分为多个小 PR
-
-### 文档
-- [ ] API 文档已更新 (如适用)
-- [ ] README/CHANGELOG 已更新 (如适用)
-- [ ] 代码注释充分且清晰
-- [ ] 用户可见变更的迁移指南 (如适用)
-
-### 其他
-- [ ] Commit message 符合规范
-- [ ] 分支基于最新的 main 分支
-- [ ] 合并冲突已解决
-```
-
-### Reviewer 分配规则
-
-根据 PR 的修改范围自动分配审查者：
-
-| 修改范围 | 审查者 | 说明 |
-|---------|--------|------|
-| 核心 API / Rust 后端 | @maintainer-core | 后端维护者 |
-| 前端 UI / Vue 组件 | @maintainer-frontend | 前端维护者 |
-| 文档 / 示例 | @maintainer-docs | 文档维护者 |
-| CI/CD / DevOps | @maintainer-devops | DevOps 维护者 |
-
-### 合并策略
-
-本项目采用 **Squash Merge** 策略：
-
-1. 保持 git 历史整洁
-2. 每个 squash commit 对应一个完整的 feature/fix
-3. Squash 后的 commit message 应清晰描述变更内容
-
----
-
-## 👥 社区准则
-
-### 行为准则
-
-我们的项目遵循 [Contributor Covenant](https://www.contributorcovenant.org/) 行为准则 v2.1：
-
-- **尊重他人**: 以建设性的方式交流，尊重不同观点
-- **包容开放**: 欢迎不同背景的贡献者参与
-- **专业协作**: 保持专业态度，专注于技术讨论
-- **互助成长**: 帮助新人成长，分享知识和经验
-
-**违规行为举报**: 请发送邮件至 [maintainers@openmini.ai](mailto:maintainers@openmini.ai)
-
-### 沟通语言
-
-- **主要语言**: 中文 (简体)
-- **次要语言**: English (国际化交流)
-- **Issue/PR**: 建议使用中英双语标题，方便全球开发者理解
-- **代码注释**: 英文为主，复杂逻辑可用中文补充说明
-
-### Issue / 讨论区使用规范
-
-#### 提交 Issue 前检查
-
-1. **搜索现有 Issue**: 避免重复提交
-2. **使用模板**: 完整填写 Issue 模板
-3. **提供复现信息**: 包含环境信息、日志、截图等
-4. **最小化复现**: 提供最简复现步骤
-
-#### Issue 标签分类
-
-| 标签 | 用途 | 示例 |
-|------|------|------|
-| `bug` | Bug 报告 | 内存泄漏、崩溃 |
-| `feature` | 功能需求 | 新模型支持、API 扩展 |
-| `documentation` | 文档问题 | 缺失文档、错误说明 |
-| `good first issue` | 新手友好 | 简单的 Bug 修复 |
-| `help wanted` | 需要帮助 | 功能实现需要协助 |
-
-#### Discussion 使用场景
-
-- 💡 **想法分享**: 功能设计讨论、架构方案
-- ❓ **使用帮助**: 部署问题、配置疑问
-- 📢 **公告通知**: 版本发布、重要变更
-- 🎉 **展示分享**: 使用案例、性能优化经验
-
----
-
-## 📞 联系方式
-
-- **GitHub Discussions**: [讨论区链接](https://github.com/your-org/OpenMini-V1/discussions)
-- **Issue**: [问题追踪](https://github.com/your-org/OpenMini-V1/issues)
-- **邮箱**: [dev@openmini.ai](mailto:dev@openmini.ai)
-
----
-
-## 🙏 致谢
-
-感谢每一位为 OpenMini-V1 做出贡献的开发者！您的每一行代码、每一个建议都在推动项目向前发展。
-
-特别感谢：
-- 核心贡献者团队
-- 文档翻译志愿者
-- 测试和反馈的用户
-
----
-
-*最后更新: 2026-04-10*
+- **Discord**: [OpenMini Community](https://discord.gg/openmini)
+- **GitHub Discussions**: [讨论区](https://github.com/openmini/openmini-v1/discussions)
+- **Email**: dev@openmini.ai

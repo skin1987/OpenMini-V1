@@ -6,6 +6,7 @@ import type { GrpcSettings } from "./GrpcSettings";
 import type { MemorySettings } from "./MemorySettings";
 import type { MoESettings } from "./MoESettings";
 import type { ModelSettings } from "./ModelSettings";
+import type { SchedulerSettings } from "./SchedulerSettings";
 import type { ServerSettings } from "./ServerSettings";
 import type { ThreadPoolSettings } from "./ThreadPoolSettings";
 import type { VisionSettings } from "./VisionSettings";
@@ -22,7 +23,11 @@ export type ServerConfig = {
  */
 server: ServerSettings, 
 /**
- * 线程池设置
+ * 统一任务调度器设置 (推荐使用，替代 thread_pool 和 worker)
+ */
+scheduler: SchedulerSettings, 
+/**
+ * 线程池设置 (DEPRECATED: 请使用 scheduler.max_concurrent)
  */
 thread_pool: ThreadPoolSettings, 
 /**
@@ -46,7 +51,7 @@ vision: VisionSettings,
  */
 engine: EngineSettings, 
 /**
- * Worker 进程设置
+ * Worker 进程设置 (DEPRECATED: TaskScheduler 已替代)
  */
 worker: WorkerSettings, 
 /**

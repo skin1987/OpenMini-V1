@@ -85,7 +85,7 @@ mod integration_tests {
     //! 集成测试：验证多模块协作和端到端场景
 
     use super::*;
-    use ndarray::{Array, Array2};
+    use ndarray::{Array, Array2, Axis};
 
     /// 测试2卡TP完整推理流程
     #[test]
@@ -235,35 +235,39 @@ mod integration_tests {
         }
     }
 
-    /// 测试权重切分与重组的一致性
     #[test]
     fn test_weight_split_reconstruct_consistency() {
         let config = DistributedConfig::for_local_testing(4);
         let tp = TensorParallelManager::new(&config).unwrap();
 
-        // 创建原始权重矩阵
         let original_weight: Array2<f32> =
             Array::from_shape_fn((16, 32), |(i, j)| ((i * 32 + j) as f32));
 
-        // 列并行切分
         let col_shards = tp.column_parallel_weight(&original_weight);
         assert_eq!(col_shards.len(), 4);
 
-        // 验证所有shard的总元素数等于原始权重
         let total_elements: usize = col_shards.iter().map(|s| s.len()).sum();
         assert_eq!(total_elements, original_weight.len());
 
-        // 行并行切分
+        let col_reconstructed: Array2<f32> = ndarray::concatenate(
+            Axis(1),
+            &col_shards.iter().map(|s| s.view()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(col_reconstructed, original_weight);
+
         let row_shards = tp.row_parallel_weight(&original_weight);
         assert_eq!(row_shards.len(), 4);
 
         let row_total_elements: usize = row_shards.iter().map(|s| s.len()).sum();
         assert_eq!(row_total_elements, original_weight.len());
 
-        // 验证列并行切分的数据连续性
-        let orig_flat: Vec<&f32> = original_weight.iter().collect();
-        let shards_flat: Vec<&f32> = col_shards.iter().flat_map(|s| s.iter()).collect();
-        assert_eq!(orig_flat, shards_flat);
+        let row_reconstructed: Array2<f32> = ndarray::concatenate(
+            Axis(0),
+            &row_shards.iter().map(|s| s.view()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(row_reconstructed, original_weight);
     }
 
     /// 测试通信操作的正确性验证

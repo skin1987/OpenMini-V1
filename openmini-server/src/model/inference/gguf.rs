@@ -2209,6 +2209,30 @@ impl GgufFile {
         self.get_tensor_data_by_ref(tensor)
     }
 
+    pub fn get_tensor_1d(&self, name: &str) -> Result<Vec<f32>> {
+        self.get_tensor_data_by_name(name)
+    }
+
+    pub fn get_tensor_2d(&self, name: &str) -> Result<ndarray::Array2<f32>> {
+        let data = self.get_tensor_data_by_name(name)?;
+        let tensor = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| anyhow!("Tensor not found: {}", name))?;
+
+        if tensor.dims.len() != 2 {
+            return Err(anyhow!(
+                "Expected 2D tensor for '{}', got {}D",
+                name,
+                tensor.dims.len()
+            ));
+        }
+
+        let rows = tensor.dims[0];
+        let cols = tensor.dims[1];
+        Ok(ndarray::Array2::<f32>::from_shape_vec((rows, cols), data)?)
+    }
+
     /// 获取 TTS 配置
     ///
     /// 从元数据中提取语音合成模型配置
@@ -2231,6 +2255,101 @@ impl GgufFile {
             hidden_size,
             num_flow_layers,
         })
+    }
+
+    pub fn load_moe_v2_weights(
+        &self,
+        layer_idx: usize,
+        config: &ModelConfig,
+    ) -> Option<MoEWeightsV2> {
+        let prefix = format!("{}.model.layers.{}", config.architecture.parameter_prefix(), layer_idx);
+
+        let shared_experts = self.load_shared_experts(&prefix, config)?;
+        let routing_experts = self.load_routing_experts(&prefix, config)?;
+
+        let router_key = format!("{}.ffn.gate.weight", prefix);
+        let router = self.get_tensor_2d(&router_key).ok()?;
+
+        let num_shared = shared_experts.len();
+        let num_routing = routing_experts.len();
+
+        let mut moe_v2 = MoEWeightsV2::new(
+            num_shared,
+            num_routing,
+            config.top_k,
+            config.hidden_size,
+            config.intermediate_size,
+        );
+
+        moe_v2.shared_experts = shared_experts;
+        moe_v2.routing_experts = routing_experts;
+        moe_v2.routing_router = router;
+
+        Some(moe_v2)
+    }
+
+    fn load_shared_experts(
+        &self,
+        prefix: &str,
+        _config: &ModelConfig,
+    ) -> Option<Vec<FFNWeights>> {
+        let mut experts = Vec::new();
+        let mut i = 0;
+        loop {
+            let gate_key = format!("{}.ffn.shared_experts.{}.gate_proj.weight", prefix, i);
+            let up_key = format!("{}.ffn.shared_experts.{}.up_proj.weight", prefix, i);
+            let down_key = format!("{}.ffn.shared_experts.{}.down_proj.weight", prefix, i);
+
+            match (
+                self.get_tensor_1d(&gate_key),
+                self.get_tensor_1d(&up_key),
+                self.get_tensor_1d(&down_key),
+            ) {
+                (Ok(gate), Ok(up), Ok(down)) => {
+                    experts.push(FFNWeights {
+                        gate_weight: gate,
+                        up_weight: up,
+                        down_weight: down,
+                    });
+                    i += 1;
+                }
+                _ => break,
+            }
+        }
+
+        if experts.is_empty() { None } else { Some(experts) }
+    }
+
+    fn load_routing_experts(
+        &self,
+        prefix: &str,
+        config: &ModelConfig,
+    ) -> Option<Vec<FFNWeights>> {
+        let mut experts = Vec::new();
+        let num_experts = config.num_experts;
+
+        for i in 0..num_experts {
+            let gate_key = format!("{}.ffn.experts.{}.gate_proj.weight", prefix, i);
+            let up_key = format!("{}.ffn.experts.{}.up_proj.weight", prefix, i);
+            let down_key = format!("{}.ffn.experts.{}.down_proj.weight", prefix, i);
+
+            match (
+                self.get_tensor_1d(&gate_key),
+                self.get_tensor_1d(&up_key),
+                self.get_tensor_1d(&down_key),
+            ) {
+                (Ok(gate), Ok(up), Ok(down)) => {
+                    experts.push(FFNWeights {
+                        gate_weight: gate,
+                        up_weight: up,
+                        down_weight: down,
+                    });
+                }
+                _ => break,
+            }
+        }
+
+        if experts.is_empty() { None } else { Some(experts) }
     }
 }
 
@@ -2359,6 +2478,12 @@ mod tests {
             max_position_embeddings: 131072,
             rms_norm_eps: 1e-6,
             rope_theta: 1000000.0,
+            architecture: Architecture::Llama,
+            is_moe: false,
+            num_experts: 8,
+            top_k: 2,
+            use_mla: true,
+            mla_latent_dim: 512,
         };
         assert_eq!(config.vocab_size, 152064);
         assert_eq!(config.hidden_size, 3584);
