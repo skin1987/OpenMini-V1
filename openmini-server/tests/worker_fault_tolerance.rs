@@ -6,7 +6,6 @@
 //! - Worker 状态机转换正确性
 //! - 错误恢复路径覆盖
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test]
 fn test_worker_config_boundary_values() {

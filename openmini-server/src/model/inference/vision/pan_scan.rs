@@ -177,7 +177,7 @@ mod tests {
     
     #[test]
     fn test_token_estimation() {
-        let config = PanScanConfig::default();
+        let _config = PanScanConfig::default();
         let patches = vec![
             ImagePatch { x: 0, y: 0, width: 896, height: 896 },
             ImagePatch { x: 882, y: 0, width: 896, height: 896 },

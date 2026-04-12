@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use thiserror::Error;
 use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;

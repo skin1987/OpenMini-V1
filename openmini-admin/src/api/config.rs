@@ -4,6 +4,8 @@
 //! 配置变更历史查询和热重载功能。
 //! 支持运行时动态调整服务参数而无需重启。
 
+#![allow(dead_code)]
+
 use axum::{
     extract::{Query, State},
     Json,
@@ -545,7 +547,7 @@ pub async fn validate_config(
     // 验证 thread_pool 配置
     if let Some(pool) = config.get("thread_pool") {
         if let Some(size) = pool.get("size").and_then(|v| v.as_u64()) {
-            if size < 1 || size > 256 {
+            if !(1u64..=256).contains(&size) {
                 errors.push(format!(
                     "无效的线程池大小: {} (范围: 1-256)",
                     size
@@ -563,7 +565,7 @@ pub async fn validate_config(
     // 验证 model 配置
     if let Some(model) = config.get("model") {
         if let Some(ctx_len) = model.get("context_length").and_then(|v| v.as_u64()) {
-            if ctx_len < 512 || ctx_len > 128000 {
+            if !(512u64..=128000).contains(&ctx_len) {
                 warnings.push(format!(
                     "上下文长度 ({}) 可能不在推荐范围内 (512-128000)",
                     ctx_len
@@ -572,7 +574,7 @@ pub async fn validate_config(
         }
 
         if let Some(temp) = model.get("default_temperature").and_then(|v| v.as_f64()) {
-            if temp < 0.0 || temp > 2.0 {
+            if !(0.0f64..=2.0).contains(&temp) {
                 errors.push(format!(
                     "无效的温度值: {} (范围: 0.0-2.0)",
                     temp
@@ -852,7 +854,7 @@ mod tests {
             old_value: Some("32.0".to_string()),
             new_value: Some("64.0".to_string()),
         };
-        assert!(!needs_restart(&[memory_change]));
+        assert!(!needs_restart(&[memory_change.clone()]));
 
         // 混合变更：只要有一个需要重启就返回 true
         assert!(needs_restart(&[

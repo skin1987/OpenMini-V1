@@ -2,14 +2,13 @@
 //!
 //! Phase 4 & 5: 端到端集成测试与性能验证
 
-use std::time::Instant;
 
 use ndarray::Array2;
 
 use openmini_server::model::inference::dsa::{
     dsa_memory_pool, estimate_dsa_memory_usage, lightning_indexer, lightning_indexer_adaptive,
     lightning_indexer_auto, lightning_indexer_gpu, lightning_indexer_gpu_chunked,
-    multihead_sparse_attention, optimize_data_layout_for_dsa, sparse_attention_forward,
+    multihead_sparse_attention, sparse_attention_forward,
     sparse_attention_forward_optimized, top_k_selection_metal, DSAMemoryPool, DSATopKConfig,
 };
 

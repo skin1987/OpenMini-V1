@@ -17,7 +17,7 @@
 //! - AttnRes: 跨块深度聚合（Softmax 加权检索）
 //! - 两者正交可组合：先 MHC 后 AttnRes
 
-use ndarray::{Array1, Array2, Axis};
+use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
 /// Sinkhorn 迭代配置

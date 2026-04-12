@@ -352,7 +352,7 @@ pub async fn metrics_history(
         };
 
         // 添加基于时间的波动和噪声
-        let wave = ((i as f64 * 0.1).sin() * 10.0); // 正弦波动
+        let wave = (i as f64 * 0.1).sin() * 10.0; // 正弦波动
         let noise = (rand::random::<f64>() - 0.5) * 5.0; // 随机噪声
         let value = (base_value + wave + noise).max(0.0);
 

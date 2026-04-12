@@ -649,15 +649,15 @@ mod tests {
         let head_dim = 16;
 
         let query: Vec<Array2<f32>> = (0..num_heads)
-            .map(|h| create_test_matrix(seq_len, head_dim))
+            .map(|_h| create_test_matrix(seq_len, head_dim))
             .collect();
 
         let key: Vec<Array2<f32>> = (0..num_heads)
-            .map(|h| create_test_matrix(seq_len, head_dim))
+            .map(|_h| create_test_matrix(seq_len, head_dim))
             .collect();
 
         let value: Vec<Array2<f32>> = (0..num_heads)
-            .map(|h| create_test_matrix(seq_len, head_dim))
+            .map(|_h| create_test_matrix(seq_len, head_dim))
             .collect();
 
         let config = SlidingWindowConfig::local_only(4, true);

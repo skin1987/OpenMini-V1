@@ -671,7 +671,7 @@ mod tests {
 
     #[test]
     fn test_broadcast_root_to_others() {
-        let (comm0, comm1, shared) = create_comm_pair(2);
+        let (comm0, comm1, _shared) = create_comm_pair(2);
 
         // Root (rank 0) 广播数据
         let mut root_data = vec![42.0, 43.0, 44.0];

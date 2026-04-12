@@ -8,11 +8,3 @@ pub mod blockffn;
 pub mod longcat;
 
 // 重导出常用类型
-pub use blockffn::{
-    BlockFFN, BlockFFNConfig, ClsStatistics, FFNChunk, ReLURMSNormRouter,
-    SdCompatibilityResult, SdFastPathConfig,
-};
-pub use longcat::{
-    ExpertFFN, ExpertWeights, FusionLayer, FusionStrategy, LongCatConfig, LongCatMoE,
-    LongCatStats, LightweightExpert, MlaCompressor, StandardMoEFormat, ZeroExpert,
-};

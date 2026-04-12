@@ -102,7 +102,7 @@ fn output_metrics_json(name: &str, metrics: &serde_json::Value) {
 /// - 响应时间 P99 < 500ms（本地）/ < 1000ms（CI）
 #[test]
 fn test_concurrent_inference_stress() {
-    use openmini_server::service::thread;
+    use openmini_server::service::thread::pool::create_default_pool;
 
     let duration = get_ci_duration();
     let concurrent_requests = if is_ci_environment() { 20 } else { 100 };
@@ -113,7 +113,7 @@ fn test_concurrent_inference_stress() {
     eprintln!("\n[stress] Concurrent Inference Stress Test");
     eprintln!("  Duration: {:?}, Concurrency: {}", duration, concurrent_requests);
 
-    let pool = Arc::new(thread::create_default_pool());
+    let pool = Arc::new(create_default_pool());
     let start = Instant::now();
     let running = Arc::new(AtomicBool::new(true));
 
@@ -562,9 +562,9 @@ fn test_kv_cache_under_load() {
 /// - 线程池正常关闭
 #[test]
 fn test_thread_pool_saturation() {
-    use openmini_server::service::thread;
+    use openmini_server::service::thread::pool::create_default_pool;
 
-    let pool = thread::create_default_pool();
+    let pool = create_default_pool();
     let total_tasks = 10000;
     let counter = Arc::new(AtomicUsize::new(0));
     let errors = Arc::new(AtomicUsize::new(0));

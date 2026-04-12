@@ -869,7 +869,7 @@ impl TrainingConfig14B {
     pub fn estimate_flops_per_token(&self) -> u64 {
         let l = self.model.num_hidden_layers as u64;
         let h = self.model.hidden_size as u64;
-        let a = self.model.num_attention_heads as u64;
+        let _a = self.model.num_attention_heads as u64;
         let s = self.data.max_seq_length as u64;
 
         // 注意力 FLOPs: 4 * L * H * (H/A) * A * S = 4 * L * H^2 * S

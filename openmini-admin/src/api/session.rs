@@ -548,13 +548,15 @@ mod tests {
         assert_eq!(json["role"], "user");
         assert_eq!(json["content"], "Hello, how are you?");
         assert_eq!(json["token_count"], 6);
-        assert!(json.get("latency_ms").is_none()); // None 序列化为 null
+        // Option 在 JSON 中序列化为 null
+        assert_eq!(json.get("latency_ms").and_then(|v| v.as_null()), Some(()));
     }
 
     #[test]
     fn test_time_range_default() {
-        let default_range: TimeRange = serde_json::from_value(serde_json::Value::Null).unwrap();
-        matches!(default_range, TimeRange::Last24Hours);
+        // 测试从字符串反序列化（snake_case 格式）
+        let range: TimeRange = serde_json::from_value(serde_json::json!("last24_hours")).unwrap();
+        assert!(matches!(range, TimeRange::Last24Hours));
     }
 
     #[test]

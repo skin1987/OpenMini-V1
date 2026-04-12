@@ -374,7 +374,7 @@ mod tests {
             optimizer_state_bytes: vec![255; 1024], // 较大的数据
         };
 
-        let path = mgr.save(&data, data.best_val_loss).unwrap();
+        let _path = mgr.save(&data, data.best_val_loss).unwrap();
 
         // 验证元信息
         let checkpoints = mgr.list_checkpoints();

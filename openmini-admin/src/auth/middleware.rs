@@ -6,7 +6,7 @@ use axum::{
 use std::sync::Arc;
 
 use crate::error::AppError;
-use super::jwt::{verify_token, create_token};
+use super::jwt::{create_token, verify_token};
 
 pub fn create_auth_middleware(jwt_secret: String) -> impl Clone + Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, AppError>> + Send>> {
     let secret = Arc::new(jwt_secret);

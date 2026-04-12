@@ -698,7 +698,7 @@ mod tests {
         // 给调度器一点时间处理
         tokio::time::sleep(Duration::from_millis(10)).await;
 
-        let status_after = scheduler.status().await;
+        let _status_after = scheduler.status().await;
         // 注意：任务可能已经完成，所以 active_tasks 可能是 0 或 1
 
         scheduler.shutdown().await.unwrap();

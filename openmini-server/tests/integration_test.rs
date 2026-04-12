@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use openmini_server::service::thread::pool::create_default_pool;
 
 #[test]
 fn test_thread_pool_stress() {
-    let pool = openmini_server::service::thread::create_default_pool();
+    let pool = create_default_pool();
     let counter = Arc::new(AtomicUsize::new(0));
     let iterations = 1000;
 

@@ -5,7 +5,11 @@ edition = "2021"
 
 [lib]
 name = "openmini_admin"
-path = "src/main.rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "openmini-admin"
+path = "src/bin/main.rs"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }

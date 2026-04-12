@@ -562,7 +562,7 @@ mod tests {
         // 创建简单的2x2矩阵
         let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0]; // 2x2
         let b_data: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0]; // 2x2
-        let mut c_data: Vec<f32> = vec![0.0; 4]; // 2x2
+        let c_data: Vec<f32> = vec![0.0; 4]; // 2x2
 
         let a = CudaBuffer::from_host(&a_data, device_id).unwrap();
         let b = CudaBuffer::from_host(&b_data, device_id).unwrap();

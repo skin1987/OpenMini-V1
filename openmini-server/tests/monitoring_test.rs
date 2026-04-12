@@ -1,4 +1,3 @@
-use std::time::Duration;
 
 /// 监控模块集成测试
 ///

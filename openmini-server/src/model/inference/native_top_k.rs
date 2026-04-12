@@ -2195,7 +2195,7 @@ mod tests {
         let engine = Arc::new(Mutex::new(NativeTopKEngine::new(config)));
 
         let handles: Vec<_> = (0..4)
-            .map(|i| {
+            .map(|_i| {
                 let engine_clone = Arc::clone(&engine);
                 thread::spawn(move || {
                     let (q, k) = create_test_tokens_256();

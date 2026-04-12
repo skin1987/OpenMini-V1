@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use axum::{extract::{Path, Query, State}, Json};
 use serde::{Deserialize, Serialize};
 use bcrypt::{hash, DEFAULT_COST};
@@ -314,7 +316,7 @@ pub async fn update_role(
 
     // 验证角色值
     match req.role {
-        0 | 1 | 2 => {},
+        0..=2 => {},
         _ => return Err(AppError::BadRequest("无效的角色值".into())),
     }
 

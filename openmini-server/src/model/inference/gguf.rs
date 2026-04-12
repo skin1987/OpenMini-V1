@@ -1168,7 +1168,7 @@ impl MoEWeightsV2 {
         ffn: &FFNWeights,
         hidden_size: usize,
     ) -> Result<ndarray::Array2<f32>, anyhow::Error> {
-        let (num_tokens, _) = input.dim();
+        let (_num_tokens, _) = input.dim();
         let intermediate_size = ffn.gate_weight.len() / hidden_size;
 
         let gate_w = ndarray::Array2::from_shape_vec(

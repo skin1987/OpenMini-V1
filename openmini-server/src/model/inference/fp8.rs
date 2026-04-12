@@ -146,7 +146,7 @@ mod tests {
 
         for (orig, &deq) in original.iter().zip(dequantized.iter()) {
             let rel_error = if *orig != 0.0 {
-                ((orig - deq).abs() / orig.abs())
+                (orig - deq).abs() / orig.abs()
             } else {
                 deq.abs()
             };
@@ -163,7 +163,7 @@ mod tests {
 
         for (orig, &deq) in original.iter().zip(dequantized.iter()) {
             let rel_error = if *orig != 0.0 {
-                ((orig - deq).abs() / orig.abs())
+                (orig - deq).abs() / orig.abs()
             } else {
                 deq.abs()
             };

@@ -4,6 +4,8 @@
 //! 模型加载/卸载、模型配置更新等功能。
 //! 用于管理推理引擎中可用的 AI 模型。
 
+#![allow(dead_code)]
+
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -112,7 +114,7 @@ pub struct ModelPerformanceStats {
 }
 
 /// 模型配置更新请求体
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ModelConfigUpdate {
     #[serde(default)]
     pub context_length: Option<u32>,
@@ -234,7 +236,7 @@ pub async fn list_models(
         }
     }
 
-    let where_clause = conditions.join(" AND ");
+    let _where_clause = conditions.join(" AND ");
 
     // 查询模型列表（这里使用模拟数据，实际应从数据库查询）
     let models = generate_mock_models();

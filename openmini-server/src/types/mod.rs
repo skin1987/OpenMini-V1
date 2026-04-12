@@ -297,7 +297,7 @@ mod tests {
         }
         
         // 调用导出函数（只会创建目录，不会实际生成文件）
-        let temp_path = temp_dir.to_str().unwrap();
+        let _temp_path = temp_dir.to_str().unwrap();
         
         // 手动创建目录来测试
         std::fs::create_dir_all(&temp_dir).expect("Failed to create temp directory");

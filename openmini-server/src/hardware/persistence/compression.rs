@@ -825,7 +825,7 @@ mod tests {
         assert!(small_algo == CompressionAlgorithm::None || small_algo == CompressionAlgorithm::Lz4);
 
         // 大数据应选择 Zstd (如果可用)
-        let large_algo = manager.auto_select_algorithm(1024 * 1024).unwrap();
+        let _large_algo = manager.auto_select_algorithm(1024 * 1024).unwrap();
         #[cfg(feature = "compression")]
         assert_eq!(large_algo, CompressionAlgorithm::Zstd);
     }

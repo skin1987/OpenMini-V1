@@ -10,5 +10,5 @@ pub mod pool;
 pub mod worker;
 
 pub use async_pool::{AsyncInferencePool, InferenceTask};
-pub use pool::WorkerPool;
-pub use worker::{get_worker_id, is_worker_process, Worker};
+// Worker, get_worker_id, is_worker_process 可按需启用:
+// pub use worker::{get_worker_id, is_worker_process, Worker};

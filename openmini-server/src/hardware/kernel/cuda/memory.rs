@@ -624,7 +624,7 @@ mod tests {
     #[test]
     fn test_memory_pool_creation() {
         let ctx = get_test_context();
-        let mut pool = CudaMemoryPool::new(ctx, None).unwrap();
+        let pool = CudaMemoryPool::new(ctx, None).unwrap();
         
         let stats = pool.stats();
         assert_eq!(stats.allocation_count, 0);

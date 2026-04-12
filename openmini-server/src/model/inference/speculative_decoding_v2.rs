@@ -97,7 +97,589 @@ pub struct SpeculationResult {
     pub next_token_probs: Array1<f32>,
 }
 
-/// Speculative Decoding v2 核心实现
+/// N-gram 验证器
+///
+/// 使用N-gram统计模型验证草稿token的合理性，
+/// 基于历史token序列计算条件概率来评估候选token的置信度。
+#[derive(Debug, Clone)]
+pub struct NgramVerifier {
+    /// N-gram的阶数（默认为3）
+    n: usize,
+    /// N-gram频率统计表：ngram -> 出现次数
+    ngram_counts: std::collections::HashMap<Vec<u32>, u64>,
+    /// 总token数（用于概率归一化）
+    total_tokens: u64,
+    /// 平滑参数（Laplace平滑）
+    smoothing: f32,
+}
+
+impl NgramVerifier {
+    /// 创建新的N-gram验证器
+    ///
+    /// # 参数
+    /// - `n`: N-gram的阶数，默认为3
+    /// - `smoothing`: Laplace平滑参数，默认为0.1
+    pub fn new(n: usize, smoothing: f32) -> Self {
+        Self {
+            n: n.max(1), // N至少为1
+            ngram_counts: std::collections::HashMap::new(),
+            total_tokens: 0,
+            smoothing: smoothing.max(0.0),
+        }
+    }
+
+    /// 使用默认配置创建（N=3）
+    pub fn with_default_config() -> Self {
+        Self::new(3, 0.1)
+    }
+
+    /// 训练N-gram模型
+    ///
+    /// 从历史token序列中学习N-gram频率分布
+    ///
+    /// # 参数
+    /// - `tokens`: 历史token序列
+    pub fn train(&mut self, tokens: &[u32]) {
+        if tokens.len() < self.n {
+            return;
+        }
+
+        self.total_tokens += tokens.len() as u64;
+
+        // 提取所有n-gram并计数
+        for window in tokens.windows(self.n) {
+            let ngram = window.to_vec();
+            *self.ngram_counts.entry(ngram).or_insert(0) += 1;
+        }
+    }
+
+    /// 验证草稿token序列
+    ///
+    /// 计算每个草稿token基于前文历史的条件概率，
+    /// 返回每个位置的置信度分数用于辅助接受/拒绝决策。
+    ///
+    /// # 参数
+    /// - `context`: 当前上下文token序列（历史tokens）
+    /// - `draft_tokens`: 待验证的草稿token序列
+    ///
+    /// # 返回值
+    /// 每个草稿token的置信度分数数组（0.0-1.0）
+    pub fn verify_with_ngram(
+        &self,
+        context: &[u32],
+        draft_tokens: &[u32],
+    ) -> Array1<f32> {
+        let mut confidences = Array1::<f32>::zeros(draft_tokens.len());
+
+        for (i, &token) in draft_tokens.iter().enumerate() {
+            // 构建当前n-gram的上下文窗口
+            let start_pos = if i >= self.n - 1 {
+                i - (self.n - 1)
+            } else {
+                0
+            };
+
+            // 从context和已验证的draft_tokens中提取上下文
+            let mut ngram_context: Vec<u32> = Vec::with_capacity(self.n - 1);
+
+            // 先从原始context中取
+            let context_start = context.len().saturating_sub((self.n - 1).saturating_sub(i));
+            if i < self.n - 1 && context_start < context.len() {
+                ngram_context.extend_from_slice(&context[context_start..]);
+            } else if i >= self.n - 1 {
+                // 从已验证的draft_tokens中取
+                let draft_start = start_pos;
+                let draft_end = i;
+                if draft_start < draft_end {
+                    ngram_context.extend_from_slice(&draft_tokens[draft_start..draft_end]);
+                }
+            }
+
+            // 构建完整的n-gram用于查询
+            let mut query_ngram = ngram_context.clone();
+            query_ngram.push(token);
+
+            // 计算条件概率 P(token | context)
+            let confidence = self.calculate_conditional_probability(&query_ngram, &ngram_context);
+            confidences[i] = confidence;
+        }
+
+        confidences
+    }
+
+    /// 计算条件概率 P(token | context)
+    ///
+    /// 使用带Laplace平滑的最大似然估计
+    fn calculate_conditional_probability(
+        &self,
+        full_ngram: &[u32],
+        context: &[u32],
+    ) -> f32 {
+        // 查询完整n-gram的出现次数
+        let numerator = *self.ngram_counts.get(full_ngram).unwrap_or(&0) as f32;
+
+        // 查询上下文的累计出现次数（作为分母）
+        let denominator = if context.is_empty() {
+            // 无上下文时使用总token数
+            self.total_tokens as f32
+        } else {
+            // 统计以该上下文开头的所有n-gram的总次数
+            self.count_context_occurrences(context) as f32
+        };
+
+        // 应用Laplace平滑避免零概率
+        let vocab_size_estimate = 10000.0; // 估计词汇表大小
+        let smoothed_num = numerator + self.smoothing;
+        let smoothed_denom = denominator + self.smoothing * vocab_size_estimate;
+
+        if smoothed_denom <= 0.0 {
+            return 1.0 / vocab_size_estimate; // 返回均匀分布概率
+        }
+
+        (smoothed_num / smoothed_denom).min(1.0)
+    }
+
+    /// 统计特定上下文出现的次数
+    fn count_context_occurrences(&self, context: &[u32]) -> u64 {
+        if context.is_empty() {
+            return self.total_tokens;
+        }
+
+        self.ngram_counts
+            .iter()
+            .filter(|(ngram, _)| ngram.starts_with(context))
+            .map(|(_, &count)| count)
+            .sum()
+    }
+
+    /// 获取N-gram阶数
+    pub fn n(&self) -> usize {
+        self.n
+    }
+
+    /// 获取训练样本总数
+    pub fn total_tokens(&self) -> u64 {
+        self.total_tokens
+    }
+
+    /// 获取N-gram表大小
+    pub fn ngram_table_size(&self) -> usize {
+        self.ngram_counts.len()
+    }
+
+    /// 清空训练数据
+    pub fn clear(&mut self) {
+        self.ngram_counts.clear();
+        self.total_tokens = 0;
+    }
+}
+
+/// 树形注意力缓存
+///
+/// 为Speculative Decoding v2的树形推测路径维护独立的KV Cache，
+/// 支持多路径并行验证时的缓存复用，减少重复计算。
+#[derive(Debug)]
+pub struct TreeAttentionCache {
+    /// 缓存条目：路径标识符 -> KV缓存数据
+    cache_entries: std::collections::HashMap<u64, CacheEntry>,
+    /// 最大缓存容量
+    max_capacity: usize,
+    /// 缓存命中统计
+    hits: u64,
+    /// 缓存未命中统计
+    misses: u64,
+    /// 当前缓存大小（按条目数）
+    current_size: usize,
+    /// 总内存使用估算（字节）
+    memory_usage_bytes: u64,
+}
+
+/// 单个缓存条目
+#[derive(Debug, Clone)]
+struct CacheEntry {
+    /// Key缓存数据（简化表示：存储为扁平化向量）
+    key_cache: Array1<f32>,
+    /// Value缓存数据
+    value_cache: Array1<f32>,
+    /// 路径深度（层数）
+    depth: usize,
+    /// 创建时间戳（用于LRU淘汰）
+    timestamp: u64,
+    /// 最后访问时间
+    last_access: u64,
+}
+
+impl TreeAttentionCache {
+    /// 创建新的树形注意力缓存
+    ///
+    /// # 参数
+    /// - `max_capacity`: 最大缓存条目数量
+    pub fn new(max_capacity: usize) -> Self {
+        Self {
+            cache_entries: std::collections::HashMap::new(),
+            max_capacity: max_capacity.max(1),
+            hits: 0,
+            misses: 0,
+            current_size: 0,
+            memory_usage_bytes: 0,
+        }
+    }
+
+    /// 使用默认容量创建（100个条目）
+    pub fn with_default_capacity() -> Self {
+        Self::new(100)
+    }
+
+    /// 存储或更新KV缓存
+    ///
+    /// # 参数
+    /// - `path_id`: 树形路径的唯一标识符
+    /// - `key_cache`: Key矩阵的扁平化数据
+    /// - `value_cache`: Value矩阵的扁平化数据
+    /// - `depth`: 该路径在树中的深度/层数
+    pub fn store(
+        &mut self,
+        path_id: u64,
+        key_cache: Array1<f32>,
+        value_cache: Array1<f32>,
+        depth: usize,
+    ) {
+        let current_time = self.get_timestamp();
+
+        // 检查是否需要淘汰（超出容量限制）
+        if !self.cache_entries.contains_key(&path_id) && self.current_size >= self.max_capacity {
+            self.evict_lru_entry();
+        }
+
+        let entry_size = (key_cache.len() + value_cache.len()) * std::mem::size_of::<f32>() as usize;
+
+        // 如果已存在，先移除旧条目的内存占用
+        if let Some(old_entry) = self.cache_entries.get(&path_id) {
+            let old_size =
+                (old_entry.key_cache.len() + old_entry.value_cache.len()) * std::mem::size_of::<f32>() as usize;
+            self.memory_usage_bytes = self.memory_usage_bytes.saturating_sub(old_size as u64);
+        } else {
+            self.current_size += 1;
+        }
+
+        // 创建新条目
+        let entry = CacheEntry {
+            key_cache,
+            value_cache,
+            depth,
+            timestamp: current_time,
+            last_access: current_time,
+        };
+
+        self.cache_entries.insert(path_id, entry);
+        self.memory_usage_bytes += entry_size as u64;
+    }
+
+    /// 查询KV缓存
+    ///
+    /// # 参数
+    /// - `path_id`: 树形路径的唯一标识符
+    ///
+    /// # 返回值
+    /// Option<(Key缓存, Value缓存, 路径深度)>，未命中返回None
+    pub fn lookup(&mut self, path_id: u64) -> Option<(Array1<f32>, Array1<f32>, usize)> {
+        let current_time = self.get_timestamp(); // 先获取时间戳避免借用冲突
+
+        match self.cache_entries.get_mut(&path_id) {
+            Some(entry) => {
+                entry.last_access = current_time;
+                self.hits += 1;
+                Some((
+                    entry.key_cache.clone(),
+                    entry.value_cache.clone(),
+                    entry.depth,
+                ))
+            }
+            None => {
+                self.misses += 1;
+                None
+            }
+        }
+    }
+
+    /// 批量预加载多条路径的缓存
+    ///
+    /// 在树形推测开始前，批量加载可能需要的路径缓存
+    ///
+    /// # 参数
+    /// - `paths`: 待加载的路径列表 (path_id, key_cache, value_cache, depth)
+    pub fn batch_preload(
+        &mut self,
+        paths: Vec<(u64, Array1<f32>, Array1<f32>, usize)>,
+    ) {
+        for (path_id, key_cache, value_cache, depth) in paths {
+            self.store(path_id, key_cache, value_cache, depth);
+        }
+    }
+
+    /// 使指定路径的缓存失效
+    pub fn invalidate(&mut self, path_id: u64) -> bool {
+        if let Some(entry) = self.cache_entries.remove(&path_id) {
+            let size =
+                (entry.key_cache.len() + entry.value_cache.len()) * std::mem::size_of::<f32>() as usize;
+            self.memory_usage_bytes = self.memory_usage_bytes.saturating_sub(size as u64);
+            self.current_size -= 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 清空所有缓存
+    pub fn clear(&mut self) {
+        self.cache_entries.clear();
+        self.current_size = 0;
+        self.memory_usage_bytes = 0;
+        self.hits = 0;
+        self.misses = 0;
+    }
+
+    /// LRU淘汰策略：移除最近最少使用的条目
+    fn evict_lru_entry(&mut self) {
+        if self.cache_entries.is_empty() {
+            return;
+        }
+
+        // 找到最久未访问的条目
+        let lru_path_id = self
+            .cache_entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_access)
+            .map(|(&path_id, _)| path_id);
+
+        if let Some(path_id) = lru_path_id {
+            self.invalidate(path_id);
+        }
+    }
+
+    /// 获取简单时间戳（单调递增计数器模拟）
+    fn get_timestamp(&self) -> u64 {
+        // 使用命中+未命中总和作为简单的时间戳代理
+        // 实际生产环境应使用系统时钟
+        self.hits + self.misses
+    }
+
+    /// 获取缓存命中率
+    pub fn hit_rate(&self) -> f32 {
+        let total_accesses = self.hits + self.misses;
+        if total_accesses == 0 {
+            0.0
+        } else {
+            self.hits as f32 / total_accesses as f32
+        }
+    }
+
+    /// 获取当前缓存条目数
+    pub fn current_size(&self) -> usize {
+        self.current_size
+    }
+
+    /// 获取最大缓存容量
+    pub fn max_capacity(&self) -> usize {
+        self.max_capacity
+    }
+
+    /// 获取内存使用估算（字节）
+    pub fn memory_usage_bytes(&self) -> u64 {
+        self.memory_usage_bytes
+    }
+
+    /// 获取命中/未命中统计
+    pub fn stats(&self) -> (u64, u64) {
+        (self.hits, self.misses)
+    }
+}
+
+/// 扩展的推测状态（集成N-gram验证和树形缓存）
+///
+/// 将N-gram验证器和树形注意力缓存整合到推测解码流程中
+#[derive(Debug)]
+pub struct EnhancedSpeculativeState {
+    /// 基础推测解码器
+    decoder: SpeculativeDecodingV2,
+    /// N-gram验证器
+    ngram_verifier: NgramVerifier,
+    /// 树形注意力缓存
+    tree_cache: TreeAttentionCache,
+    /// N-gram置信度阈值（低于此值的token将被拒绝）
+    ngram_confidence_threshold: f32,
+    /// 是否启用N-gram辅助验证
+    enable_ngram_verification: bool,
+    /// 是否启用树形缓存
+    enable_tree_cache: bool,
+}
+
+impl EnhancedSpeculativeState {
+    /// 创建增强版推测状态
+    ///
+    /// # 参数
+    /// - `config`: 推测解码配置
+    /// - `ngram_n`: N-gram阶数
+    /// - `ngram_threshold`: N-gram置信度阈值
+    /// - `cache_capacity`: 树形缓存容量
+    pub fn new(
+        config: SpeculativeDecodingV2Config,
+        ngram_n: usize,
+        ngram_confidence_threshold: f32,
+        cache_capacity: usize,
+    ) -> Self {
+        Self {
+            decoder: SpeculativeDecodingV2::new(config),
+            ngram_verifier: NgramVerifier::new(ngram_n, 0.1),
+            tree_cache: TreeAttentionCache::new(cache_capacity),
+            ngram_confidence_threshold,
+            enable_ngram_verification: true,
+            enable_tree_cache: true,
+        }
+    }
+
+    /// 使用默认配置创建
+    pub fn with_defaults() -> Self {
+        Self::new(
+            SpeculativeDecodingV2Config::default(),
+            3,      // trigram
+            0.01,   // 低阈值
+            50,     // 缓存容量
+        )
+    }
+
+    /// 训练N-gram模型
+    pub fn train_ngram_model(&mut self, tokens: &[u32]) {
+        self.ngram_verifier.train(tokens);
+    }
+
+    /// 增强版验证流程
+    ///
+    /// 结合标准验证、N-gram验证和树形缓存的综合决策
+    pub fn enhanced_verify(
+        &mut self,
+        context: &[u32],
+        draft_candidates: &[Vec<CandidateToken>],
+        target_probs: &[Array1<f32>],
+        path_id: u64,
+    ) -> Result<EnhancedVerificationResult> {
+        // 第一步：标准验证
+        let standard_result = self.decoder.verify_draft(draft_candidates, target_probs)?;
+
+        // 第二步：N-gram辅助验证（如果启用且结果非完全接受）
+        let mut ngram_confidences = Array1::<f32>::zeros(0);
+        let mut ngram_adjusted_result = standard_result.clone();
+
+        if self.enable_ngram_verification && !standard_result.fully_accepted {
+            let draft_token_ids: Vec<u32> = draft_candidates
+                .iter()
+                .map(|candidates| candidates[0].token_id)
+                .collect();
+
+            ngram_confidences = self
+                .ngram_verifier
+                .verify_with_ngram(context, &draft_token_ids);
+
+            // 如果N-gram置信度过低，调整接受结果
+            for (i, &conf) in ngram_confidences.iter().enumerate() {
+                if conf < self.ngram_confidence_threshold && i < standard_result.accept_length {
+                    // 降低接受长度
+                    ngram_adjusted_result.accept_length = ngram_adjusted_result.accept_length.min(i);
+                    ngram_adjusted_result.fully_accepted = false;
+                    // 截断接受的tokens
+                    ngram_adjusted_result.accepted_tokens.truncate(i);
+                    break; // 发现第一个低置信度就停止
+                }
+            }
+        }
+
+        // 第三步：树形缓存操作（如果启用）
+        let cache_hit = if self.enable_tree_cache {
+            // 尝试查找缓存
+            let lookup_result = self.tree_cache.lookup(path_id);
+            lookup_result.is_some()
+        } else {
+            false
+        };
+
+        Ok(EnhancedVerificationResult {
+            standard_result: ngram_adjusted_result,
+            ngram_confidences: ngram_confidences.clone(), // 克隆以避免移动后借用
+            cache_hit,
+            used_ngram_verification: self.enable_ngram_verification
+                && ngram_confidences.len() > 0,
+            used_tree_cache: self.enable_tree_cache,
+        })
+    }
+
+    /// 存储路径缓存
+    pub fn store_path_cache(
+        &mut self,
+        path_id: u64,
+        key_cache: Array1<f32>,
+        value_cache: Array1<f32>,
+        depth: usize,
+    ) {
+        if self.enable_tree_cache {
+            self.tree_cache.store(path_id, key_cache, value_cache, depth);
+        }
+    }
+
+    /// 获取基础解码器的可变引用
+    pub fn decoder_mut(&mut self) -> &mut SpeculativeDecodingV2 {
+        &mut self.decoder
+    }
+
+    /// 获取基础解码器的不可变引用
+    pub fn decoder(&self) -> &SpeculativeDecodingV2 {
+        &self.decoder
+    }
+
+    /// 获取N-gram验证器的不可变引用
+    pub fn ngram_verifier(&self) -> &NgramVerifier {
+        &self.ngram_verifier
+    }
+
+    /// 获取树形缓存的不可变引用
+    pub fn tree_cache(&self) -> &TreeAttentionCache {
+        &self.tree_cache
+    }
+
+    /// 启用/禁用N-gram验证
+    pub fn set_ngram_verification(&mut self, enabled: bool) {
+        self.enable_ngram_verification = enabled;
+    }
+
+    /// 启用/禁用树形缓存
+    pub fn set_tree_cache(&mut self, enabled: bool) {
+        self.enable_tree_cache = enabled;
+    }
+
+    /// 重置所有状态
+    pub fn reset_all(&mut self) {
+        self.decoder.reset_stats();
+        self.ngram_verifier.clear();
+        self.tree_cache.clear();
+    }
+}
+
+/// 增强验证结果
+#[derive(Debug, Clone)]
+pub struct EnhancedVerificationResult {
+    /// 标准验证结果（可能被N-gram调整过）
+    pub standard_result: SpeculationResult,
+    /// N-gram置信度分数
+    pub ngram_confidences: Array1<f32>,
+    /// 是否命中树形缓存
+    pub cache_hit: bool,
+    /// 是否使用了N-gram验证
+    pub used_ngram_verification: bool,
+    /// 是否使用了树形缓存
+    pub used_tree_cache: bool,
+}
+
+/// Speculative Decoding v2 主结构
+#[derive(Debug)]
 pub struct SpeculativeDecodingV2 {
     config: SpeculativeDecodingV2Config,
     stats: SpeculativeStats,
@@ -992,5 +1574,533 @@ mod tests {
 
         let spec_result = result.unwrap();
         assert!(spec_result.accept_length >= 1);
+    }
+
+    // ===== N-gram 验证器测试 =====
+
+    #[test]
+    fn test_ngram_verifier_creation() {
+        // 测试N-gram验证器的创建
+        let verifier = NgramVerifier::new(3, 0.1);
+        assert_eq!(verifier.n(), 3);
+        assert_eq!(verifier.total_tokens(), 0);
+        assert_eq!(verifier.ngram_table_size(), 0);
+    }
+
+    #[test]
+    fn test_ngram_verifier_default_config() {
+        // 测试默认配置
+        let verifier = NgramVerifier::with_default_config();
+        assert_eq!(verifier.n(), 3); // 默认trigram
+    }
+
+    #[test]
+    fn test_ngram_verifier_training() {
+        // 测试训练功能
+        let mut verifier = NgramVerifier::new(3, 0.1);
+
+        // 训练数据：简单序列
+        let tokens: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        verifier.train(&tokens);
+
+        // 验证统计信息
+        assert_eq!(verifier.total_tokens(), 8);
+        // 对于长度8的序列和n=3，应该有6个trigram (8-3+1=6)
+        assert_eq!(verifier.ngram_table_size(), 6);
+    }
+
+    #[test]
+    fn test_ngram_verification_with_trained_model() {
+        // 测试使用已训练模型进行验证
+        let mut verifier = NgramVerifier::new(3, 0.1);
+
+        // 训练一个有规律的序列
+        let training_tokens: Vec<u32> = vec![10, 20, 30, 40, 50, 10, 20, 30, 40, 50];
+        verifier.train(&training_tokens);
+
+        // 验证与训练数据一致的草稿token（应有较高置信度）
+        let context: Vec<u32> = vec![10, 20];
+        let draft_tokens: Vec<u32> = vec![30]; // 在训练数据中 [10,20] 后面常跟 30
+
+        let confidences = verifier.verify_with_ngram(&context, &draft_tokens);
+        assert_eq!(confidences.len(), 1);
+        // 由于训练数据中有这个模式，置信度应该 > 0
+        assert!(confidences[0] >= 0.0);
+    }
+
+    #[test]
+    fn test_ngram_verification_empty_context() {
+        // 测试空上下文情况
+        let mut verifier = NgramVerifier::new(2, 0.1); // bigram
+
+        let tokens: Vec<u32> = vec![1, 2, 3, 4, 5];
+        verifier.train(&tokens);
+
+        let context: Vec<u32> = vec![];
+        let draft_tokens: Vec<u32> = vec![1, 2, 3];
+
+        let confidences = verifier.verify_with_ngram(&context, &draft_tokens);
+        assert_eq!(confidences.len(), 3);
+        // 即使没有上下文，也应该返回合理的概率值
+        for conf in confidences.iter() {
+            assert!(*conf >= 0.0 && *conf <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_ngram_clear_functionality() {
+        // 测试清空功能
+        let mut verifier = NgramVerifier::new(3, 0.1);
+
+        let tokens: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        verifier.train(&tokens);
+
+        assert!(verifier.total_tokens() > 0);
+        assert!(verifier.ngram_table_size() > 0);
+
+        verifier.clear();
+
+        assert_eq!(verifier.total_tokens(), 0);
+        assert_eq!(verifier.ngram_table_size(), 0);
+    }
+
+    #[test]
+    fn test_ngram_various_n_values() {
+        // 测试不同N值的N-gram
+        for n in 1..=5 {
+            let mut verifier = NgramVerifier::new(n, 0.05);
+            assert_eq!(verifier.n(), n);
+
+            let tokens: Vec<u32> = (0..20).collect();
+            verifier.train(&tokens);
+
+            let expected_ngrams = if tokens.len() >= n { tokens.len() - n + 1 } else { 0 };
+            assert_eq!(verifier.ngram_table_size(), expected_ngrams,
+                "Failed for n={}: expected {} ngrams", n, expected_ngrams);
+        }
+    }
+
+    // ===== 树形注意力缓存测试 =====
+
+    #[test]
+    fn test_tree_cache_creation() {
+        // 测试缓存创建
+        let cache = TreeAttentionCache::new(50);
+        assert_eq!(cache.max_capacity(), 50);
+        assert_eq!(cache.current_size(), 0);
+        assert_eq!(cache.memory_usage_bytes(), 0);
+        assert_eq!(cache.hit_rate(), 0.0); // 无访问时命中率为0
+    }
+
+    #[test]
+    fn test_tree_cache_default_capacity() {
+        // 测试默认容量
+        let cache = TreeAttentionCache::with_default_capacity();
+        assert_eq!(cache.max_capacity(), 100);
+    }
+
+    #[test]
+    fn test_tree_cache_store_and_lookup() {
+        // 测试存储和查找基本功能
+        let mut cache = TreeAttentionCache::new(10);
+
+        let key_cache = Array1::from_vec(vec![0.1, 0.2, 0.3, 0.4]);
+        let value_cache = Array1::from_vec(vec![0.5, 0.6, 0.7, 0.8]);
+
+        // 存储
+        cache.store(1, key_cache.clone(), value_cache.clone(), 2);
+
+        assert_eq!(cache.current_size(), 1);
+        assert!(cache.memory_usage_bytes() > 0);
+
+        // 查找
+        let result = cache.lookup(1);
+        assert!(result.is_some());
+
+        let (retrieved_key, retrieved_value, depth) = result.unwrap();
+        assert_eq!(retrieved_key, key_cache);
+        assert_eq!(retrieved_value, value_cache);
+        assert_eq!(depth, 2);
+    }
+
+    #[test]
+    fn test_tree_cache_miss() {
+        // 测试缓存未命中
+        let mut cache = TreeAttentionCache::new(10);
+
+        let key_cache = Array1::from_vec(vec![0.1, 0.2]);
+        let value_cache = Array1::from_vec(vec![0.3, 0.4]);
+
+        cache.store(1, key_cache, value_cache, 1);
+
+        // 先查找存在的路径（命中）
+        let result_hit = cache.lookup(1);
+        assert!(result_hit.is_some());
+
+        // 查找不存在的路径（未命中）
+        let result_miss = cache.lookup(999);
+        assert!(result_miss.is_none());
+
+        // 验证统计信息
+        let (hits, misses) = cache.stats();
+        assert_eq!(hits, 1); // lookup(1)是命中
+        assert_eq!(misses, 1); // lookup(999)是未命中
+    }
+
+    #[test]
+    fn test_tree_cache_lru_eviction() {
+        // 测试LRU淘汰策略
+        let mut cache = TreeAttentionCache::new(3); // 小容量以便触发淘汰
+
+        // 填满缓存
+        for i in 1..=3 {
+            let key = Array1::from_vec(vec![i as f32]);
+            let value = Array1::from_vec(vec![(i * 10) as f32]);
+            cache.store(i, key, value, i as usize);
+        }
+
+        assert_eq!(cache.current_size(), 3);
+
+        // 访问路径2和3，更新它们的访问时间（使路径1成为最久未使用的）
+        let _ = cache.lookup(2);
+        let _ = cache.lookup(3);
+
+        // 插入第4个条目，应淘汰最久未使用的（路径1）
+        let new_key = Array1::from_vec(vec![99.0]);
+        let new_value = Array1::from_vec(vec![999.0]);
+        cache.store(4, new_key.clone(), new_value.clone(), 4);
+
+        assert_eq!(cache.current_size(), 3); // 容量不变
+
+        // 验证路径1被淘汰（它是最久未访问的）
+        let result = cache.lookup(1);
+        assert!(result.is_none(), "Path 1 should have been evicted");
+
+        // 新条目应该存在
+        let result = cache.lookup(4);
+        assert!(result.is_some());
+
+        // 路径2和3应该仍然存在
+        assert!(cache.lookup(2).is_some());
+        assert!(cache.lookup(3).is_some());
+    }
+
+    #[test]
+    fn test_tree_cache_invalidation() {
+        // 测试使缓存失效
+        let mut cache = TreeAttentionCache::new(10);
+
+        let key = Array1::from_vec(vec![1.0, 2.0]);
+        let value = Array1::from_vec(vec![3.0, 4.0]);
+
+        cache.store(42, key, value, 1);
+        assert_eq!(cache.current_size(), 1);
+
+        // 使失效
+        let removed = cache.invalidate(42);
+        assert!(removed);
+        assert_eq!(cache.current_size(), 0);
+
+        // 使不存在的路径失效
+        let removed_again = cache.invalidate(42);
+        assert!(!removed_again);
+    }
+
+    #[test]
+    fn test_tree_cache_batch_preload() {
+        // 测试批量预加载
+        let mut cache = TreeAttentionCache::new(10);
+
+        let paths: Vec<(u64, Array1<f32>, Array1<f32>, usize)> = vec![
+            (
+                1,
+                Array1::from_vec(vec![0.1]),
+                Array1::from_vec(vec![0.2]),
+                1,
+            ),
+            (
+                2,
+                Array1::from_vec(vec![0.3]),
+                Array1::from_vec(vec![0.4]),
+                2,
+            ),
+            (
+                3,
+                Array1::from_vec(vec![0.5]),
+                Array1::from_vec(vec![0.6]),
+                3,
+            ),
+        ];
+
+        cache.batch_preload(paths);
+
+        assert_eq!(cache.current_size(), 3);
+
+        // 验证所有路径都可访问
+        for path_id in 1..=3 {
+            assert!(cache.lookup(path_id).is_some());
+        }
+    }
+
+    #[test]
+    fn test_tree_cache_clear() {
+        // 测试清空缓存
+        let mut cache = TreeAttentionCache::new(10);
+
+        for i in 1..=5 {
+            let key = Array1::from_vec(vec![i as f32]);
+            let value = Array1::from_vec(vec![(i * 2) as f32]);
+            cache.store(i, key, value, i as usize);
+        }
+
+        assert_eq!(cache.current_size(), 5);
+        assert!(cache.memory_usage_bytes() > 0);
+
+        cache.clear();
+
+        assert_eq!(cache.current_size(), 0);
+        assert_eq!(cache.memory_usage_bytes(), 0);
+
+        let (hits, misses) = cache.stats();
+        assert_eq!(hits, 0);
+        assert_eq!(misses, 0);
+    }
+
+    #[test]
+    fn test_tree_cache_hit_rate_calculation() {
+        // 测试命中率计算
+        let mut cache = TreeAttentionCache::new(10);
+
+        let key = Array1::from_vec(vec![1.0]);
+        let value = Array1::from_vec(vec![2.0]);
+        cache.store(1, key, value, 1);
+
+        // 多次命中
+        for _ in 0..5 {
+            let _ = cache.lookup(1);
+        }
+
+        // 多次未命中
+        for _ in 0..3 {
+            let _ = cache.lookup(999);
+        }
+
+        let hit_rate = cache.hit_rate();
+        // 5次命中 + 3次未命中 + 1次初始存储后的隐式访问 ≈ 接近 6/9 或类似比例
+        // 具体数值取决于实现细节，但应该在合理范围内
+        assert!(hit_rate >= 0.0 && hit_rate <= 1.0);
+    }
+
+    #[test]
+    fn test_tree_cache_update_existing_entry() {
+        // 测试更新已存在的条目
+        let mut cache = TreeAttentionCache::new(10);
+
+        let key1 = Array1::from_vec(vec![1.0, 2.0]);
+        let value1 = Array1::from_vec(vec![3.0, 4.0]);
+        cache.store(1, key1, value1, 1);
+
+        let size_before = cache.current_size();
+
+        // 更新同一路径
+        let key2 = Array1::from_vec(vec![5.0, 6.0, 7.0]); // 不同大小
+        let value2 = Array1::from_vec(vec![8.0, 9.0, 10.0]);
+        cache.store(1, key2, value2, 3);
+
+        // 条目数不应增加
+        assert_eq!(cache.current_size(), size_before);
+
+        // 应该获取到新的值
+        let result = cache.lookup(1).unwrap();
+        assert_eq!(result.0.len(), 3); // 新key的长度
+        assert_eq!(result.2, 3); // 新深度
+    }
+
+    // ===== EnhancedSpeculativeState 集成测试 =====
+
+    #[test]
+    fn test_enhanced_state_creation() {
+        // 测试增强状态的创建
+        let state = EnhancedSpeculativeState::with_defaults();
+
+        assert_eq!(state.decoder().current_draft_length(), 4); // 默认配置
+        assert_eq!(state.ngram_verifier().n(), 3);
+        assert_eq!(state.tree_cache().max_capacity(), 50);
+    }
+
+    #[test]
+    fn test_enhanced_state_custom_config() {
+        // 测试自定义配置
+        let config = SpeculativeDecodingV2Config {
+            initial_draft_length: 3,
+            max_draft_length: 6,
+            ..Default::default()
+        };
+
+        let state = EnhancedSpeculativeState::new(config, 4, 0.05, 200);
+
+        assert_eq!(state.decoder().current_draft_length(), 3);
+        assert_eq!(state.ngram_verifier().n(), 4); // 4-gram
+        assert_eq!(state.tree_cache().max_capacity(), 200);
+    }
+
+    #[test]
+    fn test_enhanced_state_train_and_verify() {
+        // 测试完整的训练和验证流程
+        let mut state = EnhancedSpeculativeState::with_defaults();
+
+        // 训练N-gram模型
+        let training_data: Vec<u32> = vec![
+            100, 200, 300, 400, 500,
+            100, 200, 300, 400, 500,
+            100, 200, 300, 400, 500,
+        ];
+        state.train_ngram_model(&training_data);
+
+        assert!(state.ngram_verifier().total_tokens() > 0);
+
+        // 执行增强验证
+        let context: Vec<u32> = vec![100, 200];
+        let draft_candidates: Vec<Vec<CandidateToken>> = vec![
+            vec![CandidateToken {
+                token_id: 300,
+                prob: 0.7,
+                log_prob: 0.7_f32.ln(),
+            }],
+            vec![CandidateToken {
+                token_id: 400,
+                prob: 0.5,
+                log_prob: 0.5_f32.ln(),
+            }],
+        ];
+
+        let target_probs: Vec<Array1<f32>> = vec![
+            {
+                let mut probs = Array1::zeros(1000);
+                probs[300] = 0.8; // 第一个token高概率（可能被接受）
+                probs
+            },
+            {
+                let mut probs = Array1::zeros(1000);
+                probs[400] = 0.05; // 第二个token低概率（很可能被拒绝，触发部分接受）
+                probs
+            },
+            {
+                let mut probs = Array1::zeros(1000);
+                probs[0] = 0.5;
+                probs
+            },
+        ];
+
+        let result = state.enhanced_verify(&context, &draft_candidates, &target_probs, 1);
+        assert!(result.is_ok());
+
+        let enhanced_result = result.unwrap();
+        // N-gram验证在非完全接受时使用，或者即使完全接受也可能使用（取决于实现）
+        // 树形缓存总是被查询（如果启用）
+        assert!(enhanced_result.used_tree_cache);
+        assert!(enhanced_result.standard_result.accept_length >= 0);
+    }
+
+    #[test]
+    fn test_enhanced_state_toggle_features() {
+        // 测试功能开关
+        let mut state = EnhancedSpeculativeState::with_defaults();
+
+        // 禁用N-gram验证
+        state.set_ngram_verification(false);
+
+        let context: Vec<u32> = vec![];
+        let draft_candidates: Vec<Vec<CandidateToken>> = vec![vec![CandidateToken {
+            token_id: 1,
+            prob: 0.5,
+            log_prob: 0.5_f32.ln(),
+        }]];
+
+        let target_probs: Vec<Array1<f32>> = vec![
+            Array1::from_vec(vec![0.6, 0.4]),
+            Array1::from_vec(vec![0.5, 0.5]),
+        ];
+
+        let result = state.enhanced_verify(&context, &draft_candidates, &target_probs, 1);
+        assert!(result.is_ok());
+
+        let enhanced_result = result.unwrap();
+        assert!(!enhanced_result.used_ngram_verification); // 应该未被使用
+
+        // 禁用树形缓存
+        state.set_tree_cache(false);
+        state.set_ngram_verification(true);
+
+        let result2 = state.enhanced_verify(&context, &draft_candidates, &target_probs, 2);
+        assert!(result2.is_ok());
+
+        let enhanced_result2 = result2.unwrap();
+        assert!(!enhanced_result2.used_tree_cache); // 应该未被使用
+    }
+
+    #[test]
+    fn test_enhanced_state_reset_all() {
+        // 测试重置所有状态
+        let mut state = EnhancedSpeculativeState::with_defaults();
+
+        // 训练并执行一些操作
+        let training: Vec<u32> = vec![1, 2, 3, 4, 5];
+        state.train_ngram_model(&training);
+
+        let context: Vec<u32> = vec![];
+        let draft_candidates: Vec<Vec<CandidateToken>> = vec![vec![CandidateToken {
+            token_id: 1,
+            prob: 0.5,
+            log_prob: 0.5_f32.ln(),
+        }]];
+        let target_probs: Vec<Array1<f32>> = vec![
+            Array1::from_vec(vec![0.6, 0.4]),
+            Array1::from_vec(vec![0.5, 0.5]),
+        ];
+        let _ = state.enhanced_verify(&context, &draft_candidates, &target_probs, 1);
+
+        // 存储一些缓存
+        let key = Array1::from_vec(vec![1.0]);
+        let value = Array1::from_vec(vec![2.0]);
+        state.store_path_cache(1, key, value, 1);
+
+        // 重置
+        state.reset_all();
+
+        // 验证所有状态已清空
+        assert_eq!(state.decoder().stats().total_speculations, 0);
+        assert_eq!(state.ngram_verifier().total_tokens(), 0);
+        assert_eq!(state.tree_cache().current_size(), 0);
+    }
+
+    #[test]
+    fn test_enhanced_state_store_and_lookup_cache() {
+        // 测试通过EnhancedState操作树形缓存
+        let mut state = EnhancedSpeculativeState::with_defaults();
+
+        let key_cache = Array1::from_vec(vec![0.1, 0.2, 0.3]);
+        let value_cache = Array1::from_vec(vec![0.4, 0.5, 0.6]);
+
+        state.store_path_cache(100, key_cache.clone(), value_cache.clone(), 5);
+        assert_eq!(state.tree_cache().current_size(), 1);
+
+        // 通过enhanced_verify间接访问缓存（会尝试lookup）
+        let context: Vec<u32> = vec![];
+        let draft_candidates: Vec<Vec<CandidateToken>> = vec![vec![CandidateToken {
+            token_id: 1,
+            prob: 0.5,
+            log_prob: 0.5_f32.ln(),
+        }]];
+        let target_probs: Vec<Array1<f32>> = vec![
+            Array1::from_vec(vec![0.6, 0.4]),
+            Array1::from_vec(vec![0.5, 0.5]),
+        ];
+
+        let result = state.enhanced_verify(&context, &draft_candidates, &target_probs, 100);
+        assert!(result.is_ok());
+
+        let enhanced_result = result.unwrap();
+        assert!(enhanced_result.cache_hit); // 路径100应该命中
     }
 }

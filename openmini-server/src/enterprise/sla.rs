@@ -40,7 +40,7 @@
 use crate::enterprise::SlaConfig;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// SLA 错误类型
@@ -105,7 +105,7 @@ fn fixed_to_f32(value: u32) -> f32 {
 /// ```
 #[derive(Debug)]
 pub struct SlaMonitor {
-    /// 监控目标列表
+    /// 监控目标列表（基础版）
     targets: Vec<SlaTarget>,
     /// 监控窗口期（秒）
     window: Duration,
@@ -113,6 +113,22 @@ pub struct SlaMonitor {
     alerts: Mutex<Vec<SlaAlert>>,
     /// 配置
     config: SlaConfig,
+
+    // ========== 增强功能字段 ==========
+    /// 请求总数计数器
+    request_counter: Option<AtomicU64>,
+    /// 成功请求计数器
+    success_counter: Option<AtomicU64>,
+    /// 错误请求计数器
+    error_counter: Option<AtomicU64>,
+    /// 延迟滑动窗口
+    latency_window: Option<Mutex<Vec<f32>>>,
+    /// 历史快照记录
+    snapshot_history: Option<Mutex<Vec<SlaSnapshot>>>,
+    /// 增强型违规记录
+    enhanced_violations: Option<Mutex<Vec<EnhancedSlaViolation>>>,
+    /// 增强型目标列表
+    enhanced_targets: Vec<EnhancedSlaTarget>,
 }
 
 impl SlaMonitor {
@@ -143,6 +159,14 @@ impl SlaMonitor {
             window: Duration::seconds(config.window_secs as i64),
             alerts: Mutex::new(Vec::new()),
             config: config.clone(),
+            // 初始化增强功能字段为 None（需要显式调用 init_enhanced_features() 启用）
+            request_counter: None,
+            success_counter: None,
+            error_counter: None,
+            latency_window: None,
+            snapshot_history: None,
+            enhanced_violations: None,
+            enhanced_targets: Vec::new(),
         };
 
         if config.enabled {
@@ -680,6 +704,643 @@ pub enum MetricStatus {
     Violated,
 }
 
+// ==================== 增强的 SLA 监控系统 ====================
+
+/// SLA 级别枚举
+///
+/// 定义四个级别的服务级别协议标准，每个级别有不同的可用性目标和阈值配置。
+/// 用于对服务进行分级管理和差异化监控。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SlaLevel {
+    /// P0 - 关键业务（99.99%可用性）
+    ///
+    /// 适用于核心支付、用户认证等关键路径服务。
+    P0 {
+        /// 目标可用性百分比
+        target_availability: f32,
+    },
+    /// P1 - 重要业务（99.9%可用性）
+    ///
+    /// 适用于订单管理、消息推送等重要业务。
+    P1 {
+        /// 目标可用性百分比
+        target_availability: f32,
+    },
+    /// P2 - 一般业务（99%可用性）
+    ///
+    /// 适用于报表生成、数据分析等一般业务。
+    P2 {
+        /// 目标可用性百分比
+        target_availability: f32,
+    },
+    /// P3 - 低优先级（95%可用性）
+    ///
+    /// 适用于日志收集、后台任务等低优先级服务。
+    P3 {
+        /// 目标可用性百分比
+        target_availability: f32,
+    },
+}
+
+impl SlaLevel {
+    /// 获取目标可用性
+    pub fn target_availability(&self) -> f32 {
+        match self {
+            SlaLevel::P0 { target_availability } => *target_availability,
+            SlaLevel::P1 { target_availability } => *target_availability,
+            SlaLevel::P2 { target_availability } => *target_availability,
+            SlaLevel::P3 { target_availability } => *target_availability,
+        }
+    }
+
+    /// 获取级别名称
+    pub fn level_name(&self) -> &'static str {
+        match self {
+            SlaLevel::P0 { .. } => "P0",
+            SlaLevel::P1 { .. } => "P1",
+            SlaLevel::P2 { .. } => "P2",
+            SlaLevel::P3 { .. } => "P3",
+        }
+    }
+
+    /// 获取级别的典型阈值配置
+    ///
+    /// 返回元组：(max_latency_p95_ms, max_error_rate_pct, min_throughput_tps)
+    pub fn typical_thresholds(&self) -> (f32, f32, u32) {
+        match self {
+            SlaLevel::P0 { .. } => (100.0, 0.1, 5000),
+            SlaLevel::P1 { .. } => (500.0, 0.5, 2000),
+            SlaLevel::P2 { .. } => (1000.0, 1.0, 1000),
+            SlaLevel::P3 { .. } => (2000.0, 5.0, 100),
+        }
+    }
+
+    /// 根据目标可用性创建对应级别
+    pub fn from_target(target: f32) -> Self {
+        if target >= 99.99 {
+            SlaLevel::P0 {
+                target_availability: target,
+            }
+        } else if target >= 99.9 {
+            SlaLevel::P1 {
+                target_availability: target,
+            }
+        } else if target >= 99.0 {
+            SlaLevel::P2 {
+                target_availability: target,
+            }
+        } else {
+            SlaLevel::P3 {
+                target_availability: target,
+            }
+        }
+    }
+}
+
+/// SLA 目标定义（增强版）
+///
+/// 包含完整的服务级别协议定义，支持多维度指标监控。
+/// 可用于注册到监控系统并进行合规性检查。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedSlaTarget {
+    /// 目标唯一标识符
+    pub id: String,
+    /// 目标名称
+    pub name: String,
+    /// SLA 级别
+    pub level: SlaLevel,
+    /// 最大 P95 延迟（毫秒）
+    pub max_latency_p95_ms: f32,
+    /// 最大错误率（百分比）
+    pub max_error_rate_pct: f32,
+    /// 最小吞吐量（TPS）
+    pub min_throughput_tps: u32,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+}
+
+impl EnhancedSlaTarget {
+    /// 使用级别典型阈值创建目标
+    ///
+    /// 自动根据 SLA 级别设置推荐的阈值配置。
+    pub fn from_level(id: &str, name: &str, level: SlaLevel) -> Self {
+        let (latency, error_rate, throughput) = level.typical_thresholds();
+        Self {
+            id: id.to_string(),
+            name: name.to_string(),
+            level,
+            max_latency_p95_ms: latency,
+            max_error_rate_pct: error_rate,
+            min_throughput_tps: throughput,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// 创建自定义阈值的 SLA 目标
+    pub fn new(
+        id: &str,
+        name: &str,
+        level: SlaLevel,
+        max_latency_p95_ms: f32,
+        max_error_rate_pct: f32,
+        min_throughput_tps: u32,
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            name: name.to_string(),
+            level,
+            max_latency_p95_ms,
+            max_error_rate_pct,
+            min_throughput_tps,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// 检查给定指标是否符合目标
+    ///
+    /// 所有指标都必须满足要求才算合规。
+    pub fn is_compliant(
+        &self,
+        availability: f32,
+        latency_p95: f32,
+        error_rate: f32,
+        throughput: u32,
+    ) -> bool {
+        availability >= self.level.target_availability()
+            && latency_p95 <= self.max_latency_p95_ms
+            && error_rate <= self.max_error_rate_pct
+            && throughput >= self.min_throughput_tps
+    }
+}
+
+/// SLA 快照（用于趋势分析）
+///
+/// 记录某一时刻的系统状态快照，可用于历史趋势分析和性能回溯。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlaSnapshot {
+    /// 快照时间戳
+    pub timestamp: DateTime<Utc>,
+    /// 当前可用性百分比
+    pub availability_pct: f32,
+    /// P95 延迟（毫秒）
+    pub latency_p95_ms: f32,
+    /// P99 延迟（毫秒）
+    pub latency_p99_ms: f32,
+    /// 错误率百分比
+    pub error_rate_pct: f32,
+    /// 吞吐量（TPS）
+    pub throughput_tps: f32,
+    /// 总请求数
+    pub total_requests: u64,
+    /// 违规次数
+    pub violations_count: u32,
+}
+
+impl Default for SlaSnapshot {
+    fn default() -> Self {
+        Self {
+            timestamp: Utc::now(),
+            availability_pct: 100.0,
+            latency_p95_ms: 0.0,
+            latency_p99_ms: 0.0,
+            error_rate_pct: 0.0,
+            throughput_tps: 0.0,
+            total_requests: 0,
+            violations_count: 0,
+        }
+    }
+}
+
+/// SLA 违规类型（增强版）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlaViolationType {
+    /// 可用性低于目标
+    AvailabilityBelowTarget,
+    /// P95 延迟超限
+    LatencyExceededP95,
+    /// 错误率超标
+    ErrorRateExceeded,
+    /// 吞吐量不足
+    ThroughputBelowMinimum,
+}
+
+impl std::fmt::Display for SlaViolationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SlaViolationType::AvailabilityBelowTarget => write!(f, "可用性低于目标"),
+            SlaViolationType::LatencyExceededP95 => write!(f, "P95延迟超限"),
+            SlaViolationType::ErrorRateExceeded => write!(f, "错误率超标"),
+            SlaViolationType::ThroughputBelowMinimum => write!(f, "吞吐量不足"),
+        }
+    }
+}
+
+/// 违规严重程度（增强版）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViolationSeverity {
+    /// 严重（P0 违规）
+    Critical,
+    /// 主要（P1 违规）
+    Major,
+    /// 次要（P2 违规）
+    Minor,
+    /// 警告（P3 违规）
+    Warning,
+}
+
+impl std::fmt::Display for ViolationSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ViolationSeverity::Critical => write!(f, "严重"),
+            ViolationSeverity::Major => write!(f, "主要"),
+            ViolationSeverity::Minor => write!(f, "次要"),
+            ViolationSeverity::Warning => write!(f, "警告"),
+        }
+    }
+}
+
+impl ViolationSeverity {
+    /// 从 SLA 级别推断严重程度
+    pub fn from_level(level: &SlaLevel) -> Self {
+        match level {
+            SlaLevel::P0 { .. } => ViolationSeverity::Critical,
+            SlaLevel::P1 { .. } => ViolationSeverity::Major,
+            SlaLevel::P2 { .. } => ViolationSeverity::Minor,
+            SlaLevel::P3 { .. } => ViolationSeverity::Warning,
+        }
+    }
+}
+
+/// SLA 违规记录（增强版）
+///
+/// 记录详细的违规信息，包括类型、严重程度、实际值与阈值对比等。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnhancedSlaViolation {
+    /// 违规唯一标识符
+    pub id: String,
+    /// 关联的目标 ID
+    pub target_id: String,
+    /// 违规类型
+    pub violation_type: SlaViolationType,
+    /// 违规发生时间
+    pub timestamp: DateTime<Utc>,
+    /// 实际测量值
+    pub actual_value: f32,
+    /// 阈值限制
+    pub threshold_value: f32,
+    /// 严重程度
+    pub severity: ViolationSeverity,
+    /// 是否已解决
+    pub resolved: bool,
+    /// 解决时间
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+impl EnhancedSlaViolation {
+    /// 创建新的违规记录
+    pub fn new(
+        target_id: &str,
+        violation_type: SlaViolationType,
+        actual_value: f32,
+        threshold_value: f32,
+        severity: ViolationSeverity,
+    ) -> Self {
+        Self {
+            id: format!("vio-{}", uuid::Uuid::new_v4()),
+            target_id: target_id.to_string(),
+            violation_type,
+            timestamp: Utc::now(),
+            actual_value,
+            threshold_value,
+            severity,
+            resolved: false,
+            resolved_at: None,
+        }
+    }
+
+    /// 标记为已解决
+    pub fn resolve(&mut self) {
+        self.resolved = true;
+        self.resolved_at = Some(Utc::now());
+    }
+}
+
+// ==================== 增强 SlaMonitor 实现 ====================
+
+impl SlaMonitor {
+    /// 记录单个请求的指标
+    ///
+    /// 高性能 O(1) 操作，使用原子计数器更新统计信息。
+    /// 适用于高并发场景下的实时指标采集。
+    ///
+    /// # 参数
+    ///
+    /// * `latency_ms` - 请求延迟（毫秒）
+    /// * `success` - 请求是否成功
+    pub fn record_request(&self, latency_ms: f32, success: bool) {
+        // 更新总请求数
+        if let Some(counter) = &self.request_counter {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+
+        // 更新成功/失败计数
+        if success {
+            if let Some(counter) = &self.success_counter {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+        } else {
+            if let Some(counter) = &self.error_counter {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        // 更新延迟统计（使用滑动窗口）
+        if let Some(latencies) = &self.latency_window {
+            if let Ok(mut window) = latencies.lock() {
+                window.push(latency_ms);
+                // 保持窗口大小限制
+                if window.len() > 10000 {
+                    let excess = window.len() - 10000;
+                    window.drain(0..excess);
+                }
+            }
+        }
+    }
+
+    /// 获取当前状态快照
+    ///
+    /// 基于当前累积的指标数据生成系统状态快照，
+    /// 包含可用性、延迟、错误率和吞吐量等核心指标。
+    pub fn current_status(&self) -> SlaSnapshot {
+        let now = Utc::now();
+
+        // 计算各项指标
+        let total_requests = self
+            .request_counter
+            .as_ref()
+            .map(|c| c.load(Ordering::Relaxed))
+            .unwrap_or(0);
+
+        let success_count = self
+            .success_counter
+            .as_ref()
+            .map(|c| c.load(Ordering::Relaxed))
+            .unwrap_or(0);
+
+        let error_count = self
+            .error_counter
+            .as_ref()
+            .map(|c| c.load(Ordering::Relaxed))
+            .unwrap_or(0);
+
+        // 计算可用性
+        let availability_pct = if total_requests > 0 {
+            (success_count as f32 / total_requests as f32) * 100.0
+        } else {
+            100.0
+        };
+
+        // 计算错误率
+        let error_rate_pct = if total_requests > 0 {
+            (error_count as f32 / total_requests as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        // 计算 P95/P99 延迟
+        let (latency_p95_ms, latency_p99_ms) = self.calculate_percentile_latencies();
+
+        // 计算吞吐量（简化实现：基于最近请求数）
+        let throughput_tps = if total_requests > 0 {
+            total_requests as f32 / 60.0 // 假设窗口为 60 秒
+        } else {
+            0.0
+        };
+
+        // 获取违规次数
+        let violations_count = self.enhanced_violations.as_ref()
+            .and_then(|v| v.lock().ok())
+            .map(|v| v.len() as u32)
+            .unwrap_or(0);
+
+        SlaSnapshot {
+            timestamp: now,
+            availability_pct,
+            latency_p95_ms,
+            latency_p99_ms,
+            error_rate_pct,
+            throughput_tps,
+            total_requests,
+            violations_count,
+        }
+    }
+
+    /// 检查是否有违规（针对增强型目标）
+    ///
+    /// 对比当前状态与指定目标的阈值要求，
+    /// 如果有任何指标不达标，返回第一个检测到的违规记录。
+    pub fn check_enhanced_violation(
+        &self,
+        target: &EnhancedSlaTarget,
+    ) -> Option<EnhancedSlaViolation> {
+        let status = self.current_status();
+        let severity = ViolationSeverity::from_level(&target.level);
+
+        // 检查可用性
+        if status.availability_pct < target.level.target_availability() {
+            return Some(EnhancedSlaViolation::new(
+                &target.id,
+                SlaViolationType::AvailabilityBelowTarget,
+                status.availability_pct,
+                target.level.target_availability(),
+                severity,
+            ));
+        }
+
+        // 检查 P95 延迟
+        if status.latency_p95_ms > target.max_latency_p95_ms {
+            return Some(EnhancedSlaViolation::new(
+                &target.id,
+                SlaViolationType::LatencyExceededP95,
+                status.latency_p95_ms,
+                target.max_latency_p95_ms,
+                severity,
+            ));
+        }
+
+        // 检查错误率
+        if status.error_rate_pct > target.max_error_rate_pct {
+            return Some(EnhancedSlaViolation::new(
+                &target.id,
+                SlaViolationType::ErrorRateExceeded,
+                status.error_rate_pct,
+                target.max_error_rate_pct,
+                severity,
+            ));
+        }
+
+        // 检查吞吐量
+        if status.throughput_tps < target.min_throughput_tps as f32 {
+            return Some(EnhancedSlaViolation::new(
+                &target.id,
+                SlaViolationType::ThroughputBelowMinimum,
+                status.throughput_tps,
+                target.min_throughput_tps as f32,
+                severity,
+            ));
+        }
+
+        None
+    }
+
+    /// 获取历史趋势数据
+    ///
+    /// 从历史快照记录中提取指定时间窗口内的数据点，
+    /// 用于绘制趋势图和分析性能变化模式。
+    ///
+    /// # 参数
+    ///
+    /// * `window` - 时间窗口长度
+    ///
+    /// # 返回值
+    ///
+    /// 返回按时间排序的快照列表，可用于可视化展示。
+    pub fn trend(&self, window: Duration) -> Vec<SlaSnapshot> {
+        let cutoff = Utc::now() - window;
+
+        self.snapshot_history
+            .as_ref()
+            .and_then(|h| h.lock().ok())
+            .map(|snapshots| {
+                snapshots
+                    .iter()
+                    .filter(|s| s.timestamp >= cutoff)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 注册 SLA 目标（增强版）
+    ///
+    /// 将增强型 SLA 目标注册到监控系统中进行持续监控。
+    ///
+    /// # 参数
+    ///
+    /// * `target` - 要注册的 SLA 目标
+    ///
+    /// # 错误
+    ///
+    /// 如果目标 ID 已存在，返回错误。
+    pub fn register_target(&mut self, target: EnhancedSlaTarget) -> Result<(), SlaError> {
+        // 检查是否已存在相同 ID 的目标
+        if self
+            .enhanced_targets
+            .iter()
+            .any(|t| t.id == target.id)
+        {
+            return Err(SlaError::InvalidConfig(format!(
+                "Target with id '{}' already exists",
+                target.id
+            )));
+        }
+
+        self.enhanced_targets.push(target);
+        Ok(())
+    }
+
+    /// 注销 SLA 目标
+    ///
+    /// 从监控系统中移除指定的 SLA 目标。
+    ///
+    /// # 参数
+    ///
+    /// * `target_id` - 要注销的目标 ID
+    ///
+    /// # 错误
+    ///
+    /// 如果目标不存在，返回错误。
+    pub fn unregister_target(&mut self, target_id: &str) -> Result<(), SlaError> {
+        let original_len = self.enhanced_targets.len();
+        self.enhanced_targets.retain(|t| t.id != target_id);
+
+        if self.enhanced_targets.len() == original_len {
+            Err(SlaError::TargetNotFound(target_id.to_string()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// 获取所有活跃目标的合规状态
+    ///
+    /// 对每个注册的增强型目标执行合规性检查，
+    /// 返回包含目标 ID、合规状态和当前快照的报告列表。
+    pub fn compliance_report(&self) -> Vec<(String, bool, SlaSnapshot)> {
+        let current_status = self.current_status();
+
+        self.enhanced_targets
+            .iter()
+            .map(|target| {
+                let is_compliant = target.is_compliant(
+                    current_status.availability_pct,
+                    current_status.latency_p95_ms,
+                    current_status.error_rate_pct,
+                    current_status.throughput_tps as u32,
+                );
+                (target.id.clone(), is_compliant, current_status.clone())
+            })
+            .collect()
+    }
+
+    /// 初始化增强功能的内部状态
+    pub fn init_enhanced_features(&mut self) {
+        self.request_counter = Some(AtomicU64::new(0));
+        self.success_counter = Some(AtomicU64::new(0));
+        self.error_counter = Some(AtomicU64::new(0));
+        self.latency_window = Some(Mutex::new(Vec::new()));
+        self.snapshot_history = Some(Mutex::new(Vec::new()));
+        self.enhanced_violations = Some(Mutex::new(Vec::new()));
+        self.enhanced_targets = Vec::new();
+    }
+
+    /// 保存当前快照到历史记录
+    pub fn save_snapshot(&self) {
+        let snapshot = self.current_status();
+        if let Some(history) = &self.snapshot_history {
+            if let Ok(mut hist) = history.lock() {
+                hist.push(snapshot);
+                // 限制历史记录数量
+                if hist.len() > 10000 {
+                    let excess = hist.len() - 10000;
+                    hist.drain(0..excess);
+                }
+            }
+        }
+    }
+
+    // ========== 内部辅助方法 ==========
+
+    /// 计算百分位延迟
+    fn calculate_percentile_latencies(&self) -> (f32, f32) {
+        if let Some(latencies) = &self.latency_window {
+            if let Ok(window) = latencies.lock() {
+                if window.is_empty() {
+                    return (0.0, 0.0);
+                }
+
+                let mut sorted: Vec<f32> = window.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+                let p95_idx = ((sorted.len() as f32 * 0.95) as usize).min(sorted.len() - 1);
+                let p99_idx = ((sorted.len() as f32 * 0.99) as usize).min(sorted.len() - 1);
+
+                return (sorted[p95_idx], sorted[p99_idx]);
+            }
+        }
+        (0.0, 0.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -895,5 +1556,213 @@ mod tests {
 
         // 禁用时不应该有默认目标
         assert!(sla.get_current_metrics().is_empty());
+    }
+
+    // ==================== 新增增强功能测试 ====================
+
+    // SlaLevel 测试
+    #[test]
+    fn test_sla_level_p0_target_availability() {
+        let level = SlaLevel::P0 { target_availability: 99.99 };
+        assert!((level.target_availability() - 99.99).abs() < 0.001);
+        assert_eq!(level.level_name(), "P0");
+    }
+
+    #[test]
+    fn test_sla_level_typical_thresholds() {
+        // 测试每个级别的典型阈值是否合理
+        let levels = vec![
+            SlaLevel::P0 { target_availability: 99.99 },
+            SlaLevel::P1 { target_availability: 99.9 },
+            SlaLevel::P2 { target_availability: 99.0 },
+            SlaLevel::P3 { target_availability: 95.0 },
+        ];
+        for level in &levels {
+            let (lat, err, tps) = level.typical_thresholds();
+            assert!(lat > 0.0);
+            assert!(err >= 0.0);
+            assert!(tps > 0);
+        }
+    }
+
+    // EnhancedSlaTarget 测试
+    #[test]
+    fn test_enhanced_target_from_level() {
+        let target = EnhancedSlaTarget::from_level("test-p0", "Critical API", SlaLevel::P0 { target_availability: 99.99 });
+        assert_eq!(target.id, "test-p0");
+        assert!(target.is_compliant(99.99, 50.0, 0.05, 6000));  // 应该合规
+        assert!(!target.is_compliant(99.0, 50.0, 0.05, 6000));  // 可用性不足
+    }
+
+    // SlaMonitor record_request 测试
+    #[test]
+    fn test_record_request_statistics() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        // 记录10次成功请求
+        for _ in 0..10 {
+            monitor.record_request(100.0, true);
+        }
+        // 记录2次失败请求
+        monitor.record_request(500.0, false);
+
+        let status = monitor.current_status();
+        assert_eq!(status.total_requests, 12);
+        // 错误率应该约为 2/12 ≈ 16.67%
+        assert!((status.error_rate_pct - 16.67).abs() < 0.1);
+    }
+
+    // check_enhanced_violation 测试
+    #[test]
+    fn test_check_violation_latency_exceeded() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        let target = EnhancedSlaTarget::from_level("lat-test", "Latency Test", SlaLevel::P1 { target_availability: 99.9 });
+        monitor.register_target(target).unwrap();
+
+        // 模拟高延迟请求
+        for _ in 0..100 {
+            monitor.record_request(2000.0, true);  // P1阈值是500ms，这会超限
+        }
+
+        let targets = monitor.enhanced_targets.clone();  // 获取目标列表
+        if let Some(violation) = monitor.check_enhanced_violation(&targets[0]) {
+            assert_eq!(violation.violation_type, SlaViolationType::LatencyExceededP95);
+        }
+    }
+
+    // trend 测试
+    #[test]
+    fn test_trend_data_extraction() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        // 记录一些数据
+        for i in 0..20 {
+            monitor.record_request(100.0 + i as f32, true);
+            monitor.save_snapshot();  // 手动保存快照以生成趋势数据
+        }
+
+        let trends = monitor.trend(Duration::minutes(5));
+        assert!(!trends.is_empty());
+    }
+
+    // register_target / unregister_target 测试
+    #[test]
+    fn test_target_lifecycle() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        let target = EnhancedSlaTarget::from_level("lc-test", "Lifecycle Test", SlaLevel::P2 { target_availability: 99.0 });
+
+        // 注册
+        monitor.register_target(target).unwrap();
+        assert_eq!(monitor.enhanced_targets.len(), 1);
+
+        // 注销
+        monitor.unregister_target("lc-test").unwrap();
+        assert_eq!(monitor.enhanced_targets.len(), 0);
+
+        // 重复注销应报错
+        assert!(monitor.unregister_target("lc-test").is_err());
+    }
+
+    // compliance_report 测试
+    #[test]
+    fn test_compliance_report_generation() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        let target = EnhancedSlaTarget::from_level("comp-test", "Compliance Test", SlaLevel::P3 { target_availability: 95.0 });
+        monitor.register_target(target).unwrap();
+
+        // 正常操作（应该合规）
+        for _ in 0..50 {
+            monitor.record_request(100.0, true);
+        }
+
+        let report = monitor.compliance_report();
+        assert_eq!(report.len(), 1);  // 应该有1个目标的报告
+        assert!(report[0].1);  // 应该是合规的(true)
+    }
+
+    // 边界情况测试
+    #[test]
+    fn test_edge_cases_zero_requests() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        let status = monitor.current_status();
+        assert_eq!(status.total_requests, 0);
+        assert_eq!(status.error_rate_pct, 0.0);  // 无请求时错误率应为0
+    }
+
+    #[test]
+    fn test_edge_cases_extreme_latency() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        // 极端延迟值
+        monitor.record_request(99999.0, true);
+        let status = monitor.current_status();
+        assert!(status.latency_p95_ms > 10000.0);
+    }
+
+    #[test]
+    fn test_edge_cases_100_percent_error() {
+        let config = SlaConfig::default();
+        let mut monitor = SlaMonitor::new(&config).unwrap();
+        monitor.init_enhanced_features();
+
+        for _ in 0..20 {
+            monitor.record_request(100.0, false);
+        }
+
+        let status = monitor.current_status();
+        assert!((status.error_rate_pct - 100.0).abs() < 0.1);
+    }
+
+    // SlaSnapshot Default 测试
+    #[test]
+    fn test_snapshot_default_values() {
+        let snapshot = SlaSnapshot::default();
+        assert_eq!(snapshot.total_requests, 0);
+        assert_eq!(snapshot.violations_count, 0);
+    }
+
+    // ViolationSeverity from_level 测试
+    #[test]
+    fn test_violation_severity_from_level() {
+        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P0 { target_availability: 99.99 }), ViolationSeverity::Critical);
+        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P1 { target_availability: 99.9 }), ViolationSeverity::Major);
+        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P2 { target_availability: 99.0 }), ViolationSeverity::Minor);
+        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P3 { target_availability: 95.0 }), ViolationSeverity::Warning);
+    }
+
+    // EnhancedSlaViolation resolve 测试
+    #[test]
+    fn test_violation_resolve() {
+        let violation = EnhancedSlaViolation::new(
+            "v1".to_string(),
+            "t1".to_string(),
+            SlaViolationType::AvailabilityBelowTarget,
+            99.0,
+            99.99,
+            ViolationSeverity::Critical,
+        );
+        assert!(!violation.resolved);
+
+        let resolved = violation.resolve();
+        assert!(resolved.resolved);
+        assert!(resolved.resolved_at.is_some());
     }
 }

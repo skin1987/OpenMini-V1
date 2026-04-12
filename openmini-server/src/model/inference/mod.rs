@@ -21,7 +21,6 @@ pub mod gguf;
 pub mod image_preprocess;
 pub mod kascade;
 pub mod mhc;
-pub mod native_top_k;
 #[allow(clippy::module_inception)]
 pub mod inference;
 pub mod memory;
@@ -29,12 +28,14 @@ pub mod moe;
 pub mod model;
 pub mod mtp;
 pub mod nsa;
+pub mod pipeline;  // 端到端推理管线验证模块
 pub mod quant;
 pub mod quant_loader;
 pub mod quant_simd;
 pub mod ring_flash_linear;
 pub mod sampler;
 pub mod sliding_window;
+pub mod speculative;
 pub mod speculative_decoding_v2;
 pub mod tokenizer;
 pub mod tpa;

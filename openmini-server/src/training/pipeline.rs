@@ -857,7 +857,7 @@ impl TrainingPipeline {
     /// 集成已有的 GRPO 模块进行强化学习训练。
     pub fn grpo_train_step(
         &mut self,
-        group_samples: &mut [GroupSample],
+        _group_samples: &mut [GroupSample],
     ) -> Result<TrainingMetrics, PipelineError> {
         if self.current_phase != TrainingPhase::GRPO {
             return Err(PipelineError::InvalidPhase(

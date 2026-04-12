@@ -1345,7 +1345,7 @@ mod tests {
 
     #[test]
     fn test_fp8_kv_cache_creation() {
-        let mut cache = Fp8KVCache::new(Fp8Format::E4M3, 1024, 8, 64);
+        let cache = Fp8KVCache::new(Fp8Format::E4M3, 1024, 8, 64);
         assert_eq!(cache.format, Fp8Format::E4M3);
         assert_eq!(cache.seq_len, 1024);
         assert_eq!(cache.num_heads, 8);
@@ -1493,10 +1493,10 @@ mod tests {
         let mut cache = Fp8KVCache::new(Fp8Format::E4M3, 16, 2, 8);
 
         let k_original = Array3::from_shape_fn((16, 2, 8), |(i, j, k)| {
-            (i as f32 + j as f32 * 0.1 + k as f32 * 0.01)
+            i as f32 + j as f32 * 0.1 + k as f32 * 0.01
         });
         let v_original = Array3::from_shape_fn((16, 2, 8), |(i, j, k)| {
-            (i as f32 * 0.5 + j as f32 + k as f32 * 0.1)
+            i as f32 * 0.5 + j as f32 + k as f32 * 0.1
         });
 
         // 存储和加载
@@ -1593,13 +1593,13 @@ mod tests {
         let head_dim = 8;
 
         let q = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(b, i, j)| {
-            (b as f32 + i as f32 * 0.1 + j as f32 * 0.01)
+            b as f32 + i as f32 * 0.1 + j as f32 * 0.01
         });
-        let k = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(b, i, j)| {
-            (i as f32 + j as f32 * 0.05)
+        let k = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(_b, i, j)| {
+            i as f32 + j as f32 * 0.05
         });
-        let v = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(b, i, j)| {
-            (i as f32 * 0.2 + j as f32 * 0.1)
+        let v = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(_b, i, j)| {
+            i as f32 * 0.2 + j as f32 * 0.1
         });
 
         let result = engine.forward(&q, &k, &v, num_heads, head_dim);
@@ -1624,7 +1624,7 @@ mod tests {
 
         let q = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 + j as f32);
         let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| (seq_len - i) as f32 + j as f32);
-        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 * 0.5);
+        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| i as f32 * 0.5);
 
         let result = engine.forward(&q, &k, &v, num_heads, head_dim);
         assert!(result.is_ok());
@@ -1710,7 +1710,7 @@ mod tests {
         let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
             ((i + j) as f32 % 100.0) / 100.0
         });
-        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
+        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| {
             (i as f32) / seq_len as f32
         });
 
@@ -1729,7 +1729,7 @@ mod tests {
 
         let q = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 + j as f32);
         let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| (seq_len - i) as f32 + j as f32);
-        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 * 0.5);
+        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| i as f32 * 0.5);
 
         // ELU kernel
         {
@@ -1863,7 +1863,7 @@ mod tests {
         let k = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
             (seq_len - i) as f32 + j as f32 * 0.05
         });
-        let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
+        let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, _j)| {
             i as f32 * 0.2
         });
 
@@ -1897,7 +1897,7 @@ mod tests {
         let k = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
             (seq_len - i) as f32 + j as f32 * 0.01
         });
-        let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
+        let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, _j)| {
             i as f32 * 0.1
         });
 
@@ -1931,7 +1931,7 @@ mod tests {
         let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
             ((i + j) as f32 % 100.0) / 100.0
         });
-        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
+        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| {
             i as f32 / seq_len as f32
         });
 
@@ -2052,7 +2052,7 @@ mod tests {
 
         let q = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 + j as f32);
         let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| (seq_len - i) as f32 + j as f32);
-        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 * 0.5);
+        let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| i as f32 * 0.5);
 
         let result = engine.forward(&q, &k, &v, num_heads, head_dim);
         assert!(result.is_ok());
@@ -2074,7 +2074,7 @@ mod tests {
         let k = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(b, i, j)| {
             (seq_len - i) as f32 + b as f32 + j as f32 * 0.05
         });
-        let v = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(b, i, j)| {
+        let v = Array3::from_shape_fn((batch_size, seq_len, num_heads * head_dim), |(b, i, _j)| {
             i as f32 * 0.2 + b as f32 * 0.1
         });
 
@@ -2233,7 +2233,7 @@ mod tests {
         let k = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
             (seq_len - i) as f32 + j as f32 * 0.01
         });
-        let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
+        let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, _j)| {
             i as f32 * 0.1
         });
 
@@ -2261,7 +2261,7 @@ mod tests {
             let k = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
                 (seq_len - i) as f32 + j as f32
             });
-            let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
+            let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, _j)| {
                 i as f32 * 0.5
             });
 
@@ -2304,7 +2304,7 @@ mod tests {
                 let k = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
                     (seq_len - i) as f32 + j as f32 * 0.01
                 });
-                let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, j)| {
+                let v = Array3::from_shape_fn((1, seq_len, num_heads * head_dim), |(_, i, _j)| {
                     i as f32 * 0.1
                 });
 

@@ -149,7 +149,15 @@ struct MaskCacheEntry {
 ///
 /// # 缓存条件
 /// 仅当 `seq_len == kv_seq_len ≤ 2048` 且内存占用 ≤ 64MB 时缓存
-static DYNAMIC_MASK_CACHE: Lazy<DashMap<(usize, usize), MaskCacheEntry>> = Lazy::new(DashMap::new);
+///
+/// # Double Free 修复
+/// 使用 Lazy + Box::leak 模式避免 DashMap 析构时的 double free 问题。
+/// 全局缓存在程序退出时由操作系统回收内存，无需手动 drop。
+static DYNAMIC_MASK_CACHE: Lazy<&'static DashMap<(usize, usize), MaskCacheEntry>> =
+    Lazy::new(|| {
+        let cache = Box::new(DashMap::new());
+        Box::leak(cache)
+    });
 
 /// 掩码缓存最大序列长度（仅缓存正方形掩码）
 const MASK_CACHE_MAX_SEQ_LEN: usize = 2048;
@@ -176,8 +184,14 @@ const ROPE_PRECOMPUTE_MAX_POSITIONS: usize = 8192;
 /// RoPE 预计算表缓存
 /// Key: (theta_bits, head_dim, max_positions)
 /// Value: 预计算的频率向量和 cos/sin 表
-static ROPE_TABLES_CACHE: Lazy<DashMap<(u32, usize, usize), std::sync::Arc<RopeTables>>> =
-    Lazy::new(DashMap::new);
+///
+/// # Double Free 修复
+/// 使用 Lazy + Box::leak 模式避免 DashMap 析构时的 double free 问题
+static ROPE_TABLES_CACHE: Lazy<&'static DashMap<(u32, usize, usize), std::sync::Arc<RopeTables>>> =
+    Lazy::new(|| {
+        let cache = Box::new(DashMap::new());
+        Box::leak(cache)
+    });
 
 /// 获取或创建 RoPE 预计算表
 fn get_rope_tables(

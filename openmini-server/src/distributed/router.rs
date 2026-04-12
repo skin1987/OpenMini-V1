@@ -735,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_collect_nonexistent_request() {
-        let mut router = DistributedRouter::new(2, LoadBalancingPolicy::RoundRobin);
+        let router = DistributedRouter::new(2, LoadBalancingPolicy::RoundRobin);
 
         let result = router.collect_result(WorkerId(0));
         assert!(result.is_err()); // 没有pending请求

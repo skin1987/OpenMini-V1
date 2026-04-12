@@ -941,7 +941,7 @@ impl AuxiliaryBranch {
         let k = 1.min(self.experts.len());
 
         let mut indices = Array2::<usize>::zeros((batch_size, k));
-        let mut weights = Array2::<f32>::ones((batch_size, k)); // 单专家时权重为 1.0
+        let weights = Array2::<f32>::ones((batch_size, k)); // 单专家时权重为 1.0
 
         indices
             .axis_iter_mut(Axis(0))

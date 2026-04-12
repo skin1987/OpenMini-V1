@@ -5,6 +5,5 @@
 pub mod pool;
 pub mod strategy;
 
-pub use pool::*;
 #[allow(unused_imports)]
 pub use strategy::*;

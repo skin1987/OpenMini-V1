@@ -490,9 +490,9 @@ async fn test_connection_pool_leak_detection() {
 /// - 验证任务计数器一致性
 #[test]
 fn test_thread_pool_task_leak() {
-    use openmini_server::service::thread;
+    use openmini_server::service::thread::pool::create_default_pool;
 
-    let pool = thread::create_default_pool();
+    let pool = create_default_pool();
     let total_tasks = 5000;
     let completed = Arc::new(AtomicUsize::new(0));
 

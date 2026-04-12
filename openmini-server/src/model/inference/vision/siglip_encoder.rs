@@ -95,7 +95,7 @@ impl ViTTransformerLayer {
 }
 
 fn layer_norm(x: &Array2<f32>, weight: &Array1<f32>) -> Array2<f32> {
-    let (_seq_len, hidden_size) = x.dim();
+    let (_seq_len, _hidden_size) = x.dim();
     let eps = 1e-6;
 
     let mean = x.mean_axis(ndarray::Axis(1)).unwrap();
@@ -313,7 +313,7 @@ impl SigLIPEncoder {
     }
 
     fn patch_embed(&self, patches: &Array3<f32>) -> Array2<f32> {
-        let (num_patches, patch_dim, _) = patches.dim();
+        let (num_patches, _patch_dim, _) = patches.dim();
 
         let flat_patches: Array2<f32> = patches.slice(ndarray::s![.., .., 0]).to_owned();
 
