@@ -174,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 网关启动
     // ========================================================================
 
-    let addr: SocketAddr = config.server.host.parse()?;
+    let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
     info!("Creating gateway on {}...", addr);
 
     let gateway = service::server::Gateway::new(addr, inference_pool);

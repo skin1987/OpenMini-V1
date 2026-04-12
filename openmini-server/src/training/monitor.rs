@@ -11,8 +11,7 @@
 //! - **趋势分析**: 损失趋势检测（上升/下降/稳定）
 //! - **早停集成**: 基于验证损失的自动停止机制
 
-use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};

@@ -7,6 +7,7 @@ pub mod thread;
 pub mod worker;
 pub mod core_actor;
 pub mod router;
+pub mod hot_reload;
 
 /// 统一任务调度器模块 (推荐使用)
 ///

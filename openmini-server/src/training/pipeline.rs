@@ -17,17 +17,16 @@
 //! └── checkpoint_manager: CheckpointManager  # Checkpoint管理
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::training::config::{
     TrainingConfig14B, ExpansionStrategy, ConfigError,
-    Model14BConfig, GRPO14BConfig, SFT14BConfig,
+    Model14BConfig,
 };
 use crate::training::checkpoint::CheckpointManager;
-use crate::rl::GRPOConfig;
-use crate::rl::{GroupSample, Tensor};
+use crate::rl::GroupSample;
 
 // ==================== 训练阶段枚举 ====================
 

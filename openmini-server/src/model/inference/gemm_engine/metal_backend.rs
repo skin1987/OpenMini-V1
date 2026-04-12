@@ -1,139 +1,17 @@
 use candle_core::{Device, DType, Result as CandleResult, Tensor};
 use ndarray::{Array1, Array2, Array3};
-use std::sync::OnceLock;
 
-#[cfg(feature = "cuda")]
-mod cuda_backend;
-#[cfg(feature = "metal")]
-mod metal_backend;
-
+use super::{GemmBackendType, GemmEngine};
 use crate::model::inference::error::{InferenceError, InferenceResult};
 
-#[derive(Debug, Clone, Copy)]
-pub enum GemmBackendType {
-    Ndarray,
-    CandleCpuBlas,
-    CandleCuda,
-    CandleMetal,
-}
-
-impl std::fmt::Display for GemmBackendType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Ndarray => write!(f, "ndarray"),
-            Self::CandleCpuBlas => write!(f, "candle-cpu-blas"),
-            Self::CandleCuda => write!(f, "candle-cuda"),
-            Self::CandleMetal => write!(f, "candle-metal"),
-        }
-    }
-}
-
-pub trait GemmEngine: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn backend_type(&self) -> GemmBackendType;
-    fn matmul(&self, a: &Array2<f32>, b: &Array2<f32>) -> InferenceResult<Array2<f32>>;
-    fn batched_matmul(&self, a: &Array3<f32>, b: &Array3<f32>) -> InferenceResult<Array3<f32>>;
-    fn fused_gemm_relu(
-        &self,
-        a: &Array2<f32>,
-        w: &Array2<f32>,
-        bias: Option<&Array1<f32>>,
-    ) -> InferenceResult<Array2<f32>>;
-    fn fused_gemm_silu(
-        &self,
-        x: &Array2<f32>,
-        gate_w: &Array2<f32>,
-        up_w: &Array2<f32>,
-        bias: Option<&Array1<f32>>,
-    ) -> InferenceResult<Array2<f32>>;
-    fn is_available(&self) -> bool;
-}
-
-pub struct NdarrayFallbackBackend;
-
-impl GemmEngine for NdarrayFallbackBackend {
-    fn name(&self) -> &'static str {
-        "ndarray_fallback"
-    }
-
-    fn backend_type(&self) -> GemmBackendType {
-        GemmBackendType::Ndarray
-    }
-
-    fn matmul(&self, a: &Array2<f32>, b: &Array2<f32>) -> InferenceResult<Array2<f32>> {
-        Ok(a.dot(b))
-    }
-
-    fn batched_matmul(&self, a: &Array3<f32>, b: &Array3<f32>) -> InferenceResult<Array3<f32>> {
-        if a.shape()[0] != b.shape()[0] {
-            return Err(InferenceError::config(format!(
-                "Batch dimension mismatch: {} vs {}",
-                a.shape()[0],
-                b.shape()[0]
-            )));
-        }
-
-        let batch_size = a.shape()[0];
-        let mut results = Vec::with_capacity(batch_size);
-
-        for i in 0..batch_size {
-            let a_slice = a.slice(ndarray::s![i, .., ..]);
-            let b_slice = b.slice(ndarray::s![i, .., ..]);
-            results.push(a_slice.to_owned().dot(&b_slice.to_owned()));
-        }
-
-        Ok(Array3::from_shape_vec(
-            (batch_size, results[0].shape()[0], results[0].shape()[1]),
-            results.into_iter().flatten().collect(),
-        )
-        .map_err(|e| InferenceError::generation(e.to_string()))?)
-    }
-
-    fn fused_gemm_relu(
-        &self,
-        a: &Array2<f32>,
-        w: &Array2<f32>,
-        bias: Option<&Array1<f32>>,
-    ) -> InferenceResult<Array2<f32>> {
-        let mut result = a.dot(w);
-        if let Some(b) = bias {
-            result = result + b;
-        }
-        result.mapv_inplace(|x| x.max(0.0));
-        Ok(result)
-    }
-
-    fn fused_gemm_silu(
-        &self,
-        x: &Array2<f32>,
-        gate_w: &Array2<f32>,
-        up_w: &Array2<f32>,
-        bias: Option<&Array1<f32>>,
-    ) -> InferenceResult<Array2<f32>> {
-        let gate = x.dot(gate_w);
-        let up = x.dot(up_w);
-        let mut result = gate * up.mapv(|x| {
-            let sig = 1.0 / (1.0 + (-x).exp());
-            x * sig
-        });
-        if let Some(b) = bias {
-            result = result + b;
-        }
-        Ok(result)
-    }
-
-    fn is_available(&self) -> bool {
-        true
-    }
-}
-
-pub struct CandleCpuBlasBackend {
+pub struct CandleMetalBackend {
     device: Device,
 }
 
-impl CandleCpuBlasBackend {
-    pub fn new() -> Self {
-        Self { device: Device::Cpu }
+impl CandleMetalBackend {
+    pub fn new() -> Result<Self, String> {
+        let device = Device::new_metal(0).map_err(|e| format!("Metal device init failed: {}", e))?;
+        Ok(Self { device })
     }
 
     fn array2_to_tensor(&self, a: &Array2<f32>) -> CandleResult<Tensor> {
@@ -182,13 +60,13 @@ impl CandleCpuBlasBackend {
     }
 }
 
-impl GemmEngine for CandleCpuBlasBackend {
+impl GemmEngine for CandleMetalBackend {
     fn name(&self) -> &'static str {
-        "candle_cpu_blas"
+        "candle_metal"
     }
 
     fn backend_type(&self) -> GemmBackendType {
-        GemmBackendType::CandleCpuBlas
+        GemmBackendType::CandleMetal
     }
 
     fn matmul(&self, a: &Array2<f32>, b: &Array2<f32>) -> InferenceResult<Array2<f32>> {
@@ -340,87 +218,4 @@ impl GemmEngine for CandleCpuBlasBackend {
     fn is_available(&self) -> bool {
         true
     }
-}
-
-struct GemmEngineManagerInner {
-    engine: Box<dyn GemmEngine>,
-}
-
-impl GemmEngineManagerInner {
-    pub fn new() -> Self {
-        let engine: Box<dyn GemmEngine> =
-            Self::try_create_cuda_backend()
-                .or_else(|| Self::try_create_metal_backend())
-                .or_else(|| Self::try_create_blas_backend())
-                .unwrap_or_else(|| Box::new(NdarrayFallbackBackend));
-
-        let backend_name = engine.name();
-        tracing::info!("GEMM engine initialized: {}", backend_name);
-
-        Self { engine }
-    }
-
-    #[cfg(feature = "cuda")]
-    fn try_create_cuda_backend() -> Option<Box<dyn GemmEngine>> {
-        use crate::model::inference::gemm_engine::cuda_backend::CandleCudaBackend;
-        match CandleCudaBackend::new() {
-            Ok(b) if b.is_available() => Some(Box::new(b)),
-            _ => None,
-        }
-    }
-
-    #[cfg(not(feature = "cuda"))]
-    fn try_create_cuda_backend() -> Option<Box<dyn GemmEngine>> {
-        None
-    }
-
-    #[cfg(feature = "metal")]
-    fn try_create_metal_backend() -> Option<Box<dyn GemmEngine>> {
-        use crate::model::inference::gemm_engine::metal_backend::CandleMetalBackend;
-        match CandleMetalBackend::new() {
-            Ok(b) if b.is_available() => Some(Box::new(b)),
-            _ => None,
-        }
-    }
-
-    #[cfg(not(feature = "metal"))]
-    fn try_create_metal_backend() -> Option<Box<dyn GemmEngine>> {
-        None
-    }
-
-    fn try_create_blas_backend() -> Option<Box<dyn GemmEngine>> {
-        match std::panic::catch_unwind(|| {
-            let backend = CandleCpuBlasBackend::new();
-            backend.is_available()
-        }) {
-            Ok(true) => Some(Box::new(CandleCpuBlasBackend::new())),
-            _ => None,
-        }
-    }
-}
-
-pub struct GemmEngineManager {
-    inner: GemmEngineManagerInner,
-}
-
-impl GemmEngineManager {
-    pub fn new() -> Self {
-        Self {
-            inner: GemmEngineManagerInner::new(),
-        }
-    }
-
-    pub fn engine(&self) -> &dyn GemmEngine {
-        self.inner.engine.as_ref()
-    }
-
-    pub fn current_backend(&self) -> GemmBackendType {
-        self.inner.engine.backend_type()
-    }
-}
-
-static GEMM_ENGINE_MANAGER: OnceLock<GemmEngineManager> = OnceLock::new();
-
-pub fn get_gemm_engine_manager() -> &'static GemmEngineManager {
-    GEMM_ENGINE_MANAGER.get_or_init(|| GemmEngineManager::new())
 }

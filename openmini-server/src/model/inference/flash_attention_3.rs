@@ -441,7 +441,7 @@ unsafe fn amla_rescale_simd_avx2(
     }
 
     // 处理剩余元素
-    for (idx, val) in output_block[i..].iter_mut().enumerate() {
+    for (_idx, val) in output_block[i..].iter_mut().enumerate() {
         if val.is_finite() && *val != 0.0 {
             let bits = val.to_bits();
             let new_bits = bits.wrapping_add(scale_diff_int as u32);

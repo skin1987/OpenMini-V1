@@ -2,7 +2,7 @@
 //!
 //! 提供高性能GEMM（通用矩阵乘法）操作：
 //! - 单精度浮点（f32）
-//! - 半精度浮点（f16/BF16）
+//! - 半精度浮点（F16/BF16）
 //! - 批量矩阵乘法
 //! - 自动算法选择
 //!
@@ -190,11 +190,11 @@ impl CublasHandle {
         m: usize,
         n: usize,
         k: usize,
-        alpha: f16,
-        a: &CudaBuffer<f16>,
-        b: &CudaBuffer<f16>,
-        beta: f16,
-        c: &mut CudaBuffer<f16>,
+        alpha: F16,
+        a: &CudaBuffer<F16>,
+        b: &CudaBuffer<F16>,
+        beta: F16,
+        c: &mut CudaBuffer<F16>,
     ) -> Result<GemmResult, CudaError> {
         debug!(
             "GEMM F16: {}x{} @ {}x{} (Tensor Core加速)",
@@ -492,9 +492,9 @@ impl CublasHandle {
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
 #[allow(non_upper_case_globals)]
-pub struct f16(u16);
+pub struct F16(u16);
 
-impl f16 {
+impl F16 {
     pub fn from_f32(v: f32) -> Self {
         // 简化的float16转换（生产代码应使用half crate）
         let bits = v.to_bits();
@@ -502,11 +502,11 @@ impl f16 {
         let mantissa = bits & 0x007FFFFF;
         
         if exponent <= 0 {
-            f16(0) // 下溢
+            F16(0) // 下溢
         } else if exponent >= 31 {
-            f16(0x7C00 | (((bits >> 16) & 0x8000) as u16)) // 无穷
+            F16(0x7C00 | (((bits >> 16) & 0x8000) as u16)) // 无穷
         } else {
-            f16((((bits >> 16) & 0x8000) as u16) | ((exponent as u16) << 10) | ((mantissa >> 13) as u16))
+            F16((((bits >> 16) & 0x8000) as u16) | ((exponent as u16) << 10) | ((mantissa >> 13) as u16))
         }
     }
 
@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn test_f16_conversion() {
         let original: f32 = 3.14159;
-        let h = f16::from_f32(original);
+        let h = F16::from_f32(original);
         let back = h.to_f32();
         
         // 允许一定误差（f16精度有限）
@@ -690,9 +690,9 @@ mod tests {
         let ctx = handle.context.clone();
         let device_id = ctx.device().info().id;
 
-        let a_data: Vec<f16> = vec![f16::from_f32(1.0); 4];
-        let b_data: Vec<f16> = vec![f16::from_f32(2.0); 4];
-        let c_data: Vec<f16> = vec![f16::from_f32(0.0); 4];
+        let a_data: Vec<F16> = vec![F16::from_f32(1.0); 4];
+        let b_data: Vec<F16> = vec![F16::from_f32(2.0); 4];
+        let c_data: Vec<F16> = vec![F16::from_f32(0.0); 4];
 
         let a = CudaBuffer::from_host(&a_data, device_id).unwrap();
         let b = CudaBuffer::from_host(&b_data, device_id).unwrap();
@@ -701,8 +701,8 @@ mod tests {
         // RTX 4090 (SM 8.9) 支持Tensor Core
         let result = handle.gemm_f16(
             false, false, 2, 2, 2,
-            f16::from_f32(1.0), &a, &b,
-            f16::from_f32(0.0), &mut c
+            F16::from_f32(1.0), &a, &b,
+            F16::from_f32(0.0), &mut c
         );
         
         // Mock模式下可能成功也可能失败

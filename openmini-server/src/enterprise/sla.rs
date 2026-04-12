@@ -41,7 +41,7 @@ use crate::enterprise::SlaConfig;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// SLA 错误类型
 #[derive(Debug)]

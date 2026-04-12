@@ -4,6 +4,7 @@
 
 pub mod server;
 pub mod client;
+pub mod openmini_grpc;
 
 pub mod types {
     use serde::{Deserialize, Serialize};

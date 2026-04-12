@@ -1122,66 +1122,114 @@ impl MoEWeightsV2 {
         input: &ndarray::Array3<f32>,
     ) -> Result<(ndarray::Array3<f32>, f32), anyhow::Error> {
         let (batch_size, seq_len, hidden_size) = input.dim();
+        let num_tokens = batch_size * seq_len;
 
-        // Step 1: 计算共享专家输出
-        let shared_output = ndarray::Array3::<f32>::zeros((batch_size, seq_len, hidden_size));
+        let input_2d = input.to_shape((num_tokens, hidden_size))?.into_owned();
 
-        for _expert in &self.shared_experts {
-            // 共享专家输出简化处理（实际实现需要在推理引擎完成）
-            // 这里使用零张量作为占位符
-        }
-
-        // Step 2: 计算路由 logits 并选择 top-k 专家
-        let _num_routing_experts = self.routing_experts.len();
-        let input_2d = input.to_shape((batch_size * seq_len, hidden_size))?;
-
-        // 路由计算: [batch*seq, hidden] @ [hidden, num_experts] -> [batch*seq, num_experts]
         let routing_logits = input_2d.dot(&self.routing_router);
-
-        // Top-k 选择
         let (topk_indices, topk_weights) = self.topk_routing(&routing_logits)?;
 
-        // Step 3: 计算路由专家输出并加权融合
+        let mut shared_output =
+            ndarray::Array2::<f32>::zeros((num_tokens, hidden_size));
+        for expert in &self.shared_experts {
+            let expert_out = self
+                .swiglu_ffn(&input_2d, expert, hidden_size)?
+                .into_owned();
+            shared_output = shared_output + &expert_out;
+        }
+
         let mut routing_output =
-            ndarray::Array2::<f32>::zeros((batch_size * seq_len, hidden_size));
+            ndarray::Array2::<f32>::zeros((num_tokens, hidden_size));
         for k in 0..self.top_k {
-            for i in 0..(batch_size * seq_len) {
+            for i in 0..num_tokens {
                 let expert_idx = topk_indices[[i, k]];
                 let weight = topk_weights[[i, k]];
                 let expert = &self.routing_experts[expert_idx];
-
-                let input_single = input_2d.row(i);
-                let expert_output = self.compute_ffn_single(&input_single.to_vec(), expert, hidden_size)?;
-
+                let input_row = input_2d.row(i);
+                let expert_out = self.swiglu_ffn_single(&input_row.to_vec(), expert, hidden_size)?;
                 for j in 0..hidden_size {
-                    routing_output[[i, j]] += weight * expert_output[j];
+                    routing_output[[i, j]] += weight * expert_out[j];
                 }
             }
         }
 
-        // Reshape 回 3D
-        let routing_output_3d = routing_output.to_shape((batch_size, seq_len, hidden_size))?;
-
-        // Step 4: 合并共享专家和路由专家输出
-        let final_output = shared_output + routing_output_3d;
-
-        // Step 5: 计算负载均衡损失
+        let final_output_2d = shared_output + &routing_output;
+        let final_output = final_output_2d
+            .to_shape((batch_size, seq_len, hidden_size))?
+            .into_owned();
         let load_balance_loss = self.compute_load_balance_loss(&routing_logits);
 
         Ok((final_output, load_balance_loss))
     }
 
-    /// 计算 FFN 前向传播（单向量版本）
-    fn compute_ffn_single(
+    fn swiglu_ffn(
         &self,
-        _input: &[f32],
-        _ffn: &FFNWeights,
+        input: &ndarray::Array2<f32>,
+        ffn: &FFNWeights,
+        hidden_size: usize,
+    ) -> Result<ndarray::Array2<f32>, anyhow::Error> {
+        let (num_tokens, _) = input.dim();
+        let intermediate_size = ffn.gate_weight.len() / hidden_size;
+
+        let gate_w = ndarray::Array2::from_shape_vec(
+            (hidden_size, intermediate_size),
+            ffn.gate_weight.clone(),
+        )?;
+        let up_w = ndarray::Array2::from_shape_vec(
+            (hidden_size, intermediate_size),
+            ffn.up_weight.clone(),
+        )?;
+        let down_w = ndarray::Array2::from_shape_vec(
+            (intermediate_size, hidden_size),
+            ffn.down_weight.clone(),
+        )?;
+
+        let gate = input.dot(&gate_w);
+        let up = input.dot(&up_w);
+
+        let silu_gate = gate.mapv(|x| {
+            let sig = 1.0 / (1.0 + (-x).exp());
+            x * sig
+        });
+
+        let activated = &silu_gate * &up;
+        let output = activated.dot(&down_w);
+
+        Ok(output)
+    }
+
+    fn swiglu_ffn_single(
+        &self,
+        input: &[f32],
+        ffn: &FFNWeights,
         hidden_size: usize,
     ) -> Result<Vec<f32>, anyhow::Error> {
-        // 简化的 FFN 计算：SwiGLU 激活函数
-        // 实际实现需要在推理引擎中完成完整的矩阵运算
+        let intermediate_size = ffn.gate_weight.len() / hidden_size;
 
-        Ok(vec![0.0; hidden_size])
+        let mut gate = vec![0.0; intermediate_size];
+        let mut up = vec![0.0; intermediate_size];
+
+        for i in 0..intermediate_size {
+            for j in 0..hidden_size {
+                gate[i] += input[j] * ffn.gate_weight[j * intermediate_size + i];
+                up[i] += input[j] * ffn.up_weight[j * intermediate_size + i];
+            }
+        }
+
+        let mut activated = vec![0.0; intermediate_size];
+        for i in 0..intermediate_size {
+            let sig = 1.0 / (1.0 + (-gate[i]).exp());
+            activated[i] = gate[i] * sig * up[i];
+        }
+
+        let mut output = vec![0.0; hidden_size];
+        for i in 0..hidden_size {
+            for j in 0..intermediate_size {
+                output[i] += activated[j] * ffn.down_weight[j * hidden_size + i];
+            }
+        }
+
+        Ok(output)
     }
 
     /// Top-K 路由选择

@@ -72,8 +72,9 @@ use std::time::Instant;
 use super::dsa::{self, DSATopKConfig};
 use super::error::{InferenceError, InferenceResult};
 use super::gemm_engine::get_gemm_engine_manager;
-use super::gguf::{MoEWeightsV2, FFNWeights as GGUFFNWeights};
+use super::gguf::MoEWeightsV2;
 use super::sampler::GenerateParams;
+use super::sliding_window::{SlidingWindowConfig, AttentionMode, sliding_window_attention};
 
 impl From<ndarray::ShapeError> for InferenceError {
     fn from(e: ndarray::ShapeError) -> Self {
@@ -279,6 +280,9 @@ pub struct ModelConfig {
     pub use_attnres: bool, // 是否启用（默认 true，向后兼容无需配置）
     pub attnres_num_blocks: Option<usize>, // None = 自适应，Some(n) = 手动指定
     pub latent_dim: Option<usize>, // MLA 潜在维度，None 表示使用默认值
+    // ====== Sliding Window Attention 配置 ======
+    pub enable_sliding_window: bool, // 是否启用滑动窗口注意力（Gemma3 风格）
+    pub sliding_window_size: Option<usize>, // 滑动窗口大小，None 使用默认值 128
 }
 
 impl Default for ModelConfig {
@@ -312,6 +316,9 @@ impl Default for ModelConfig {
             use_attnres: true,
             attnres_num_blocks: None,
             latent_dim: None,
+            // ====== Sliding Window Attention 默认值 ======
+            enable_sliding_window: false,
+            sliding_window_size: None,
         }
     }
 }
@@ -997,6 +1004,8 @@ pub struct TransformerLayerWeights {
     pub mhc_static_proj: Option<Array2<f32>>,
     /// AttnRes: 伪查询向量 w_l（每层一个可学习参数）
     pub attnres_pseudo_query: Option<Array1<f32>>,
+    /// 滑动窗口配置（可选）
+    pub sliding_window_config: Option<SlidingWindowConfig>,
 }
 
 // ============================================================================
@@ -1811,6 +1820,7 @@ impl TransformerLayerWeights {
             } else {
                 None
             },
+            sliding_window_config: None,
         }
     }
 
@@ -1894,6 +1904,7 @@ impl TransformerLayerWeights {
             } else {
                 None
             },
+            sliding_window_config: None,
         }
     }
 
@@ -1934,7 +1945,78 @@ impl TransformerLayerWeights {
         let seq_len = x.nrows();
         let normed = rms_norm(&x, &self.input_layernorm, config.rms_norm_eps);
 
-        let attn = if config.use_mla {
+        let attn = if let Some(sw_config) = &self.sliding_window_config {
+            // 根据配置的 attention_mode 决定策略
+            match sw_config.attention_mode {
+                AttentionMode::Global => {
+                    if config.use_mla {
+                        if let Some(ref mla) = self.mla {
+                            self.mla_forward_with_cache(&normed, mla, config, kv_cache, positions)?
+                        } else {
+                            self.attention
+                                .forward_with_cache(&normed, config, kv_cache, positions)?
+                        }
+                    } else {
+                        self.attention
+                            .forward_with_cache(&normed, config, kv_cache, positions)?
+                    }
+                }
+                AttentionMode::Local | AttentionMode::Strided { .. } => {
+                    let (q_sw, k_sw, v_sw) = prepare_qkv(
+                        &normed,
+                        &self.attention.q_proj,
+                        &self.attention.k_proj,
+                        &self.attention.v_proj,
+                        config.num_attention_heads,
+                        config.num_key_value_heads,
+                        config.head_dim,
+                        config.rope_theta,
+                        positions,
+                    )?;
+
+                    if let Some(cache) = kv_cache {
+                        cache.update(&k_sw, &v_sw)?;
+                        let (cached_k, cached_v) = cache.get();
+                        let _k_cached = cached_k;
+                        let _v_cached = cached_v;
+                    }
+
+                    let num_heads = config.num_attention_heads;
+                    let head_dim = config.head_dim;
+                    let seq_len = seq_len;
+
+                    let mut output = Array2::zeros((seq_len, head_dim * num_heads));
+                    for h in 0..num_heads {
+                        let q_head = q_sw.slice(s![.., h, ..]).to_owned();
+                        let k_head = k_sw.slice(s![.., h, ..]).to_owned();
+                        let v_head = v_sw.slice(s![.., h, ..]).to_owned();
+
+                        let q_head_2d = q_head.into_shape_with_order((seq_len, head_dim))
+                            .map_err(|e| InferenceError::generation(format!("SWA Q reshape failed: {}", e)))?;
+                        let k_head_2d = k_head.into_shape_with_order((seq_len, head_dim))
+                            .map_err(|e| InferenceError::generation(format!("SWA K reshape failed: {}", e)))?;
+                        let v_head_2d = v_head.into_shape_with_order((seq_len, head_dim))
+                            .map_err(|e| InferenceError::generation(format!("SWA V reshape failed: {}", e)))?;
+
+                        let sw_out = sliding_window_attention(
+                            &q_head_2d,
+                            &k_head_2d,
+                            &v_head_2d,
+                            sw_config,
+                            None,
+                        ).map_err(|e| InferenceError::generation(format!("Sliding window attention failed: {}", e)))?;
+
+                        for i in 0..seq_len {
+                            for j in 0..head_dim {
+                                output[[i, h * head_dim + j]] = sw_out[[i, j]];
+                            }
+                        }
+                    }
+
+                    linear_gemm(&output, &self.attention.o_proj)?
+                }
+            }
+        } else if config.use_mla {
             if let Some(ref mla) = self.mla {
                 self.mla_forward_with_cache(&normed, mla, config, kv_cache, positions)?
             } else {
@@ -3321,6 +3403,15 @@ impl MultimodalTransformer {
                 }
             }
 
+            // 配置滑动窗口注意力（如果启用）
+            if transformer.config.enable_sliding_window {
+                let window_size = transformer.config.sliding_window_size.unwrap_or(128);
+                // 使用 Gemma3 默认模式：创建单个 Local 配置
+                // 注意：实际的多层配置在 Transformer 层级管理
+                let sw_config = SlidingWindowConfig::local_only(window_size, true);
+                layer.sliding_window_config = Some(sw_config);
+            }
+
             transformer.layers[layer_idx] = layer;
         }
 
@@ -4487,6 +4578,7 @@ mod tests {
             } else {
                 None
             },
+            sliding_window_config: None,
         }
     }
 

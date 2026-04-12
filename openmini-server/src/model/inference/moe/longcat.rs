@@ -51,7 +51,6 @@
 //! ```
 
 use std::fmt;
-use std::sync::Arc;
 
 use ndarray::{Array1, Array2, Axis};
 use rayon::prelude::*;

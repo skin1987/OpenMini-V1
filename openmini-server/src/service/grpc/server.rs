@@ -1277,63 +1277,49 @@ pub async fn start_grpc_server(
 /// 创建 OpenMini gRPC 路由器
 ///
 /// 将所有 gRPC 服务方法注册到路由器中。
-/// 由于当前项目未使用 proto 文件生成代码，
-/// 此函数返回一个占位路由器（预留接口）。
+/// 使用真实的服务实现替换之前的占位符。
+///
+/// # 参数
+/// - `service`: Arc 包装的 OpenMiniService 实例
+///
+/// # 返回
+/// 实现了 tonic::Service trait 的路由器实例，
+/// 支持以下 7 个 RPC 方法：
+/// - Chat (流式)
+/// - ImageUnderstanding (非流式)
+/// - ImageUnderstandingStream (流式)
+/// - HealthCheck (非流式)
+/// - OmniChat (流式)
+/// - SpeechToText (流式)
+/// - TextToSpeech (流式)
 fn create_openmini_router(
-    _service: Arc<OpenMiniService>,
+    service: Arc<OpenMiniService>,
 ) -> impl tonic::Service<
     tonic::body::BoxBody,
-    Response = http::Response<tonic::body::BoxBody>,
+    Response = tonic::Response<tonic::body::BoxBody>,
     Error = std::convert::Infallible,
     Future = core::future::Ready<
-        Result<http::Response<tonic::body::BoxBody>, std::convert::Infallible>,
+        Result<tonic::Response<tonic::body::BoxBody>, std::convert::Infallible>,
     >,
 > + Clone
-       + Send
-       + 'static {
-    // 预留：当有 proto 文件时，这里会注册实际的 gRPC 服务
-    //
-    // 示例：
-    // ```
-    // openmini_proto::open_mini_server::OpenMiniServer::new(service.clone())
-    //     .accept_uncompressed()
-    // ```
+   + Send
+   + 'static {
+    // 使用真实的 OpenMini gRPC 服务实现
+    // 该实现通过请求路径路由到对应的业务处理函数：
+    // - /openmini.OpenMini/Chat -> chat()
+    // - /openmini.OpenMini/ImageUnderstanding -> image_understanding()
+    // - /openmini.OpenMini/ImageUnderstandingStream -> image_understanding_stream()
+    // - /openmini.OpenMini/HealthCheck -> health_check()
+    // - /openmini.OpenMini/OmniChat -> omni_chat()
+    // - /openmini.OpenMini/SpeechToText -> speech_to_text()
+    // - /openmini.OpenMini/TextToSpeech -> text_to_speech()
 
-    // 当前返回一个简单的 echo 服务作为占位符
-    use bytes::Bytes;
-    use http::{Request, Response};
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use tower::{ServiceBuilder, ServiceExt};
+    use crate::service::grpc::openmini_grpc::OpenMiniGrpcService;
 
-    /// 简单的 Echo 服务（用于测试和占位）
-    #[derive(Clone)]
-    struct EchoService;
+    let grpc_service = OpenMiniGrpcService::new(service);
 
-    impl tonic::Service<Request<tonic::body::BoxBody>> for EchoService {
-        type Response = Response<tonic::body::BoxBody>;
-        type Error = std::convert::Infallible;
-        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn call(&mut self, _req: Request<tonic::body::BoxBody>) -> Self::Future {
-            let response = Response::builder()
-                .status(http::StatusCode::OK)
-                .header("content-type", "application/grpc+proto")
-                .body(tonic::body::BoxBody::new(http_body_util::Full::new(
-                    Bytes::from_static(b"\x00\x00\x00\x00\x05\x00\x00\x00\x06\x0a\x04pong"),
-                )))
-                .unwrap();
-
-            Box::pin(async move { Ok(response) })
-        }
-    }
-
-    EchoService
+    // 包装为符合 tonic 要求的 Service trait 实现
+    grpc_service
 }
 
 /// 等待 gRPC 服务器优雅关闭

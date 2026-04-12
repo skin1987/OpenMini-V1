@@ -26,7 +26,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::Sender;
 use tokio::time::timeout;
-use rayon::ThreadPool;
 
 use super::connection::ConnectionPool;
 

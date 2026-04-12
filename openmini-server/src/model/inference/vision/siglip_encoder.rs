@@ -41,6 +41,7 @@ pub struct ViTTransformerLayer {
     pub gate_proj: Array2<f32>,
     pub up_proj: Array2<f32>,
     pub down_proj: Array2<f32>,
+    num_heads: usize,
 }
 
 impl ViTTransformerLayer {
@@ -61,159 +62,95 @@ impl ViTTransformerLayer {
             gate_proj: load_2d_weight(weights, &format!("{}.mlp.gate_proj.weight", prefix), intermediate_size, hidden_size)?,
             up_proj: load_2d_weight(weights, &format!("{}.mlp.up_proj.weight", prefix), intermediate_size, hidden_size)?,
             down_proj: load_2d_weight(weights, &format!("{}.mlp.down_proj.weight", prefix), hidden_size, intermediate_size)?,
+            num_heads,
         })
     }
 
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
-        let (seq_len, hidden_size) = x.dim();
+        let normalized = layer_norm(x, &self.attn_norm);
 
-        let normalized = self.layer_norm(x, &self.attn_norm);
+        let q = normalized.dot(&self.q_proj);
+        let k = normalized.dot(&self.k_proj);
+        let v = normalized.dot(&self.v_proj);
 
-        let q = self.matmul(&normalized, &self.q_proj);
-        let k = self.matmul(&normalized, &self.k_proj);
-        let v = self.matmul(&normalized, &self.v_proj);
+        let attn_output = multi_head_attention(&q, &k, &v, self.num_heads);
 
-        let attn_output = self.multi_head_attention(&q, &k, &v, seq_len, hidden_size);
-
-        let attn_out = self.matmul(&attn_output, &self.o_proj);
-
+        let attn_out = attn_output.dot(&self.o_proj);
         let residual = x + &attn_out;
 
-        let ffn_normalized = self.layer_norm(&residual, &self.ffn_norm);
+        let ffn_normalized = layer_norm(&residual, &self.ffn_norm);
 
-        let gate = self.matmul(&ffn_normalized, &self.gate_proj);
-        let up = self.matmul(&ffn_normalized, &self.up_proj);
+        let gate = ffn_normalized.dot(&self.gate_proj);
+        let up = ffn_normalized.dot(&self.up_proj);
 
-        let activated = self.silu(&gate) * &up;
-
-        let ffn_output = self.matmul(&activated, &self.down_proj);
+        let activated = silu(&gate) * &up;
+        let ffn_output = activated.dot(&self.down_proj);
 
         residual + &ffn_output
     }
 
-    fn layer_norm(&self, x: &Array2<f32>, weight: &Array1<f32>) -> Array2<f32> {
-        let (seq_len, hidden_size) = x.dim();
-        let eps = 1e-6;
+    pub fn num_heads(&self) -> usize {
+        self.num_heads
+    }
+}
 
-        let mut result = Array2::<f32>::zeros(x.raw_dim());
+fn layer_norm(x: &Array2<f32>, weight: &Array1<f32>) -> Array2<f32> {
+    let (_seq_len, hidden_size) = x.dim();
+    let eps = 1e-6;
 
-        for i in 0..seq_len {
-            let row = x.row(i);
-            let sum: f32 = row.iter().sum();
-            let mean = sum / hidden_size as f32;
-            let var = row.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / hidden_size as f32;
-            let std = (var + eps).sqrt();
+    let mean = x.mean_axis(ndarray::Axis(1)).unwrap();
+    let var = x.clone().mapv(|v| v * v).mean_axis(ndarray::Axis(1)).unwrap();
+    let std = (&var + eps).mapv(f32::sqrt);
 
-            for j in 0..hidden_size {
-                result[[i, j]] = weight[j] * (x[[i, j]] - mean) / std;
-            }
-        }
+    let mean_broadcast = mean.insert_axis(ndarray::Axis(1));
+    let std_broadcast = std.insert_axis(ndarray::Axis(1));
+    let weight_broadcast = weight.view().insert_axis(ndarray::Axis(0));
 
-        result
+    (x - &mean_broadcast) / &std_broadcast * &weight_broadcast
+}
+
+fn multi_head_attention(
+    q: &Array2<f32>,
+    k: &Array2<f32>,
+    v: &Array2<f32>,
+    num_heads: usize,
+) -> Array2<f32> {
+    let (seq_len, hidden_size) = q.dim();
+    let head_dim = hidden_size / num_heads;
+    let scale = (head_dim as f32).powf(-0.5);
+
+    let q_reshaped = q.to_shape((seq_len, num_heads, head_dim)).unwrap();
+    let k_reshaped = k.to_shape((seq_len, num_heads, head_dim)).unwrap();
+    let v_reshaped = v.to_shape((seq_len, num_heads, head_dim)).unwrap();
+
+    let mut output = Array3::<f32>::zeros((seq_len, num_heads, head_dim));
+
+    for h in 0..num_heads {
+        let q_h = q_reshaped.slice(ndarray::s![.., h, ..]);
+        let k_h = k_reshaped.slice(ndarray::s![.., h, ..]);
+        let v_h = v_reshaped.slice(ndarray::s![.., h, ..]);
+
+        let scores = q_h.dot(&k_h.t()) * scale;
+        let attn_weights = softmax_rowwise(&scores);
+        let attn_out = attn_weights.dot(&v_h.to_owned());
+
+        output.slice_mut(ndarray::s![.., h, ..]).assign(&attn_out);
     }
 
-    fn matmul(&self, a: &Array2<f32>, b: &Array2<f32>) -> Array2<f32> {
-        let (m, k1) = a.dim();
-        let (_k2, n) = b.dim();
+    output.to_shape((seq_len, hidden_size)).unwrap().into_owned()
+}
 
-        let mut result = Array2::<f32>::zeros((m, n));
+fn softmax_rowwise(x: &Array2<f32>) -> Array2<f32> {
+    let max_val = x.fold_axis(ndarray::Axis(1), f32::NEG_INFINITY, |&m, &v| m.max(v));
+    let max_broadcast = max_val.insert_axis(ndarray::Axis(1));
+    let exp_x = (x - &max_broadcast).mapv(|v| v.exp());
+    let exp_sum = exp_x.sum_axis(ndarray::Axis(1));
+    let exp_sum_broadcast = exp_sum.insert_axis(ndarray::Axis(1));
+    exp_x / exp_sum_broadcast
+}
 
-        for i in 0..m {
-            for j in 0..n {
-                let mut sum = 0.0;
-                for k in 0..k1 {
-                    sum += a[[i, k]] * b[[k, j]];
-                }
-                result[[i, j]] = sum;
-            }
-        }
-
-        result
-    }
-
-    fn multi_head_attention(
-        &self,
-        q: &Array2<f32>,
-        k: &Array2<f32>,
-        v: &Array2<f32>,
-        seq_len: usize,
-        hidden_size: usize,
-    ) -> Array2<f32> {
-        let head_dim = hidden_size / 16;
-        let scale = (head_dim as f32).powf(-0.5);
-
-        let mut output = Array2::<f32>::zeros((seq_len, hidden_size));
-
-        for head in 0..16 {
-            let start = head * head_dim;
-            let end = start + head_dim;
-
-            let q_head = q.slice(ndarray::s![.., start..end]);
-            let k_head = k.slice(ndarray::s![.., start..end]);
-            let v_head = v.slice(ndarray::s![.., start..end]);
-
-            let scores = self.compute_attention_scores(&q_head, &k_head, seq_len, head_dim, scale);
-            let attn_weights = self.softmax(&scores, seq_len);
-
-            for i in 0..seq_len {
-                for j in 0..seq_len {
-                    for d in 0..head_dim {
-                        output[[i, start + d]] += attn_weights[[i, j]] * v_head[[j, d]];
-                    }
-                }
-            }
-        }
-
-        output
-    }
-
-    fn compute_attention_scores(
-        &self,
-        q: &ndarray::ArrayView2<f32>,
-        k: &ndarray::ArrayView2<f32>,
-        seq_len: usize,
-        head_dim: usize,
-        scale: f32,
-    ) -> Array2<f32> {
-        let mut scores = Array2::<f32>::zeros((seq_len, seq_len));
-
-        for i in 0..seq_len {
-            for j in 0..seq_len {
-                let mut sum = 0.0;
-                for d in 0..head_dim {
-                    sum += q[[i, d]] * k[[j, d]];
-                }
-                scores[[i, j]] = sum * scale;
-            }
-        }
-
-        scores
-    }
-
-    fn softmax(&self, x: &Array2<f32>, seq_len: usize) -> Array2<f32> {
-        let mut result = Array2::<f32>::zeros((seq_len, seq_len));
-
-        for i in 0..seq_len {
-            let max_val = x.row(i).iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let mut exp_sum = 0.0;
-
-            for j in 0..seq_len {
-                let exp_val = (x[[i, j]] - max_val).exp();
-                result[[i, j]] = exp_val;
-                exp_sum += exp_val;
-            }
-
-            for j in 0..seq_len {
-                result[[i, j]] /= exp_sum;
-            }
-        }
-
-        result
-    }
-
-    fn silu(&self, x: &Array2<f32>) -> Array2<f32> {
-        x.mapv(|v| v * (1.0 / (1.0 + (-v).exp())))
-    }
+fn silu(x: &Array2<f32>) -> Array2<f32> {
+    x.mapv(|v| { let s = 1.0 / (1.0 + (-v).exp()); v * s })
 }
 
 pub struct SigLIPEncoder {
@@ -378,65 +315,23 @@ impl SigLIPEncoder {
     fn patch_embed(&self, patches: &Array3<f32>) -> Array2<f32> {
         let (num_patches, patch_dim, _) = patches.dim();
 
-        let flat_patches = patches.slice(ndarray::s![.., .., 0]).to_owned();
+        let flat_patches: Array2<f32> = patches.slice(ndarray::s![.., .., 0]).to_owned();
 
         let mut hidden = Array2::<f32>::zeros((num_patches + 1, self.config.hidden_size));
 
-        for i in 0..num_patches {
-            for j in 0..self.config.hidden_size {
-                let mut sum = 0.0;
-                for k in 0..patch_dim {
-                    sum += flat_patches[[i, k]] * self.patch_embedding[[j, k]];
-                }
-                hidden[[i, j]] = sum;
-            }
-        }
+        let patch_embedding_t = self.patch_embedding.t();
+        let patch_embed_result = flat_patches.dot(&patch_embedding_t);
+        hidden.slice_mut(ndarray::s![0..num_patches, ..]).assign(&patch_embed_result);
 
         hidden
     }
 
     fn final_layer_norm(&self, x: &Array2<f32>) -> Array2<f32> {
-        let (seq_len, hidden_size) = x.dim();
-        let eps = 1e-6;
-
-        let mut result = Array2::<f32>::zeros(x.raw_dim());
-
-        for i in 0..seq_len {
-            let row = x.row(i);
-            let sum: f32 = row.iter().sum();
-            let mean = sum / hidden_size as f32;
-            let var = row
-                .iter()
-                .map(|&v| (v - mean).powi(2))
-                .sum::<f32>()
-                / hidden_size as f32;
-            let std = (var + eps).sqrt();
-
-            for j in 0..hidden_size {
-                result[[i, j]] = self.layernorm[j] * (x[[i, j]] - mean) / std;
-            }
-        }
-
-        result
+        layer_norm(x, &self.layernorm)
     }
 
     fn apply_projection(&self, x: &Array2<f32>, proj: &Array2<f32>) -> Array2<f32> {
-        let (seq_len, hidden_size) = x.dim();
-        let (_, proj_dim) = proj.dim();
-
-        let mut result = Array2::<f32>::zeros((seq_len, proj_dim));
-
-        for i in 0..seq_len {
-            for j in 0..proj_dim {
-                let mut sum = 0.0;
-                for k in 0..hidden_size {
-                    sum += x[[i, k]] * proj[[k, j]];
-                }
-                result[[i, j]] = sum;
-            }
-        }
-
-        result
+        x.dot(proj)
     }
 
     pub fn config(&self) -> &SigLIPEncoderConfig {
@@ -606,6 +501,7 @@ mod tests {
             gate_proj: Array2::<f32>::from_shape_fn((hidden_size, intermediate), |_| 0.01),
             up_proj: Array2::<f32>::from_shape_fn((hidden_size, intermediate), |_| 0.01),
             down_proj: Array2::<f32>::from_shape_fn((intermediate, hidden_size), |_| 0.01),
+            num_heads: 4,
         }
     }
 

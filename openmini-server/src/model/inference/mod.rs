@@ -20,6 +20,7 @@ pub mod generator;
 pub mod gguf;
 pub mod image_preprocess;
 pub mod kascade;
+pub mod mhc;
 pub mod native_top_k;
 #[allow(clippy::module_inception)]
 pub mod inference;

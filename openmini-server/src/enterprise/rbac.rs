@@ -515,7 +515,7 @@ pub struct Condition {
 
 impl Condition {
     /// 评估条件是否满足
-    pub fn evaluate(&self, ctx: &AuthContext, resource: &str) -> bool {
+    pub fn evaluate(&self, ctx: &AuthContext, _resource: &str) -> bool {
         match &self.condition_type {
             ConditionType::RoleRequired => {
                 // 要求用户具有指定角色
