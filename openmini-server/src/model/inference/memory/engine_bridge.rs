@@ -1986,7 +1986,7 @@ mod tests {
 
         assert_eq!(scores.len(), 10);
         for &score in &scores {
-            assert!(score >= 0.0 && score <= 1.0);
+            assert!((0.0..=1.0).contains(&score));
         }
     }
 
@@ -2012,7 +2012,8 @@ mod tests {
         let _ = extractor.extract_key_info(&data);
 
         let stats = extractor.get_stats();
-        assert!(stats.extraction_errors == 0 || stats.extraction_errors > 0);
+        // extraction_errors 是 u64 类型，始终 >= 0
+        assert_eq!(stats.extraction_errors, stats.extraction_errors); // 值存在且可访问
     }
 
     #[test]

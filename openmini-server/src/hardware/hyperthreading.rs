@@ -669,7 +669,9 @@ mod tests {
 
         // 应该返回至少一个核心（除非系统配置异常）
         // 注意：在某些平台上可能返回所有核心
-        assert!(!current_affinity.is_empty() || true); // 允许空结果
+        // 允许空结果（某些平台可能返回空 affinity）
+        let _current_affinity_len = current_affinity.len(); // Use variable to suppress unused warning
+        
     }
 
     /// 测试ThreadPoolConfig的mixed方法和其他属性
@@ -752,7 +754,7 @@ mod tests {
         // PhysicalOnly策略，无限制
         let physical_cores = affinity.select_cores(CoreSelectionStrategy::PhysicalOnly, None);
         assert!(physical_cores.len() <= all_cores.len());
-        assert!(physical_cores.len() > 0);
+        assert!(!physical_cores.is_empty());
 
         // NumaAware策略，无限制
         let numa_cores = affinity.select_cores(CoreSelectionStrategy::NumaAware, None);

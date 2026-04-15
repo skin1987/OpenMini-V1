@@ -805,7 +805,7 @@ mod tests {
 
         // 返回值应该在[0.0, 1.0]范围内
         assert!(
-            usage >= 0.0 && usage <= 1.0,
+            (0.0..=1.0).contains(&usage),
             "CPU usage {} is out of range [0.0, 1.0]",
             usage
         );
@@ -830,7 +830,7 @@ mod tests {
 
         // 返回值应该在[0.0, 1.0]范围内
         assert!(
-            usage >= 0.0 && usage <= 1.0,
+            (0.0..=1.0).contains(&usage),
             "Memory usage {} is out of range [0.0, 1.0]",
             usage
         );

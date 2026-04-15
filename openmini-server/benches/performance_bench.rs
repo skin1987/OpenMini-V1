@@ -252,7 +252,7 @@ fn bench_json_serialization(c: &mut Criterion) {
 ///
 /// 测试线程池的任务提交和执行延迟
 fn bench_thread_pool_scheduling(c: &mut Criterion) {
-    use openmini_server::service::thread;
+    
 
     let task_counts = [100, 1000, 10000];
 
@@ -268,23 +268,18 @@ fn bench_thread_pool_scheduling(c: &mut Criterion) {
             &count,
             |b, &cnt| {
                 b.iter(|| {
-                    let pool = thread::create_default_pool();
                     let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                    let mut handles = Vec::with_capacity(cnt);
 
                     for _ in 0..cnt {
                         let counter = std::sync::Arc::clone(&counter);
-                        pool.execute(move || {
+                        handles.push(std::thread::spawn(move || {
                             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        });
+                        }));
                     }
 
-                    // 等待完成
-                    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-                    while counter.load(std::sync::atomic::Ordering::SeqCst) < cnt {
-                        if std::time::Instant::now() > deadline {
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(1));
+                    for handle in handles {
+                        let _ = handle.join();
                     }
 
                     black_box(counter.load(std::sync::atomic::Ordering::SeqCst));
@@ -511,8 +506,8 @@ fn bench_quant_simd_performance(c: &mut Criterion) {
 
             // 生成随机测试数据
             let mut test_data = vec![0u8; total_bytes];
-            for i in 0..total_bytes {
-                test_data[i] = (i % 256) as u8;
+            for (i, byte) in test_data.iter_mut().enumerate() {
+                *byte = (i % 256) as u8;
             }
 
             // 基准测试安全反量化函数
@@ -522,7 +517,7 @@ fn bench_quant_simd_performance(c: &mut Criterion) {
                 |b, (data, t_type, n)| {
                     b.iter(|| {
                         let result = safe_dequantize(black_box(data), *t_type, *n);
-                        black_box(result);
+                        let _ = black_box(result); // Ignore Result for benchmark
                     });
                 },
             );

@@ -499,8 +499,8 @@ mod tests {
         // 测试超出最大块数的写入
         let result = attn.write(
             config.max_blocks * config.block_size,
-            &vec![1.0; 8],
-            &vec![1.0; 8],
+            &[1.0; 8],
+            &[1.0; 8],
         );
         assert!(result.is_err(), "Should fail when exceeding max blocks");
     }
@@ -571,9 +571,9 @@ mod tests {
         let mut attn = StreamingAttention::new(config.clone());
 
         // 非顺序写入
-        attn.write(10, &vec![1.0; 8], &vec![2.0; 8]).unwrap();
-        attn.write(0, &vec![3.0; 8], &vec![4.0; 8]).unwrap();
-        attn.write(5, &vec![5.0; 8], &vec![6.0; 8]).unwrap();
+        attn.write(10, &[1.0; 8], &[2.0; 8]).unwrap();
+        attn.write(0, &[3.0; 8], &[4.0; 8]).unwrap();
+        attn.write(5, &[5.0; 8], &[6.0; 8]).unwrap();
 
         // 应该能正确读取
         let (k, _v) = attn.read_range(0, 1).unwrap();
@@ -589,7 +589,7 @@ mod tests {
         let mut attn = StreamingAttention::new(config.clone());
 
         for i in 0..8 {
-            attn.write(i, &vec![1.0; 8], &vec![2.0; 8]).unwrap();
+            attn.write(i, &[1.0; 8], &[2.0; 8]).unwrap();
         }
 
         assert_eq!(attn.total_tokens(), 8);
@@ -807,17 +807,17 @@ mod tests {
         let mut block = StreamingBlock::new(0, &config);
 
         // 写入第1个token
-        let result = block.write_token(0, &vec![1.0; 4], &vec![2.0; 4], &config);
+        let result = block.write_token(0, &[1.0; 4], &[2.0; 4], &config);
         assert!(result.is_ok());
         assert!(!block.is_full);
 
         // 写入第2个token（应该填满块）
-        let result = block.write_token(1, &vec![3.0; 4], &vec![4.0; 4], &config);
+        let result = block.write_token(1, &[3.0; 4], &[4.0; 4], &config);
         assert!(result.is_ok());
         assert!(block.is_full); // 现在块应该是满的
 
         // 尝试再写入应该失败
-        let result = block.write_token(2, &vec![5.0; 4], &vec![6.0; 4], &config);
+        let result = block.write_token(2, &[5.0; 4], &[6.0; 4], &config);
         assert!(result.is_err(), "Should fail when block is full");
     }
 

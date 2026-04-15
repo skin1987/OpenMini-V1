@@ -2734,12 +2734,12 @@ mod integration_tests {
         // 偏移量 (从文件头开始计算，需要对齐)
         let tensor_offset = buf.len() as u64 + 8; // +8 for offset field
                                                   // 对齐到 32 字节
-        let aligned_offset = (tensor_offset + 31) / 32 * 32;
+        let aligned_offset = tensor_offset.div_ceil(32) * 32;
         buf.extend_from_slice(&aligned_offset.to_le_bytes());
 
         // 填充到对齐位置
         let padding = aligned_offset as usize - buf.len();
-        buf.extend(std::iter::repeat(0u8).take(padding));
+        buf.extend(std::iter::repeat_n(0u8, padding));
 
         // 张量数据: 4096 个 f32 (全部为 0.5)
         for _ in 0..4096 {
@@ -3060,13 +3060,13 @@ mod integration_tests {
             Int16(-500),
             UInt32(12345),
             Int32(-99999),
-            Float32(3.14),
+            Float32(std::f32::consts::PI),
             Bool(true),
             String("hello".to_string()),
             Array(vec![UInt8(1), UInt8(2), UInt8(3)]),
             UInt64(123456789),
             Int64(-987654321),
-            Float64(2.71828),
+            Float64(std::f64::consts::E),
         ];
 
         // 所有值都应该能创建和克隆

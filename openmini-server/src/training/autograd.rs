@@ -887,6 +887,7 @@ pub fn clip_grad_norm_(params: &[&TrainingTensor], max_norm: f64) -> f64 {
 // ==================== 单元测试 ====================
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
     use ndarray::{arr2, array};

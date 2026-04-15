@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn test_fp16_conversion_roundtrip() {
         // 使用 FP16 可表示范围内的数值（最大约 65504）
-        let original: Vec<f32> = vec![1.0, -1.0, 0.5, 3.14159, 100.0, 1000.0, 65000.0];
+        let original: Vec<f32> = vec![1.0, -1.0, 0.5, std::f32::consts::PI, 100.0, 1000.0, 65000.0];
 
         for &val in &original {
             let bits = f32_to_f16(val);

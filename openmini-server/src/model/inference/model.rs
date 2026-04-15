@@ -4562,6 +4562,7 @@ impl MultimodalTransformer {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -4939,7 +4940,7 @@ mod tests {
     fn test_top_p_sampling_distribution() {
         let logits = Array1::from_shape_vec(5, vec![1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
 
-        let mut counts = vec![0usize; 5];
+        let mut counts = [0usize; 5];
         let num_samples = 1000;
 
         for _ in 0..num_samples {
@@ -4978,7 +4979,7 @@ mod tests {
         );
 
         for &w in &weights {
-            assert!(w >= 0.0 && w <= 1.0, "Weights should be in [0, 1]");
+            assert!((0.0..=1.0).contains(&w), "Weights should be in [0, 1]");
         }
     }
 
@@ -5078,7 +5079,7 @@ mod tests {
             first_token
         );
 
-        assert!(output.len() > 0, "Should generate at least one token");
+        assert!(!output.is_empty(), "Should generate at least one token");
     }
 
     #[test]
@@ -5126,7 +5127,7 @@ mod tests {
             "Generated token should be within vocab size, got {}",
             first_token
         );
-        assert!(output.len() > 0, "Should generate at least one token");
+        assert!(!output.is_empty(), "Should generate at least one token");
     }
 
     #[test]

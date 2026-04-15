@@ -1319,7 +1319,7 @@ mod tests {
         assert_eq!(importances.len(), 5);
 
         for &imp in &importances {
-            assert!(imp >= 0.0 && imp <= 1.0);
+            assert!((0.0..=1.0).contains(&imp));
         }
     }
 
@@ -1721,7 +1721,7 @@ mod tests {
         for session_id in [1u64, 2, 3] {
             for i in 0..3 {
                 let data = Array2::from_elem((2, 16), (session_id * 10 + i) as f32);
-                memory.write(data, i as u64, Some(session_id));
+                memory.write(data, i, Some(session_id));
             }
         }
 

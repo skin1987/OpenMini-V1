@@ -787,6 +787,8 @@ impl Default for LongTermMemory {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)]
+#[allow(clippy::unnecessary_unwrap)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

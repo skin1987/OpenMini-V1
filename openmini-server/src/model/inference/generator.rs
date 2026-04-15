@@ -564,6 +564,7 @@ impl StreamStats {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -852,8 +853,8 @@ mod tests {
         let max_interval = regulator.current_interval_ms;
 
         // 边界条件下应该能正常工作且在范围内
-        assert!(min_interval >= 5 && min_interval <= 1000);
-        assert!(max_interval >= 5 && max_interval <= 1000);
+        assert!((5..=1000).contains(&min_interval));
+        assert!((5..=1000).contains(&max_interval));
     }
 
     #[test]
@@ -895,7 +896,7 @@ mod tests {
         // 稳定输出间隔常量验证
         assert_eq!(STEADY_OUTPUT_INTERVAL_MS, 50);
         // 这个值应该在合理范围内（10-1000ms）
-        assert!(STEADY_OUTPUT_INTERVAL_MS >= 10);
-        assert!(STEADY_OUTPUT_INTERVAL_MS <= 1000);
+        let interval = STEADY_OUTPUT_INTERVAL_MS;
+        assert!((10..=1000).contains(&interval), "Interval {} out of range [10, 1000]", interval);
     }
 }

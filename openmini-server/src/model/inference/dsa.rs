@@ -4245,8 +4245,8 @@ mod tests {
         let result = lightning_indexer(&q, &k);
         assert_eq!(result.dim(), (256, 512));
         // 验证结果有限
-        for i in 0..256.min(10) {
-            for j in 0..512.min(10) {
+        for i in 0..10 {
+            for j in 0..10 {
                 assert!(
                     result[[i, j]].is_finite(),
                     "Non-finite value at [{}, {}]",

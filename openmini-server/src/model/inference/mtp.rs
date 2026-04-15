@@ -559,7 +559,7 @@ mod tests {
 
         // 验证内部状态已更新
         let rate = sampler.decoder().acceptance_rate();
-        assert!(rate >= 0.0 && rate <= 1.0);
+        assert!((0.0..=1.0).contains(&rate));
     }
 
     /// 测试verify_candidates中的边界条件：target_prob=0

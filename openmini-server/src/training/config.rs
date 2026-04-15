@@ -1099,6 +1099,7 @@ impl std::error::Error for ConfigError {}
 // ==================== 单元测试 ====================
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

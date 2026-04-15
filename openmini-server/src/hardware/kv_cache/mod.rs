@@ -346,15 +346,10 @@ mod tests {
     /// 测试 DEFAULT_BLOCK_SIZE 常量
     #[test]
     fn test_default_block_size() {
-        assert!(
-            DEFAULT_BLOCK_SIZE > 0,
-            "DEFAULT_BLOCK_SIZE should be positive"
-        );
-        // 通常 block_size 是 2 的幂或合理值
-        assert!(
-            DEFAULT_BLOCK_SIZE >= 16,
-            "DEFAULT_BLOCK_SIZE should be at least 16"
-        );
+        // 验证 DEFAULT_BLOCK_SIZE 是合理的正数（运行时检查）
+        let block_size = DEFAULT_BLOCK_SIZE;
+        assert!(block_size > 0, "DEFAULT_BLOCK_SIZE should be positive, got {}", block_size);
+        assert!(block_size >= 16, "DEFAULT_BLOCK_SIZE should be at least 16, got {}", block_size);
     }
 
     /// 测试 BlockId 的基本操作（如果可用）

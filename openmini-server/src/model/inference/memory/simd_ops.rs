@@ -1264,7 +1264,7 @@ mod tests {
         assert!(approx_eq(sim_ab, 0.0, 1e-5));
 
         let sim_ac = ops.cosine_similarity(&a, &c);
-        assert!(approx_eq(sim_ac, 0.70710678, 1e-5));
+        assert!(approx_eq(sim_ac, std::f32::consts::FRAC_1_SQRT_2, 1e-5));
 
         let sim_aa = ops.cosine_similarity(&a, &a);
         assert!(approx_eq(sim_aa, 1.0, 1e-5));
@@ -1341,7 +1341,7 @@ mod tests {
         assert_eq!(results.len(), 3);
         assert!(approx_eq(results[0].score, 1.0, 1e-5));
         assert!(approx_eq(results[1].score, 0.0, 1e-5));
-        assert!(approx_eq(results[2].score, 0.70710678, 1e-5));
+        assert!(approx_eq(results[2].score, std::f32::consts::FRAC_1_SQRT_2, 1e-5));
     }
 
     #[test]
@@ -1478,7 +1478,7 @@ mod tests {
         let r2 = SimilarityResult { id: 1, score: 0.8 };
         let r3 = SimilarityResult { id: 2, score: 0.3 };
 
-        let mut results = vec![r1, r2, r3];
+        let mut results = [r1, r2, r3];
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
 
         assert_eq!(results[0].id, 1);

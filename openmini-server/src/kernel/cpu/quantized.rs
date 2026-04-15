@@ -216,7 +216,7 @@ mod tests {
     /// 测试FP16量化和反量化
     #[test]
     fn test_quantize_fp16() {
-        let data = vec![1.0, 2.0, 3.14159, 0.001, -1.5];
+        let data = vec![1.0, 2.0, std::f32::consts::PI, 0.001, -1.5];
 
         // FP16量化
         let fp16_data = quantize_fp16(&data);

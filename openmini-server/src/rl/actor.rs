@@ -556,7 +556,7 @@ mod tests {
         });
 
         // 验证结果结构有效（全零权重可能产生非有限值）
-        assert!(result.mean_reward > 0.0 || result.mean_reward == 0.0);
+        assert!(result.mean_reward >= 0.0);
     }
 
     /// 测试TrainingResult的display方法
@@ -707,7 +707,7 @@ mod tests {
         );
 
         // 结果结构应该有效
-        assert!(result.mean_reward > 0.0 || result.mean_reward == 0.0);
+        assert!(result.mean_reward >= 0.0);
 
         // display 方法不应panic
         let _display = result.display();

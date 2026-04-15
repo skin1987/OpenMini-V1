@@ -469,7 +469,7 @@ mod tests {
             let lines: Vec<&str> = output.lines().collect();
             if !lines.is_empty() {
                 // 至少应该有一些内容行
-                assert!(lines.len() > 0);
+                assert!(!lines.is_empty());
             }
         }
     }

@@ -1243,7 +1243,7 @@ mod tests {
     fn test_draft_model_creation() {
         let _model = DraftModel::new(1000, 0.7);
         // 验证模型创建成功（无 panic）
-        assert!(true);
+        
     }
 
     #[test]
@@ -1251,7 +1251,7 @@ mod tests {
         let _model1 = DraftModel::with_seed(1000, 0.7, 42);
         let _model2 = DraftModel::with_seed(1000, 0.7, 42);
         // 相同种子应该产生相同的行为（此处只验证创建成功）
-        assert!(true);
+        
     }
 
     #[test]
@@ -1322,7 +1322,7 @@ mod tests {
     #[test]
     fn test_verifier_creation() {
         let _verifier = TargetVerifier::new(1000);
-        assert!(true); // 验证创建成功
+         // 验证创建成功
     }
 
     #[test]
@@ -1522,12 +1522,12 @@ mod tests {
         let final_length = engine.current_draft_length();
         // 长度应该在合理范围内
         assert!(
-            final_length >= 2 && final_length <= 6,
+            (2..=6).contains(&final_length),
             "Draft length should be in range [2, 6], got {}",
             final_length
         );
         // 可能已经改变
-        assert!(final_length == initial_length || (final_length >= 2 && final_length <= 6));
+        assert!(final_length == initial_length || (2..=6).contains(&final_length));
     }
 
     #[test]

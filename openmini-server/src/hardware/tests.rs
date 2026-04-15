@@ -3,6 +3,8 @@
 //! 测试硬件检测、分级和调度功能
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
+#[allow(clippy::needless_range_loop)]
 mod tests {
     #[allow(unused_imports)]
     use crate::hardware::detector::{
@@ -327,6 +329,7 @@ mod simulated_low_end_tests {
     // ==================== 新增分支覆盖测试 (7个) ====================
 
     #[test]
+    #[allow(clippy::needless_range_loop)]
     fn test_cross_module_simd_consistency() {
         // 覆盖分支: 跨 SIMD 模块的结果一致性验证
         use crate::hardware::simd::{SimdOps, SseOps};
@@ -335,7 +338,7 @@ mod simulated_low_end_tests {
         let test_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
         // 加法一致性
-        let add_result = sse_ops.add(&test_data, &vec![1.0; 8]);
+        let add_result = sse_ops.add(&test_data, &[1.0; 8]);
         for i in 0..8 {
             assert!((add_result[i] - (i as f32 + 2.0)).abs() < f32::EPSILON);
         }
@@ -504,7 +507,7 @@ mod simulated_low_end_tests {
         let raw_input: Vec<f32> = vec![100.0, 200.0, 50.0, 150.0];
         let max_val = ops.max(&raw_input);
         let normalized: Vec<f32> = raw_input.iter().map(|&x| x / max_val).collect();
-        assert!(normalized.iter().all(|&x| x >= 0.0 && x <= 1.0));
+        assert!(normalized.iter().all(|&x| (0.0..=1.0).contains(&x)));
 
         // Step 2: 矩阵乘法 (模拟线性层)
         let weight = vec![0.5, -0.3, 0.8, -0.2, 0.1, 0.9, -0.4, 0.6]; // 2x4 权重

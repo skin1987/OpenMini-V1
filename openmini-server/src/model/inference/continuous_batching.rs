@@ -488,7 +488,7 @@ mod tests {
 
         // 调度批次
         let _batch = scheduler.schedule_batch().unwrap();
-        assert!(_batch.len() > 0);
+        assert!(!_batch.is_empty());
         assert!(_batch.len() <= 32);
     }
 
@@ -546,7 +546,7 @@ mod tests {
         let batch = scheduler.schedule_batch().unwrap();
 
         // 高优先级请求应该先被调度
-        assert!(batch.len() > 0);
+        assert!(!batch.is_empty());
     }
 
     #[test]

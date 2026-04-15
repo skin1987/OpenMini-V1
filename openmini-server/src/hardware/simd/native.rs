@@ -2072,9 +2072,9 @@ mod tests {
 
         // 次正规数（denormalized numbers）- 最小的非零浮点数
         let denormal = f32::MIN_POSITIVE; // ~1.17549e-38
-        let denormal_vec = vec![denormal, denormal];
-        let scale_vec = vec![1.0_f32, 1.0_f32];
-        let offset_vec = vec![0.0_f32, 0.0_f32];
+        let denormal_vec = [denormal, denormal];
+        let scale_vec = [1.0_f32, 1.0_f32];
+        let offset_vec = [0.0_f32, 0.0_f32];
         let mut denormal_result = vec![0.0f32; 2];
 
         // 手动实现 FMA
@@ -2092,9 +2092,9 @@ mod tests {
 
         // 最大有限数
         let max_finite = f32::MAX;
-        let max_vec = vec![max_finite, max_finite];
-        let small_scale = vec![0.5_f32, 0.5_f32];
-        let mut max_result = vec![0.0f32; 2];
+        let max_vec = [max_finite, max_finite];
+        let small_scale = [0.5_f32, 0.5_f32];
+        let mut max_result = [0.0f32; 2];
 
         // 手动实现 FMA
         for i in 0..2 {
@@ -2105,10 +2105,10 @@ mod tests {
         assert!(max_result[0].abs() > 1e37_f32); // 仍然很大
 
         // 负零和正零
-        let pos_zero = vec![0.0_f32];
-        let neg_zero = vec![-0.0_f32];
-        let one = vec![1.0_f32];
-        let mut zero_result = vec![0.0f32; 1];
+        let pos_zero = [0.0_f32];
+        let neg_zero = [-0.0_f32];
+        let one = [1.0_f32];
+        let mut zero_result = [0.0f32; 1];
 
         zero_result[0] = pos_zero[0] * one[0] + 0.0_f32;
         assert!(zero_result[0] == 0.0 && !zero_result[0].is_sign_negative());
@@ -2122,10 +2122,10 @@ mod tests {
         // 覆盖分支: 单元素向量的边界行为
 
         // 单元素 FMA
-        let single_a = vec![7.0_f32];
-        let single_b = vec![11.0_f32];
-        let single_c = vec![13.0_f32];
-        let mut single_r = vec![0.0_f32; 1];
+        let single_a = [7.0_f32];
+        let single_b = [11.0_f32];
+        let single_c = [13.0_f32];
+        let mut single_r = [0.0_f32; 1];
 
         single_r[0] = single_a[0] * single_b[0] + single_c[0];
         assert!((single_r[0] - 90.0).abs() < f32::EPSILON); // 7*11+13=90
@@ -2139,7 +2139,7 @@ mod tests {
         ];
 
         for (a_val, b_val, c_val) in combos {
-            let mut r = vec![0.0_f32; 1];
+            let mut r = [0.0_f32; 1];
             r[0] = a_val * b_val + c_val;
             let expected = a_val * b_val + c_val;
 
@@ -2160,13 +2160,13 @@ mod tests {
         // 覆盖分支: 输出缓冲区与输入缓冲区的独立性验证
 
         let original_input = vec![1.0_f32, 2.0_f32, 3.0_f32, 4.0_f32, 5.0_f32];
-        let multipliers = vec![10.0_f32, 20.0_f32, 30.0_f32, 40.0_f32, 50.0_f32];
-        let offsets = vec![100.0_f32, 200.0_f32, 300.0_f32, 400.0_f32, 500.0_f32];
+        let multipliers = [10.0_f32, 20.0_f32, 30.0_f32, 40.0_f32, 50.0_f32];
+        let offsets = [100.0_f32, 200.0_f32, 300.0_f32, 400.0_f32, 500.0_f32];
 
         // 复制输入用于验证
         let input_snapshot = original_input.clone();
 
-        let mut output = vec![0.0_f32; 5];
+        let mut output = [0.0_f32; 5];
         // 手动实现 FMA
         for i in 0..5 {
             output[i] = original_input[i] * multipliers[i] + offsets[i];
@@ -2194,18 +2194,18 @@ mod tests {
     fn test_scalar_sequential_operation_consistency() {
         // 覆盖分支: 连续多次操作的结果一致性
 
-        let base_a = vec![1.0_f32, 2.0_f32, 3.0_f32];
-        let base_b = vec![0.1_f32, 0.2_f32, 0.3_f32];
-        let base_c = vec![0.01_f32, 0.02_f32, 0.03_f32];
+        let base_a = [1.0_f32, 2.0_f32, 3.0_f32];
+        let base_b = [0.1_f32, 0.2_f32, 0.3_f32];
+        let base_c = [0.01_f32, 0.02_f32, 0.03_f32];
 
         // 第一次计算
-        let mut r1 = vec![0.0_f32; 3];
+        let mut r1 = [0.0_f32; 3];
         for i in 0..3 {
             r1[i] = base_a[i] * base_b[i] + base_c[i];
         }
 
         // 用完全相同的输入再次计算
-        let mut r2 = vec![0.0_f32; 3];
+        let mut r2 = [0.0_f32; 3];
         for i in 0..3 {
             r2[i] = base_a[i] * base_b[i] + base_c[i];
         }
@@ -2222,7 +2222,7 @@ mod tests {
         }
 
         // 第三次确认
-        let mut r3 = vec![0.0_f32; 3];
+        let mut r3 = [0.0_f32; 3];
         for i in 0..3 {
             r3[i] = base_a[i] * base_b[i] + base_c[i];
         }
@@ -2277,7 +2277,7 @@ mod tests {
         let increasing: Vec<f32> = (0..20).map(|i| i as f32).collect(); // [0, 19]
         let positive: Vec<f32> = (0..20).map(|_| 1.5_f32).collect(); // 常数正乘数
         let constant: Vec<f32> = (0..20).map(|_| 10.0_f32).collect(); // 常数偏移
-        let mut result = vec![0.0_f32; 20];
+        let mut result = [0.0_f32; 20];
 
         // 手动实现 FMA
         for i in 0..20 {

@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn test_metric_summary_calculation() {
-        let points = vec![
+        let points = [
             MetricPoint {
                 timestamp: 1000,
                 value: 10.0,

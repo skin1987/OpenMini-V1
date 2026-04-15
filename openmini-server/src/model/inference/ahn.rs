@@ -2262,7 +2262,7 @@ mod tests {
 
         // 层归一化后，每行的均值应接近 0，标准差接近 1
         for row in output.axis_iter(Axis(0)) {
-            let mean: f32 = row.iter().map(|&x| x).sum::<f32>() / row.len() as f32;
+            let mean: f32 = row.iter().copied().sum::<f32>() / row.len() as f32;
             assert!(
                 mean.abs() < 1.0,
                 "Mean should be near 0 after layer norm, got {}",
@@ -2451,7 +2451,7 @@ mod tests {
 
         // 短序列：速度比接近 1.0
         let speedup = ahn.estimated_speedup_vs_full_attention(16);
-        assert!(speedup >= 0.9 && speedup <= 1.1);
+        assert!((0.9..=1.1).contains(&speedup));
     }
 
     #[test]

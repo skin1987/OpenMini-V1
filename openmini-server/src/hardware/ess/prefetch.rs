@@ -354,7 +354,7 @@ mod tests {
         prefetcher.access(2000);
         prefetcher.access(3000);
 
-        assert!(prefetcher.get_prefetch_list().len() >= 1);
+        assert!(!prefetcher.get_prefetch_list().is_empty());
         assert_ne!(prefetcher.get_pattern(), AccessPattern::Unknown);
 
         prefetcher.clear();
@@ -383,7 +383,7 @@ mod tests {
         let predicted = prefetcher.access(3000);
 
         assert!(predicted.is_some());
-        assert!(prefetcher.get_prefetch_list().len() >= 1);
+        assert!(!prefetcher.get_prefetch_list().is_empty());
     }
 
     #[test]

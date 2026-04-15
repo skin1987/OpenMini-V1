@@ -1320,7 +1320,7 @@ mod tests {
             .unwrap();
 
         // super_admin 应该展开为 [admin, super_admin, user]
-        let expanded = rbac.expand_roles(&vec!["super_admin".to_string()]);
+        let expanded = rbac.expand_roles(&["super_admin".to_string()]);
         assert!(expanded.contains(&"admin".to_string()));
         assert!(expanded.contains(&"user".to_string()));
         assert!(expanded.contains(&"super_admin".to_string()));

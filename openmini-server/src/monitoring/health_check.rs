@@ -804,11 +804,9 @@ mod tests {
     fn test_aggregate_status_all_healthy() {
         // 所有组件健康时返回healthy
         let _checker = HealthChecker::new();
-        let components = vec![
-            ComponentHealth::healthy("gpu"),
+        let components = [ComponentHealth::healthy("gpu"),
             ComponentHealth::healthy("memory"),
-            ComponentHealth::healthy("cpu"),
-        ];
+            ComponentHealth::healthy("cpu")];
 
         // 注意：aggregate_status是私有方法，我们通过check()间接测试
         // 这里我们直接验证逻辑等价性
@@ -819,7 +817,7 @@ mod tests {
     #[test]
     fn test_aggregate_status_mixed_degraded() {
         // 部分组件不健康时返回degraded（无critical）
-        let components = vec![
+        let components = [
             ComponentHealth::healthy("gpu"),
             ComponentHealth::unhealthy("memory", "Warning: high usage"), // 不含"critical"
             ComponentHealth::healthy("cpu"),
@@ -827,7 +825,7 @@ mod tests {
 
         let has_critical = components
             .iter()
-            .any(|c| !c.healthy && c.message.as_ref().map_or(false, |m| m.contains("critical")));
+            .any(|c| !c.healthy && c.message.as_ref().is_some_and(|m| m.contains("critical")));
         let has_unhealthy = components.iter().any(|c| !c.healthy);
 
         assert!(!has_critical); // 没有critical问题
@@ -838,7 +836,7 @@ mod tests {
     fn test_aggregate_status_with_critical() {
         // 有critical问题时返回unhealthy
         // 创建明确不健康的组件列表（包含"critical"关键字的消息）
-        let components = vec![
+        let components = [
             ComponentHealth::healthy("gpu"),
             ComponentHealth::unhealthy("memory", "Critical: OOM detected"), // 包含"Critical"
         ];
@@ -848,7 +846,7 @@ mod tests {
             !c.healthy
                 && c.message
                     .as_ref()
-                    .map_or(false, |m| m.to_lowercase().contains("critical"))
+                    .is_some_and(|m| m.to_lowercase().contains("critical"))
         });
 
         assert!(has_critical); // 有critical问题
@@ -861,7 +859,7 @@ mod tests {
                 !c.healthy
                     && c.message
                         .as_ref()
-                        .map_or(false, |m| m.to_lowercase().contains("critical"))
+                        .is_some_and(|m| m.to_lowercase().contains("critical"))
             })
             .count();
 

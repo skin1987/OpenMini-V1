@@ -339,6 +339,7 @@ impl TwoStageAttnResCache {
 }
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;

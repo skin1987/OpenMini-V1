@@ -780,7 +780,7 @@ mod tests {
     fn test_fp32_passthrough() {
         let engine = get_test_engine();
 
-        let original: Vec<f32> = vec![1.0, 2.0, 3.14159, -42.0];
+        let original: Vec<f32> = vec![1.0, 2.0, std::f32::consts::PI, -42.0];
         let data: Vec<u8> = original
             .iter()
             .flat_map(|&f| f.to_le_bytes().to_vec())

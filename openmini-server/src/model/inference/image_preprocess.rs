@@ -431,7 +431,7 @@ mod tests {
         // 验证归一化范围合理：(128/255 - 0.5) / 0.5 ≈ 0.0039
         for &val in normalized.iter() {
             assert!(
-                val >= -3.0 && val <= 3.0,
+                (-3.0..=3.0).contains(&val),
                 "Normalized value {} out of range",
                 val
             );

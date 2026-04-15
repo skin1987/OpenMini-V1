@@ -421,6 +421,7 @@ impl CacheFriendlyLayout {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

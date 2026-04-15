@@ -548,6 +548,7 @@ pub fn build_multimodal_prompt(text_tokens: &[usize], num_image_tokens: usize) -
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)]
 mod tests {
     use super::*;
     use crate::model::inference::model::{IM_END_TOKEN_ID, IM_PATCH_TOKEN_ID, IM_START_TOKEN_ID};
@@ -1056,7 +1057,7 @@ mod tests {
         assert_eq!(chunk_count, 3);
 
         // 验证每个块的行数
-        for (_idx, (k_chunk, _v_chunk)) in layer.iter_chunks().enumerate() {
+        for (k_chunk, _v_chunk) in layer.iter_chunks() {
             assert_eq!(k_chunk.nrows(), 5);
             assert_eq!(k_chunk.ncols(), 4);
         }
@@ -1213,7 +1214,7 @@ mod tests {
         let prompt = build_multimodal_prompt(&text_tokens, num_image_tokens);
 
         // 结构: [IM_START] + [] + [IM_END] + text_tokens
-        assert_eq!(prompt.len(), 1 + 0 + 1 + 2);
+        assert_eq!(prompt.len(), 1 + 1 + 2);
         assert_eq!(prompt[0], IM_START_TOKEN_ID);
         assert_eq!(prompt[1], IM_END_TOKEN_ID);
     }

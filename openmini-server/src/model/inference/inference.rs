@@ -834,7 +834,7 @@ mod tests {
     /// 测试：InferenceStats的Clone特性（用于传递和复制统计信息）
     #[test]
     fn test_inference_stats_clone() {
-        let stats = InferenceStats::with_timing_high_precision(3.14, 100, 200, Some(300));
+        let stats = InferenceStats::with_timing_high_precision(std::f64::consts::PI, 100, 200, Some(300));
 
         let cloned = stats.clone();
         assert_eq!(cloned.inference_time_ms, stats.inference_time_ms);

@@ -224,7 +224,7 @@ mod tests {
 
         let mmap = MmapFile::open(file.path()).unwrap();
         // 通过Deref自动转换为&[u8]
-        let slice: &[u8] = &*mmap;
+        let slice: &[u8] = &mmap;
         assert_eq!(slice, b"deref test");
         assert_eq!(slice.len(), 10);
     }
@@ -298,7 +298,7 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
 
         let mmap = MmapFile::open(file.path()).unwrap();
-        let slice: &[u8] = &*mmap; // 通过Deref自动转换
+        let slice: &[u8] = &mmap; // 通过Deref自动转换
 
         assert_eq!(slice.len(), 0);
         assert!(slice.is_empty());

@@ -1530,7 +1530,7 @@ mod tests {
 
         // 稀疏度应该在合理范围内
         let sparsity = blockffn.sparsity_ratio();
-        assert!(sparsity >= 0.0 && sparsity <= 1.0);
+        assert!((0.0..=1.0).contains(&sparsity));
     }
 
     #[test]

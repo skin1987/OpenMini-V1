@@ -543,7 +543,7 @@ mod tests {
         let existing_hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let non_existing_hash = PrefixHash::from_tokens(&(100..=120).collect::<Vec<u32>>());
 
-        cache.insert(existing_hash.clone(), vec![0], 20).unwrap();
+        cache.insert(existing_hash, vec![0], 20).unwrap();
 
         assert!(cache.contains(&existing_hash));
         assert!(!cache.contains(&non_existing_hash));
@@ -606,8 +606,8 @@ mod tests {
 
         let hash1 = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let hash2 = PrefixHash::from_tokens(&(21..=40).collect::<Vec<u32>>());
-        cache.insert(hash1.clone(), vec![0], 20).unwrap();
-        cache.insert(hash2.clone(), vec![1], 20).unwrap();
+        cache.insert(hash1, vec![0], 20).unwrap();
+        cache.insert(hash2, vec![1], 20).unwrap();
 
         let count = cache.entries().count();
         assert_eq!(count, 2);
@@ -670,7 +670,7 @@ mod tests {
         // 插入第一个条目（20 tokens）
         let tokens1: Vec<u32> = (1..=20).collect();
         let hash1 = PrefixHash::from_tokens(&tokens1);
-        cache.insert(hash1.clone(), vec![0], 20).unwrap();
+        cache.insert(hash1, vec![0], 20).unwrap();
         assert_eq!(cache.total_tokens(), 20);
 
         // 插入第二个条目（20 tokens），总共40 < 50，应该成功
@@ -755,7 +755,7 @@ mod tests {
 
         // 插入并查询后
         let hash = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
-        cache.insert(hash.clone(), vec![0], 20).unwrap();
+        cache.insert(hash, vec![0], 20).unwrap();
         cache.lookup(hash); // 1次hit
         cache.lookup(PrefixHash::from_tokens(&(100..=120).collect::<Vec<u32>>())); // 1次miss
 
@@ -774,7 +774,7 @@ mod tests {
         let block_ids: Vec<BlockId> = vec![0, 1, 2];
         let length = 20;
 
-        let entry = PrefixEntry::new(hash.clone(), block_ids.clone(), length);
+        let entry = PrefixEntry::new(hash, block_ids.clone(), length);
 
         assert_eq!(entry.hash, hash);
         assert_eq!(entry.block_ids, block_ids);
@@ -792,7 +792,7 @@ mod tests {
         // 公共前缀（模拟system prompt）
         let common_prefix: Vec<u32> = (1..=32).collect(); // 32 token公共前缀
         let common_hash = PrefixHash::from_tokens(&common_prefix);
-        cache.insert(common_hash.clone(), vec![0, 1], 32).unwrap();
+        cache.insert(common_hash, vec![0, 1], 32).unwrap();
 
         // 模拟3个请求都命中公共前缀
         for _ in 0..3 {
@@ -818,8 +818,8 @@ mod tests {
 
         let hash1 = PrefixHash::from_tokens(&(1..=20).collect::<Vec<u32>>());
         let hash2 = PrefixHash::from_tokens(&(21..=40).collect::<Vec<u32>>());
-        cache.insert(hash1.clone(), vec![0], 20).unwrap();
-        cache.insert(hash2.clone(), vec![1], 20).unwrap();
+        cache.insert(hash1, vec![0], 20).unwrap();
+        cache.insert(hash2, vec![1], 20).unwrap();
 
         // 记录第一次lookup的时间戳
         let time_after_first_lookup = cache.lookup(hash1).unwrap().last_access;

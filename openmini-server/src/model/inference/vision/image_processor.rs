@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(result.shape(), &[16, 16, 3]);
         for &val in result.iter() {
             assert!(
-                val >= -3.0 && val <= 3.0,
+                (-3.0..=3.0).contains(&val),
                 "Normalized value {} out of expected range",
                 val
             );

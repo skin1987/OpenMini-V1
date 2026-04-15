@@ -484,7 +484,7 @@ fn test_repeated_calls_stress() {
     }
 
     // 如果能到达这里说明没有崩溃
-    assert!(true);
+    // Test passes if we reach this point without crashing
 }
 
 // ============================================================================

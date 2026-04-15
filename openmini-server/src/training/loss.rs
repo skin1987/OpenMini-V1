@@ -469,7 +469,7 @@ mod tests {
 
         for &p in probs.iter() {
             assert!(p.is_finite(), "Softmax should handle large values");
-            assert!(p >= 0.0 && p <= 1.0, "Probabilities should be in [0, 1]");
+            assert!((0.0..=1.0).contains(&p), "Probabilities should be in [0, 1]");
         }
 
         // 负数值输入

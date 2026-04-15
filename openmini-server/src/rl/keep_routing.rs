@@ -647,6 +647,6 @@ mod tests {
 
         // 验证总数正确
         // 注意：RouterCacheManager 内部使用 HashMap，len() 应该反映存储的数量
-        assert!(!routing.get_routing("prompt_0").is_none()); // 至少有一个存在
+        assert!(routing.get_routing("prompt_0").is_some()); // 至少有一个存在
     }
 }

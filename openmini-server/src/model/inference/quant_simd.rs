@@ -4207,7 +4207,7 @@ mod deep_optimization_tests {
     fn test_dequantize_f32_passthrough() {
         // F32应该直接memcpy
         let data: Vec<u8> = vec![0; 40]; // 10个f32 = 40字节
-        let result = dequantize_simd(&data.as_slice(), GgufTensorType::F32, 10);
+        let result = dequantize_simd(data.as_slice(), GgufTensorType::F32, 10);
         assert_eq!(result.len(), 10);
         // 所有值应该是 0.0f32
         for val in &result {
@@ -4219,7 +4219,7 @@ mod deep_optimization_tests {
     fn test_dequantize_f16_conversion() {
         // F16 -> F32转换正确性
         let data: Vec<u8> = vec![0x00, 0x3C, 0x00, 0x40]; // 1.0f16, 2.0f16
-        let result = dequantize_simd(&data.as_slice(), GgufTensorType::F16, 2);
+        let result = dequantize_simd(data.as_slice(), GgufTensorType::F16, 2);
         assert_eq!(result.len(), 2);
         assert!(
             (result[0] - 1.0).abs() < 0.01,
@@ -4236,12 +4236,12 @@ mod deep_optimization_tests {
     #[test]
     fn test_dequantize_q4_0_block_alignment() {
         // Q4_0需要block对齐，测试不对齐的情况
-        let n = 17; // 不是QK4_0(32)的倍数
-        let block_count = (n + 31) / 32; // = 1
+        let n: usize = 17; // 不是QK4_0(32)的倍数
+        let block_count = n.div_ceil(32); // = 1
         let data_size = block_count * 18; // 每个block 18字节
         let data: Vec<u8> = vec![0; data_size];
 
-        let result = dequantize_simd(&data.as_slice(), GgufTensorType::Q4_0, n);
+        let result = dequantize_simd(data.as_slice(), GgufTensorType::Q4_0, n);
         assert_eq!(result.len(), n);
     }
 
@@ -4250,7 +4250,7 @@ mod deep_optimization_tests {
         // 未知类型应调用默认反量化（可能返回零向量或panic）
         let data = vec![1, 2, 3, 4];
         // Iq4Xs 是一个不常见的类型，会走 fallback 路径
-        let result = dequantize_simd(&data.as_slice(), GgufTensorType::Iq4Xs, 100);
+        let result = dequantize_simd(data.as_slice(), GgufTensorType::Iq4Xs, 100);
         // 根据实现可能返回零向量或通过 quant 模块处理
         assert_eq!(result.len(), 100); // 至少长度应该正确
     }
@@ -4273,7 +4273,7 @@ mod deep_optimization_tests {
             data[i] = 0x88;
         }
 
-        let result = dequantize_simd(&data.as_slice(), GgufTensorType::Q4_1, 32);
+        let result = dequantize_simd(data.as_slice(), GgufTensorType::Q4_1, 32);
         assert_eq!(result.len(), 32);
         // 验证结果有限
         for val in &result {
@@ -4285,7 +4285,7 @@ mod deep_optimization_tests {
     fn test_dequantize_insufficient_data() {
         // 数据不足时应该优雅处理
         let data = vec![0u8; 5]; // 远小于需要的量
-        let result = dequantize_simd(&data.as_slice(), GgufTensorType::Q4_0, 32);
+        let result = dequantize_simd(data.as_slice(), GgufTensorType::Q4_0, 32);
         // 应该返回指定长度的向量（部分可能是零）
         assert_eq!(result.len(), 32);
     }
@@ -4322,7 +4322,7 @@ mod deep_optimization_tests {
         let data: Vec<u8> = vec![0; total_elements * 4]; // F32
 
         let chunks: Vec<Vec<f32>> = streaming_dequantize(
-            &data.as_slice(),
+            data.as_slice(),
             GgufTensorType::F32,
             total_elements,
             chunk_size,
@@ -4340,7 +4340,7 @@ mod deep_optimization_tests {
     fn test_streaming_dequantize_zero_chunk_size_should_panic() {
         // chunk_size=0 应该触发断言
         let data: Vec<u8> = vec![0; 100];
-        let _ = streaming_dequantize(&data.as_slice(), GgufTensorType::F32, 10, 0).count();
+        let _ = streaming_dequantize(data.as_slice(), GgufTensorType::F32, 10, 0).count();
     }
 
     #[test]
@@ -4348,7 +4348,7 @@ mod deep_optimization_tests {
         // 当 chunk_size >= n 时，只产生一个块
         let data: Vec<u8> = vec![0; 40]; // 10 f32 elements
         let chunks: Vec<_> = streaming_dequantize(
-            &data.as_slice(),
+            data.as_slice(),
             GgufTensorType::F32,
             10,
             100, // chunk_size > n
@@ -4366,7 +4366,7 @@ mod deep_optimization_tests {
         let data: Vec<u8> = vec![0; 3 * 18]; // 3 blocks
 
         let results: Vec<Vec<f32>> = streaming_dequantize(
-            &data.as_slice(),
+            data.as_slice(),
             GgufTensorType::Q4_0,
             n,
             32, // chunk_size
@@ -4458,7 +4458,7 @@ mod deep_optimization_tests {
     fn test_dequantize_with_stats_wrapper() {
         // 测试带统计的包装函数
         let data: Vec<u8> = vec![0; 40]; // 10 f32 elements
-        let result = dequantize_with_stats(&data.as_slice(), GgufTensorType::F32, 10);
+        let result = dequantize_with_stats(data.as_slice(), GgufTensorType::F32, 10);
 
         assert_eq!(result.len(), 10);
 
@@ -4485,14 +4485,14 @@ mod deep_optimization_tests {
     fn test_convert_to_soa_layout_unknown_type() {
         // 未知类型应该直接复制数据
         let data = vec![1, 2, 3, 4, 5];
-        let soa = convert_to_soa_layout(&data.as_slice(), GgufTensorType::Iq4Xs, 5, 1);
+        let soa = convert_to_soa_layout(data.as_slice(), GgufTensorType::Iq4Xs, 5, 1);
         assert_eq!(soa, data);
     }
 
     #[test]
     fn test_convert_to_soa_layout_f16_passthrough() {
         let data: Vec<u8> = vec![0x00, 0x3C, 0x00, 0x40]; // 1.0f16, 2.0f16
-        let soa = convert_to_soa_layout(&data.as_slice(), GgufTensorType::F16, 2, 1);
+        let soa = convert_to_soa_layout(data.as_slice(), GgufTensorType::F16, 2, 1);
         assert_eq!(soa, data); // F16 应该直接通过
     }
 
@@ -4540,7 +4540,7 @@ mod deep_optimization_tests {
     #[test]
     fn test_dequantize_simd_parallel_basic() {
         let data = make_test_q4_0_data(4); // 128 elements
-        let result = dequantize_simd_parallel(&data.as_slice(), GgufTensorType::Q4_0, 128, 2);
+        let result = dequantize_simd_parallel(data.as_slice(), GgufTensorType::Q4_0, 128, 2);
 
         assert_eq!(result.len(), 128);
         // 所有值应该是有限的
@@ -4553,7 +4553,7 @@ mod deep_optimization_tests {
     fn test_dequantize_simd_parallel_single_thread() {
         // num_threads=1 应该回退到单线程实现
         let data = make_test_q4_0_data(2); // 64 elements
-        let result = dequantize_simd_parallel(&data.as_slice(), GgufTensorType::Q4_0, 64, 1);
+        let result = dequantize_simd_parallel(data.as_slice(), GgufTensorType::Q4_0, 64, 1);
 
         assert_eq!(result.len(), 64);
     }
@@ -4613,7 +4613,7 @@ mod deep_optimization_tests {
         let strategy = SmartQuantStrategy::new(1);
         let data = vec![1.0, 2.0, -1.0, 0.5];
 
-        let quantized = strategy.quantize_layer(0, &data.as_slice());
+        let quantized = strategy.quantize_layer(0, data.as_slice());
         // 层 0 是关键层 (i % 3 == 0)，使用 FP16 量化：每个元素 2 字节
         assert_eq!(quantized.len(), data.len() * 2); // FP16 = 2 bytes per element
     }
@@ -4628,7 +4628,7 @@ mod deep_optimization_tests {
             data.extend_from_slice(&val.to_le_bytes());
         }
 
-        let dequantized = strategy.dequantize_layer(0, &data.as_slice(), QuantType::FP32);
+        let dequantized = strategy.dequantize_layer(0, data.as_slice(), QuantType::FP32);
         assert_eq!(dequantized.len(), 4);
         assert!((dequantized[0] - 1.0).abs() < 1e-6);
     }
@@ -4754,7 +4754,7 @@ mod deep_optimization_tests {
     #[test]
     fn test_softmax_parallel_basic() {
         let input: Vec<f32> = (0..1000).map(|i| i as f32 * 0.01).collect();
-        let result = softmax_parallel(&input.as_slice(), 4);
+        let result = softmax_parallel(input.as_slice(), 4);
 
         assert_eq!(result.len(), 1000);
         let sum: f32 = result.iter().sum();
@@ -4766,7 +4766,7 @@ mod deep_optimization_tests {
         let input: Vec<f32> = (0..1000).map(|i| (i as f32 * 0.01)).collect();
         let weight: Vec<f32> = (0..1000).map(|_| 1.0).collect();
 
-        let result = rms_norm_parallel(&input.as_slice(), &weight.as_slice(), 1e-6, 4);
+        let result = rms_norm_parallel(input.as_slice(), weight.as_slice(), 1e-6, 4);
 
         assert_eq!(result.len(), 1000);
         for val in &result {

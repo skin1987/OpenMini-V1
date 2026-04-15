@@ -959,7 +959,7 @@ mod tests {
 
         let candidates = result.unwrap();
         assert_eq!(candidates.len(), 4);
-        assert!(candidates[0].len() > 0);
+        assert!(!candidates[0].is_empty());
     }
 
     #[test]
@@ -1375,7 +1375,7 @@ mod tests {
         // 验证自适应调整逻辑生效（高接受率时长度应 >= 低接受率时，或在合理范围内）
         assert!(
             length_after_high_acceptance >= length_after_low_acceptance
-                || (length_after_low_acceptance >= 2 && length_after_low_acceptance <= 8),
+                || (2..=8).contains(&length_after_low_acceptance),
             "Adaptive adjustment should work: high={}, low={}",
             length_after_high_acceptance,
             length_after_low_acceptance
@@ -1533,7 +1533,7 @@ mod tests {
         assert!(result.is_ok());
         let candidates = result.unwrap();
         assert_eq!(candidates.len(), 1);
-        assert!(candidates[0].len() > 0);
+        assert!(!candidates[0].is_empty());
     }
 
     #[test]
@@ -1884,7 +1884,7 @@ mod tests {
         let hit_rate = cache.hit_rate();
         // 5次命中 + 3次未命中 + 1次初始存储后的隐式访问 ≈ 接近 6/9 或类似比例
         // 具体数值取决于实现细节，但应该在合理范围内
-        assert!(hit_rate >= 0.0 && hit_rate <= 1.0);
+        assert!((0.0..=1.0).contains(&hit_rate));
     }
 
     #[test]

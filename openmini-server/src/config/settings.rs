@@ -461,6 +461,38 @@ impl Default for ServerConfig {
     }
 }
 
+impl ServerConfig {
+    /// 从 TOML 文件加载配置
+    ///
+    /// # 参数
+    /// - `path`: 配置文件路径
+    ///
+    /// # 返回
+    /// 成功返回配置实例，失败返回错误
+    pub fn from_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path)?;
+        let config: ServerConfig = toml::from_str(&content)?;
+        Ok(config)
+    }
+
+    /// 获取服务器监听地址字符串
+    ///
+    /// 格式: "host:port"
+    pub fn addr(&self) -> String {
+        format!("{}:{}", self.server.host, self.server.port)
+    }
+
+    /// 获取最大内存(字节)
+    pub fn max_memory_bytes(&self) -> usize {
+        self.memory.max_memory_gb * 1024 * 1024 * 1024
+    }
+
+    /// 获取 Arena 大小(字节)
+    pub fn arena_size_bytes(&self) -> usize {
+        self.memory.arena_size_mb * 1024 * 1024
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -878,37 +910,5 @@ keepalive_timeout_ms = 10000
         let mut config3 = config1.clone();
         config3.server.port = 9999;
         assert_ne!(config1.server.port, config3.server.port);
-    }
-}
-
-impl ServerConfig {
-    /// 从 TOML 文件加载配置
-    ///
-    /// # 参数
-    /// - `path`: 配置文件路径
-    ///
-    /// # 返回
-    /// 成功返回配置实例，失败返回错误
-    pub fn from_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        let config: ServerConfig = toml::from_str(&content)?;
-        Ok(config)
-    }
-
-    /// 获取服务器监听地址字符串
-    ///
-    /// 格式: "host:port"
-    pub fn addr(&self) -> String {
-        format!("{}:{}", self.server.host, self.server.port)
-    }
-
-    /// 获取最大内存(字节)
-    pub fn max_memory_bytes(&self) -> usize {
-        self.memory.max_memory_gb * 1024 * 1024 * 1024
-    }
-
-    /// 获取 Arena 大小(字节)
-    pub fn arena_size_bytes(&self) -> usize {
-        self.memory.arena_size_mb * 1024 * 1024
     }
 }

@@ -32,6 +32,23 @@ jobs:
       fail-fast: false
       matrix:
         rust_version: [stable, beta]
+        feature_profile:
+          - name: "default"
+            features: ""
+          - name: "grpc+distributed"
+            features: "grpc,distributed"
+          - name: "candle+monitoring"
+            features: "candle,monitoring,compression"
+        exclude:
+          # nightly_avx512 需要nightly Rust，不在stable/beta矩阵中测试
+          - rust_version: stable
+            feature_profile:
+              name: "avx512"
+              features: "nightly_avx512"
+          - rust_version: beta
+            feature_profile:
+              name: "avx512"
+              features: "nightly_avx512"
 
     steps:
       - name: Checkout repository
@@ -64,9 +81,16 @@ jobs:
       - name: Run Clippy lints
         id: clippy
         run: |
-          echo "开始运行 Clippy 静态分析..."
+          echo "开始运行 Clippy 静态分析 (feature: ${{ matrix.feature_profile.name }})..."
+          # 构建特性标志
+          FEATURE_FLAGS="${{ matrix.feature_profile.features }}"
+          if [ -n "$FEATURE_FLAGS" ]; then
+            CLIPPY_CMD="cargo clippy --all-targets --features $FEATURE_FLAGS -- -D warnings"
+          else
+            CLIPPY_CMD="cargo clippy --all-targets -- -D warnings"
+          fi
           # 运行clippy并将输出保存到临时文件
-          cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee clippy_output.txt || true
+          eval $CLIPPY_CMD 2>&1 | tee clippy_output.txt || true
           # 统计警告数量
           WARNING_COUNT=$(grep -c "warning:" clippy_output.txt 2>/dev/null || echo "0")
           echo "clippy_warnings=$WARNING_COUNT" >> $GITHUB_OUTPUT

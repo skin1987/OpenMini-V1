@@ -559,8 +559,7 @@ mod tests {
 
     #[test]
     fn test_batch_construction() {
-        let samples = vec![
-            TrainingSample {
+        let samples = [TrainingSample {
                 input_ids: vec![1, 2, 3, 0, 0],
                 labels: vec![1, 2, 3, usize::MAX, usize::MAX],
                 attention_mask: vec![1, 1, 1, 0, 0],
@@ -571,8 +570,7 @@ mod tests {
                 labels: vec![4, 5, usize::MAX, usize::MAX, usize::MAX],
                 attention_mask: vec![1, 1, 0, 0, 0],
                 seq_len: 2,
-            },
-        ];
+            }];
 
         let batch = Batch::from_samples(&samples.iter().collect::<Vec<_>>());
 
@@ -729,7 +727,7 @@ mod tests {
         let batch = loader.into_iter().next().unwrap();
         assert_eq!(batch.batch_size, 1);
 
-        let has_masked_labels = batch.labels[0].iter().any(|&label| label == usize::MAX);
+        let has_masked_labels = batch.labels[0].contains(&usize::MAX);
         assert!(
             has_masked_labels,
             "mask_prompt_loss=true 时应有部分 label 为 -100"

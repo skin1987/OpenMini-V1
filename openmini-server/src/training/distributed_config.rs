@@ -1157,6 +1157,7 @@ impl fmt::Display for ModelComparison {
 // ==================== 单元测试 ====================
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

@@ -1285,9 +1285,9 @@ mod tests {
         let max_val = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         let mean_val = data.iter().sum::<f32>() / (data.len() as f32);
 
-        assert!(min_val >= -5.0 && min_val <= 5.0);
-        assert!(max_val >= -5.0 && max_val <= 5.0);
-        assert!(mean_val >= -5.0 && mean_val <= 5.0);
+        assert!((-5.0..=5.0).contains(&min_val));
+        assert!((-5.0..=5.0).contains(&max_val));
+        assert!((-5.0..=5.0).contains(&mean_val));
 
         // 元素数量正确
         assert_eq!(weights.num_elements(), 5000); // 100 * 50

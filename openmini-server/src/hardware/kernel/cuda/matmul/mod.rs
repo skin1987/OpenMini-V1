@@ -681,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_f16_conversion() {
-        let original: f32 = 3.14159;
+        let original: f32 = std::f32::consts::PI;
         let h = F16::from_f32(original);
         let back = h.to_f32();
 

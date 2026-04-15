@@ -920,7 +920,7 @@ mod tests {
     fn test_attention_heads() {
         let scheduler = AdaptiveScheduler::new();
         let heads = scheduler.recommended_attention_heads();
-        assert!(heads >= 8 && heads <= 64);
+        assert!((8..=64).contains(&heads));
     }
 
     // ==================== 新增测试：覆盖枚举变体 ====================
@@ -1148,10 +1148,10 @@ mod tests {
         // 分支3: 大矩阵 (>= 256)，使用首选设备
         let device_large = scheduler.select_device(512);
         // 应该返回首选设备（不一定是CPU）
-        match scheduler.preferred_device() {
-            ComputeDevice::Cpu => assert_eq!(device_large, ComputeDevice::Cpu),
-            _ => {} // GPU 设备可能返回 GPU
+        if scheduler.preferred_device() == ComputeDevice::Cpu {
+            assert_eq!(device_large, ComputeDevice::Cpu);
         }
+        // GPU 设备可能返回 GPU
     }
 
     /// 测试 TaskThresholds 的 Default trait 及自定义配置

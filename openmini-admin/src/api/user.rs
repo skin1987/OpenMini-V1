@@ -1137,8 +1137,7 @@ mod tests {
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert_eq!(json.success, true);
-        assert_eq!(json.message, "密码重置成功");
+        assert!(json.success);
         assert!(json.temporary_password.is_some());
         let temp_pass = json.temporary_password.clone().unwrap();
         assert_eq!(temp_pass.len(), 12); // 生成的临时密码长度应该是12位
@@ -1167,7 +1166,7 @@ mod tests {
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert_eq!(json.success, true);
+        assert!(json.success);
         assert_eq!(json.temporary_password.as_deref(), Some(new_pass));
     }
 

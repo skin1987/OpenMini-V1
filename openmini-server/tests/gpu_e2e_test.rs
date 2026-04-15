@@ -88,7 +88,7 @@ mod fallback_tests {
     #[test]
     fn test_no_gpu_backend_available() {
         eprintln!("[gpu-fallback] No GPU backend compiled in this build");
-        assert!(true);
+        // Test passes if we reach here - no GPU backend is expected in this configuration
     }
 }
 

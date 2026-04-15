@@ -404,11 +404,11 @@ mod tests_internal {
             "Max seq len should be <= 32768"
         );
 
-        // 验证布尔字段都是有效的bool值
-        let _ = strategy_entry.use_simd || !strategy_entry.use_simd; // 总是true
-        let _ = strategy_entry.use_gpu || !strategy_entry.use_gpu;
-        let _ = strategy_entry.use_dsa || !strategy_entry.use_dsa;
-        let _ = strategy_entry.use_flash_attention || !strategy_entry.use_flash_attention;
+        // 验证布尔字段都是有效的bool值（字段可以被读取）
+        let _ = strategy_entry.use_simd;
+        let _ = strategy_entry.use_gpu;
+        let _ = strategy_entry.use_dsa;
+        let _ = strategy_entry.use_flash_attention;
     }
 
     /// 辅助函数：创建最小配置的HardwareProfile用于边界测试
@@ -464,7 +464,9 @@ mod tests_internal {
         // 验证策略与级别的对应关系（基本一致性检查）
         match level {
             HardwareLevel::Entry => {
-                assert!(!strategy.use_gpu || strategy.use_gpu); // Entry可能不支持GPU
+                // Entry 级别可能不支持 GPU，这是预期行为
+                let _gpu_supported = strategy.use_gpu;
+                let _ = _gpu_supported; // Use variable to indicate GPU support is checked
             }
             HardwareLevel::Standard | HardwareLevel::Professional | HardwareLevel::Server => {
                 // 更高级别应该有更强大的配置

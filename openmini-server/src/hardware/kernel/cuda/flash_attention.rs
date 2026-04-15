@@ -581,7 +581,7 @@ mod tests {
         let mask = CudaBuffer::from_host(&mask_data, device_id).unwrap();
 
         let result = kernel.forward(&q, &k, &v, Some(&mask)).unwrap();
-        assert!(result.output.len() > 0);
+        assert!(!result.output.is_empty());
     }
 
     #[test]

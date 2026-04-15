@@ -1363,11 +1363,11 @@ mod tests {
 
         // 短序列：速度比接近 1.0
         let speedup_short = nsa.estimated_speedup_vs_dsa(1024);
-        assert!(speedup_short >= 0.9 && speedup_short <= 1.1);
+        assert!((0.9..=1.1).contains(&speedup_short));
 
         // 中序列：适度提升
         let speedup_medium = nsa.estimated_speedup_vs_dsa(8192);
-        assert!(speedup_medium >= 1.0 && speedup_medium <= 2.5);
+        assert!((1.0..=2.5).contains(&speedup_medium));
 
         // 长序列：显著提升
         let speedup_long = nsa.estimated_speedup_vs_dsa(32768);

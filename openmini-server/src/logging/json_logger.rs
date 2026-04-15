@@ -141,7 +141,7 @@ mod tests {
     /// 覆盖分支：cfg(test)中的pub函数
     #[test]
     fn test_create_json_logger_with_buffer() {
-        let _registry = create_json_logger("info");
+        create_json_logger("info");
 
         // 如果没有panic，说明创建成功
         // 注意：实际写入需要subscriber被使用

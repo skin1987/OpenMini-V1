@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn test_generate_params_default() {
         let params = GenerateParams::default();
-        assert_eq!(params.sampling, true);
+        assert!(params.sampling);
         assert!((params.top_p - 0.8).abs() < 1e-6);
         assert_eq!(params.top_k, 100);
         assert!((params.temperature - 0.7).abs() < 1e-6);

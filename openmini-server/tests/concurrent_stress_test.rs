@@ -123,7 +123,7 @@ async fn test_sustained_load_memory_stability() {
     );
     eprintln!("[memory-stability] Elapsed: {:?}", elapsed);
 
-    assert!(true);
+    // Test passes if memory stability check completes without panic
 }
 
 #[tokio::test]

@@ -1573,7 +1573,7 @@ mod tests {
         let weight_neg = vec![-1.0, -1.0, -1.0, -1.0];
         let bias_neg = vec![-1.0, -1.0];
         let result_neg = ops.fused_gemm_relu(&input_neg, &weight_neg, &bias_neg, 1, 2, 2);
-        assert!(result_neg.iter().all(|&x| x == 0.0 || x > 0.0));
+        assert!(result_neg.iter().all(|&x| x >= 0.0));
 
         // SiLU 在零点附近的行为
         let zero_input = vec![0.0, -0.001, 0.001];

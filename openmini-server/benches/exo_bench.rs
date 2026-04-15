@@ -11,25 +11,30 @@
 //! # 运行方式
 //!
 //! ```bash
-//! # 运行 EXO 基准测试（需要 nightly Rust）
-//! cargo +nightly bench --package openmini-server --bench exo_bench
+//! # 运行 EXO 基准测试（需要 distributed feature）
+//! cargo bench --package openmini-server --bench exo_bench --features distributed
 //!
 //! # 运行特定基准测试组
-//! cargo +nightly bench --package openmini-server --bench exo_bench -- strategy_selection
+//! cargo bench --package openmini-server --bench exo_bench --features distributed -- strategy_selection
 //!
 //! # 生成 HTML 报告
-//! cargo +nightly bench --package openmini-server --bench exo_bench -- --save-baseline exo
+//! cargo bench --package openmini-server --bench exo_bench --features distributed -- --save-baseline exo
 //! ```
 
+#[cfg(feature = "distributed")]
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+#[cfg(feature = "distributed")]
 use openmini_server::distributed::{
     AdjustmentDecision, DeviceCapabilities, DeviceInfo, DeviceResources, DeviceTopology,
     DeviceType, ExoDynamicAdjuster, ExoParallelStrategyEngine, LinkType, NetworkDevice,
     NetworkLink, NetworkTopology, ParallelStrategyDecision, PerformanceMetrics,
 };
+#[cfg(feature = "distributed")]
 use openmini_server::model::inference::distributed_inference_config::ParallelStrategy;
+#[cfg(feature = "distributed")]
 use std::time::Duration;
 
+#[cfg(feature = "distributed")]
 /// 创建测试用的设备拓扑
 fn create_test_topology(num_devices: usize, heterogeneous: bool) -> DeviceTopology {
     let mut devices = Vec::new();
@@ -171,6 +176,7 @@ fn create_test_topology(num_devices: usize, heterogeneous: bool) -> DeviceTopolo
 }
 
 /// 基准测试：策略选择性能（不同设备数量）
+#[cfg(feature = "distributed")]
 fn bench_strategy_selection(c: &mut Criterion) {
     let mut group = c.benchmark_group("strategy_selection");
     group.measurement_time(Duration::from_secs(10));
@@ -217,6 +223,7 @@ fn bench_strategy_selection(c: &mut Criterion) {
 }
 
 /// 基准测试：动态调整器决策性能
+#[cfg(feature = "distributed")]
 fn bench_dynamic_adjuster(c: &mut Criterion) {
     let mut group = c.benchmark_group("dynamic_adjuster");
     group.measurement_time(Duration::from_secs(10));
@@ -263,6 +270,7 @@ fn bench_dynamic_adjuster(c: &mut Criterion) {
 }
 
 /// 基准测试：设备拓扑分析性能
+#[cfg(feature = "distributed")]
 fn bench_topology_analysis(c: &mut Criterion) {
     let mut group = c.benchmark_group("topology_analysis");
     group.measurement_time(Duration::from_secs(10));
@@ -296,6 +304,7 @@ fn bench_topology_analysis(c: &mut Criterion) {
 }
 
 /// 基准测试：性能指标计算性能
+#[cfg(feature = "distributed")]
 fn bench_performance_metrics(c: &mut Criterion) {
     let mut group = c.benchmark_group("performance_metrics");
     group.measurement_time(Duration::from_secs(5));
@@ -341,6 +350,7 @@ fn bench_performance_metrics(c: &mut Criterion) {
 }
 
 /// 基准测试：端到端 EXO 工作流性能
+#[cfg(feature = "distributed")]
 fn bench_exo_workflow(c: &mut Criterion) {
     let mut group = c.benchmark_group("exo_workflow");
     group.measurement_time(Duration::from_secs(15));
@@ -396,6 +406,7 @@ fn bench_exo_workflow(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "distributed")]
 criterion_group!(
     name = exo_benches;
     config = Criterion::default()
@@ -406,4 +417,10 @@ criterion_group!(
     targets = bench_strategy_selection, bench_dynamic_adjuster, bench_topology_analysis, bench_performance_metrics, bench_exo_workflow
 );
 
+#[cfg(feature = "distributed")]
 criterion_main!(exo_benches);
+
+#[cfg(not(feature = "distributed"))]
+fn main() {
+    println!("EXO bench requires 'distributed' feature. Run with: cargo bench --features distributed");
+}

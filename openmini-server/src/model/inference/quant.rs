@@ -1667,7 +1667,7 @@ mod tests {
         let result_s = dequantize_iq3_s(&data, 48);
         assert_eq!(result_s.len(), 48);
 
-        for i in 0..48.min(10) {
+        for i in 0..10 {
             assert!((result_xxs[i] - result_s[i]).abs() < 1e-6);
         }
     }
@@ -1888,11 +1888,11 @@ mod tests {
     /// 覆盖不同 QuantType 的精度特征
     #[test]
     fn test_dynamic_quantizer_roundtrip() {
-        let test_values = [0.0, 1.0, -1.0, 3.14, -3.14, 100.0, -100.0];
+        let test_values = [0.0, 1.0, -1.0, std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2, -(std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2), 100.0, -100.0];
 
         // Fp32 应该完全无损
         let mut qz_f32 = DynamicQuantizer::new(QuantType::Fp32);
-        qz_f32.calibrate(&test_values.to_vec());
+        qz_f32.calibrate(test_values.as_ref());
         for &val in &test_values {
             let bits = qz_f32.quantize(val);
             let rec = qz_f32.dequantize(bits);
@@ -1905,7 +1905,7 @@ mod tests {
 
         // Int8 有量化误差但应在合理范围
         let mut qz_int8 = DynamicQuantizer::new(QuantType::Int8);
-        qz_int8.calibrate(&test_values.to_vec());
+        qz_int8.calibrate(test_values.as_ref());
         for &val in &test_values {
             let bits = qz_int8.quantize(val);
             let rec = qz_int8.dequantize(bits);
@@ -1925,7 +1925,7 @@ mod tests {
 
         // Int4 更粗的量化
         let mut qz_int4 = DynamicQuantizer::new(QuantType::Int4);
-        qz_int4.calibrate(&test_values.to_vec());
+        qz_int4.calibrate(test_values.as_ref());
         for &val in &test_values {
             let bits = qz_int4.quantize(val);
             let _rec = qz_int4.dequantize(bits);

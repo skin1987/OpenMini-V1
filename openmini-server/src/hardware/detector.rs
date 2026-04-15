@@ -1496,7 +1496,7 @@ mod tests {
 
         // 验证缓存行大小合理
         let line_size = cache.cache_line_size();
-        assert!(line_size >= 16 && line_size <= 256);
+        assert!((16..=256).contains(&line_size));
     }
 
     #[test]
@@ -1807,7 +1807,7 @@ mod tests {
         // 测试辅助方法
         let line_size = cache.cache_line_size();
         assert!(
-            line_size >= 32 && line_size <= 256,
+            (32..=256).contains(&line_size),
             "Cache line size {} should be between 32 and 256 bytes",
             line_size
         );

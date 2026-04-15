@@ -952,7 +952,7 @@ mod tests {
         }
 
         let json = monitor.to_json(10);
-        assert!(json["metrics"].as_array().unwrap().len() > 0);
+        assert!(!json["metrics"].as_array().unwrap().is_empty());
         assert!(json.get("aggregate").is_some());
         assert!(json.get("progress").is_some());
         assert!(json.get("eta_seconds").is_some());
@@ -999,8 +999,8 @@ mod tests {
     #[test]
     fn test_perplexity_calculation() {
         assert!((TrainingMonitor14B::perplexity(0.0) - 1.0).abs() < 1e-6);
-        assert!((TrainingMonitor14B::perplexity(1.0) - 2.718).abs() < 0.01);
-        assert!((TrainingMonitor14B::perplexity(2.3026) - 10.0).abs() < 0.1);
+        assert!((TrainingMonitor14B::perplexity(1.0) - std::f64::consts::E).abs() < 0.01);
+        assert!((TrainingMonitor14B::perplexity(std::f64::consts::LN_10) - 10.0).abs() < 0.1); // ln(10)
     }
 
     #[test]

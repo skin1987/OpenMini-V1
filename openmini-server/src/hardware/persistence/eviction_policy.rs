@@ -313,6 +313,7 @@ fn current_timestamp() -> u64 {
 
 // 单元测试
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -421,9 +422,11 @@ mod tests {
 
     #[test]
     fn test_should_evict_logic() {
-        let mut config = EvictionPolicyConfig::default();
-        config.max_capacity = 1000;
-        config.high_watermark_pct = 0.8;
+        let config = EvictionPolicyConfig {
+            max_capacity: 1000,
+            high_watermark_pct: 0.8,
+            ..Default::default()
+        };
         let policy = EvictionPolicy::new(config);
 
         policy.update_usage(700);

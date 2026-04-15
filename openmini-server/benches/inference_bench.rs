@@ -8,7 +8,6 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use openmini_server::hardware::device::*;
-use openmini_server::model::inference::*;
 
 fn bench_short_sequence(c: &mut Criterion) {
     let mut group = c.benchmark_group("short_sequence");
@@ -55,12 +54,12 @@ fn bench_long_sequence(c: &mut Criterion) {
 
 fn bench_device_detection(c: &mut Criterion) {
     c.bench_function("device_detect", |b| {
-        b.iter(|| DeviceProfile::detect());
+        b.iter(DeviceProfile::detect);
     });
 }
 
 fn bench_fp8_quantize(c: &mut Criterion) {
-    use crate::model::inference::fp8::{Fp8Format, Fp8Quantizer};
+    use openmini_server::model::inference::fp8::{Fp8Format, Fp8Quantizer};
 
     let quantizer_e4m3 = Fp8Quantizer::new(Fp8Format::E4M3);
     let quantizer_e5m2 = Fp8Quantizer::new(Fp8Format::E5M2);

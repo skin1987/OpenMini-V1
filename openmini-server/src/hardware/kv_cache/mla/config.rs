@@ -289,7 +289,7 @@ mod tests {
         let low_compress = MLAConfig::new().with_latent_dim(1023); // kv_dim - 1
 
         let ratio = low_compress.compress_ratio();
-        assert!(ratio >= 0.0 && ratio < 1.0);
+        assert!((0.0..1.0).contains(&ratio));
     }
 
     /// 测试 MLAConfig 的 PartialEq trait（完整相等性比较）

@@ -295,7 +295,7 @@ mod tests {
 
         assert_eq!(result.len(), 4);
         // RMSNorm 的结果应该与输入成比例（当 weight=1 时）
-        for (_i, &val) in result.iter().enumerate() {
+        for &val in result.iter() {
             assert!(val.is_finite());
         }
     }
@@ -359,7 +359,7 @@ mod tests {
         // 测试后端类型是否可以 Clone 和 Copy
         let original = KernelBackend::Cpu;
         let copied = original;
-        let _cloned = original.clone(); // Clone
+        let _cloned = original; // Clone
 
         assert_eq!(copied, KernelBackend::Cpu);
     }

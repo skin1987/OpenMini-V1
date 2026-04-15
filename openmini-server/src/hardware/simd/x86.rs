@@ -2012,14 +2012,14 @@ mod tests {
         let _ops = SseOps;
 
         // 模拟 gather: 根据索引数组收集元素
-        let data = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let data = [10.0, 20.0, 30.0, 40.0, 50.0];
         let indices = [0usize, 2, 4, 1, 3]; // 乱序索引
         let gathered: Vec<f32> = indices.iter().map(|&i| data[i]).collect();
 
         assert_eq!(gathered, vec![10.0, 30.0, 50.0, 20.0, 40.0]);
 
         // 模拟 scatter: 将元素分散到指定位置
-        let values = vec![100.0, 200.0, 300.0];
+        let values = [100.0, 200.0, 300.0];
         let scatter_indices = [2, 0, 4];
         let mut scattered = vec![0.0f32; 5];
         for (val, idx) in values.iter().zip(scatter_indices.iter()) {
