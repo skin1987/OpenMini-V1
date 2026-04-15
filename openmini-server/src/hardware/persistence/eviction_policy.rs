@@ -13,8 +13,7 @@
 use std::cmp::Ordering;
 
 /// 淘汰算法类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvictionAlgorithm {
     #[default]
     Lru,
@@ -23,7 +22,6 @@ pub enum EvictionAlgorithm {
     Adaptive,
     ImportanceWeighted,
 }
-
 
 impl std::fmt::Display for EvictionAlgorithm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -147,12 +145,14 @@ impl EvictionPolicy {
 
     /// 更新当前使用量
     pub fn update_usage(&self, usage: usize) {
-        self.current_usage.store(usage, std::sync::atomic::Ordering::Relaxed);
+        self.current_usage
+            .store(usage, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// 获取当前使用量
     pub fn current_usage(&self) -> usize {
-        self.current_usage.load(std::sync::atomic::Ordering::Relaxed)
+        self.current_usage
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// 检查是否需要淘汰
@@ -209,57 +209,83 @@ impl EvictionPolicy {
     // === 具体算法实现 ===
 
     /// LRU: 选择最长时间未访问的
-    fn select_lru<'a, T: EvictionCandidate>(&self, candidates: &'a [T], count: usize) -> Vec<&'a T> {
+    fn select_lru<'a, T: EvictionCandidate>(
+        &self,
+        candidates: &'a [T],
+        count: usize,
+    ) -> Vec<&'a T> {
         let mut sorted: Vec<&T> = candidates.iter().collect();
         sorted.sort_by_key(|a| a.last_access());
         sorted.into_iter().take(count).collect()
     }
 
     /// LFU: 选择访问次数最少的
-    fn select_lfu<'a, T: EvictionCandidate>(&self, candidates: &'a [T], count: usize) -> Vec<&'a T> {
+    fn select_lfu<'a, T: EvictionCandidate>(
+        &self,
+        candidates: &'a [T],
+        count: usize,
+    ) -> Vec<&'a T> {
         let mut sorted: Vec<&T> = candidates.iter().collect();
         sorted.sort_by_key(|a| a.access_count());
         sorted.into_iter().take(count).collect()
     }
 
     /// FIFO: 选择最早创建的
-    fn select_fifo<'a, T: EvictionCandidate>(&self, candidates: &'a [T], count: usize) -> Vec<&'a T> {
+    fn select_fifo<'a, T: EvictionCandidate>(
+        &self,
+        candidates: &'a [T],
+        count: usize,
+    ) -> Vec<&'a T> {
         let mut sorted: Vec<&T> = candidates.iter().collect();
         sorted.sort_by_key(|a| a.created_at());
         sorted.into_iter().take(count).collect()
     }
 
     /// Adaptive: 根据访问模式自适应选择
-    fn select_adaptive<'a, T: EvictionCandidate>(&self, candidates: &'a [T], count: usize) -> Vec<&'a T> {
+    fn select_adaptive<'a, T: EvictionCandidate>(
+        &self,
+        candidates: &'a [T],
+        count: usize,
+    ) -> Vec<&'a T> {
         // 分析访问模式
         let now = current_timestamp();
-        let mut scored: Vec<(f64, &T)> = candidates.iter().map(|c| {
-            let age = (now - c.last_access()) as f64;
-            let freq = c.access_count() as f64;
+        let mut scored: Vec<(f64, &T)> = candidates
+            .iter()
+            .map(|c| {
+                let age = (now - c.last_access()) as f64;
+                let freq = c.access_count() as f64;
 
-            // 访问频率低且年龄大的优先淘汰
-            let score = age / (freq.ln() + 1e-6);
-            (score, c)
-        }).collect();
+                // 访问频率低且年龄大的优先淘汰
+                let score = age / (freq.ln() + 1e-6);
+                (score, c)
+            })
+            .collect();
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
         scored.into_iter().take(count).map(|(_, c)| c).collect()
     }
 
     /// ImportanceWeighted: 综合考虑重要性、年龄、大小
-    fn select_importance<'a, T: EvictionCandidate>(&self, candidates: &'a [T], count: usize) -> Vec<&'a T> {
+    fn select_importance<'a, T: EvictionCandidate>(
+        &self,
+        candidates: &'a [T],
+        count: usize,
+    ) -> Vec<&'a T> {
         let now = current_timestamp();
 
-        let mut scored: Vec<(f64, &T)> = candidates.iter().map(|c| {
-            let age = (now - c.last_access()) as f64;  // 年龄越大越好淘汰
-            let inv_importance = 1.0 / (c.importance() as f64 + 1e-6);  // 重要性低的好淘汰
-            let size_factor = c.size() as f64 / (1024.0 * 1024.0);  // 小的好淘汰
+        let mut scored: Vec<(f64, &T)> = candidates
+            .iter()
+            .map(|c| {
+                let age = (now - c.last_access()) as f64; // 年龄越大越好淘汰
+                let inv_importance = 1.0 / (c.importance() as f64 + 1e-6); // 重要性低的好淘汰
+                let size_factor = c.size() as f64 / (1024.0 * 1024.0); // 小的好淘汰
 
-            let score = age * self.config.age_weight as f64
-                      + inv_importance * self.config.importance_weight as f64
-                      + size_factor * self.config.size_weight as f64;
-            (score, c)
-        }).collect();
+                let score = age * self.config.age_weight as f64
+                    + inv_importance * self.config.importance_weight as f64
+                    + size_factor * self.config.size_weight as f64;
+                (score, c)
+            })
+            .collect();
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
         scored.into_iter().take(count).map(|(_, c)| c).collect()
@@ -301,12 +327,24 @@ mod tests {
     }
 
     impl EvictionCandidate for TestCandidate {
-        fn id(&self) -> &str { &self.id }
-        fn last_access(&self) -> u64 { self.last_access }
-        fn access_count(&self) -> u64 { self.access_count }
-        fn size(&self) -> usize { self.size }
-        fn importance(&self) -> f32 { self.importance }
-        fn created_at(&self) -> u64 { self.created_at }
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn last_access(&self) -> u64 {
+            self.last_access
+        }
+        fn access_count(&self) -> u64 {
+            self.access_count
+        }
+        fn size(&self) -> usize {
+            self.size
+        }
+        fn importance(&self) -> f32 {
+            self.importance
+        }
+        fn created_at(&self) -> u64 {
+            self.created_at
+        }
     }
 
     #[test]
@@ -314,13 +352,34 @@ mod tests {
         let policy = EvictionPolicy::new(EvictionPolicyConfig::default());
 
         let candidates = vec![
-            TestCandidate { id: "a".into(), last_access: 100, access_count: 10, size: 1000, importance: 0.9, created_at: 50 },
-            TestCandidate { id: "b".into(), last_access: 200, access_count: 5, size: 2000, importance: 0.5, created_at: 60 },
-            TestCandidate { id: "c".into(), last_access: 300, access_count: 15, size: 500, importance: 0.7, created_at: 70 },
+            TestCandidate {
+                id: "a".into(),
+                last_access: 100,
+                access_count: 10,
+                size: 1000,
+                importance: 0.9,
+                created_at: 50,
+            },
+            TestCandidate {
+                id: "b".into(),
+                last_access: 200,
+                access_count: 5,
+                size: 2000,
+                importance: 0.5,
+                created_at: 60,
+            },
+            TestCandidate {
+                id: "c".into(),
+                last_access: 300,
+                access_count: 15,
+                size: 500,
+                importance: 0.7,
+                created_at: 70,
+            },
         ];
 
         let victims = policy.select_victims(&candidates, 1);
-        assert_eq!(victims[0].id(), "a");  // 最旧的应该被选中
+        assert_eq!(victims[0].id(), "a"); // 最旧的应该被选中
     }
 
     #[test]
@@ -330,13 +389,34 @@ mod tests {
         let policy = EvictionPolicy::new(config);
 
         let candidates = vec![
-            TestCandidate { id: "a".into(), last_access: 200, access_count: 5, size: 1000, importance: 0.9, created_at: 50 },
-            TestCandidate { id: "b".into(), last_access: 200, access_count: 1, size: 2000, importance: 0.5, created_at: 60 },
-            TestCandidate { id: "c".into(), last_access: 200, access_count: 15, size: 500, importance: 0.7, created_at: 70 },
+            TestCandidate {
+                id: "a".into(),
+                last_access: 200,
+                access_count: 5,
+                size: 1000,
+                importance: 0.9,
+                created_at: 50,
+            },
+            TestCandidate {
+                id: "b".into(),
+                last_access: 200,
+                access_count: 1,
+                size: 2000,
+                importance: 0.5,
+                created_at: 60,
+            },
+            TestCandidate {
+                id: "c".into(),
+                last_access: 200,
+                access_count: 15,
+                size: 500,
+                importance: 0.7,
+                created_at: 70,
+            },
         ];
 
         let victims = policy.select_victims(&candidates, 1);
-        assert_eq!(victims[0].id(), "b");  // 访问次数最少的
+        assert_eq!(victims[0].id(), "b"); // 访问次数最少的
     }
 
     #[test]
@@ -347,10 +427,10 @@ mod tests {
         let policy = EvictionPolicy::new(config);
 
         policy.update_usage(700);
-        assert!(!policy.should_evict());  // 70% < 80%
+        assert!(!policy.should_evict()); // 70% < 80%
 
         policy.update_usage(850);
-        assert!(policy.should_evict());   // 85% > 80%
+        assert!(policy.should_evict()); // 85% > 80%
     }
 
     #[test]

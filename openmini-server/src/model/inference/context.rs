@@ -206,7 +206,7 @@ pub struct InferenceContext {
 #[allow(clippy::upper_case_acronyms)]
 pub enum LayerCache {
     /// MLA 潜在缓存
-    MLA(MLALatentCache),
+    MLA(Box<MLALatentCache>),
     /// 标准 KV 缓存
     Standard(StandardKVCache),
 }
@@ -231,7 +231,7 @@ impl LayerCache {
     /// 获取 MLA 缓存的不可变引用
     pub fn as_mla(&self) -> Option<&MLALatentCache> {
         match self {
-            LayerCache::MLA(cache) => Some(cache),
+            LayerCache::MLA(cache) => Some(cache.as_ref()),
             LayerCache::Standard(_) => None,
         }
     }
@@ -239,7 +239,7 @@ impl LayerCache {
     /// 获取 MLA 缓存的可变引用
     pub fn as_mla_mut(&mut self) -> Option<&mut MLALatentCache> {
         match self {
-            LayerCache::MLA(cache) => Some(cache),
+            LayerCache::MLA(cache) => Some(cache.as_mut()),
             LayerCache::Standard(_) => None,
         }
     }
@@ -1151,7 +1151,7 @@ impl InferenceContext {
                         rope_theta: config.rope_theta,
                         max_seq_len: config.max_seq_len,
                     };
-                    LayerCache::MLA(MLALatentCache::new(mla_config))
+                    LayerCache::MLA(Box::new(MLALatentCache::new(mla_config)))
                 } else {
                     LayerCache::Standard(
                         StandardKVCache::with_token_capacity(capacity, per_token_size)
@@ -1219,7 +1219,7 @@ impl InferenceContext {
     /// ```
     pub fn get_mla_cache(&self, layer_idx: usize) -> Option<&MLALatentCache> {
         match self.layer_caches.get(layer_idx)? {
-            LayerCache::MLA(cache) => Some(cache),
+            LayerCache::MLA(cache) => Some(cache.as_ref()),
             LayerCache::Standard(_) => None,
         }
     }
@@ -1227,7 +1227,7 @@ impl InferenceContext {
     /// 获取 MLA 缓存（可变引用）
     pub fn get_mla_cache_mut(&mut self, layer_idx: usize) -> Option<&mut MLALatentCache> {
         match self.layer_caches.get_mut(layer_idx)? {
-            LayerCache::MLA(cache) => Some(cache),
+            LayerCache::MLA(cache) => Some(cache.as_mut()),
             LayerCache::Standard(_) => None,
         }
     }

@@ -218,7 +218,8 @@ impl Arena {
 
     /// 分配指定大小的内存（返回 Result）
     pub fn allocate(&self, size: usize) -> Result<*mut u8, String> {
-        self.alloc(size, 8).ok_or_else(|| format!("Arena allocation failed: requested {} bytes", size))
+        self.alloc(size, 8)
+            .ok_or_else(|| format!("Arena allocation failed: requested {} bytes", size))
     }
 
     /// 分配 GEMM 矩阵内存 (m x n f32)

@@ -1,6 +1,6 @@
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
-use serde::{Serialize, Deserialize};
 use chrono::{Duration, Utc};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -11,7 +11,13 @@ pub struct Claims {
     pub iat: i64,
 }
 
-pub fn create_token(user_id: &i64, username: &str, role: &str, secret: &str, hours: u64) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn create_token(
+    user_id: &i64,
+    username: &str,
+    role: &str,
+    secret: &str,
+    hours: u64,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let now = Utc::now();
     let claims = Claims {
         sub: *user_id,

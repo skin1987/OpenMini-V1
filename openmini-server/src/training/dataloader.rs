@@ -3,14 +3,14 @@
 //! 支持多种数据格式（JSONL、纯文本）的高效数据加载与预处理，
 //! 提供 Causal LM 和 SFT 两种训练模式的数据处理能力。
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
-use super::tokenizer::{BpeTokenizer, TokenizerError};
+use crate::model::inference::tokenizer::Tokenizer;
 
 /// 单条训练样本（原始格式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,7 +93,7 @@ pub enum DataLoaderError {
     TokenizationError(String),
     EmptyDataset,
     Io(std::io::Error),
-    Tokenizer(TokenizerError),
+    Tokenizer(String),
 }
 
 impl std::fmt::Display for DataLoaderError {
@@ -107,7 +107,7 @@ impl std::fmt::Display for DataLoaderError {
             DataLoaderError::TokenizationError(msg) => write!(f, "分词错误: {}", msg),
             DataLoaderError::EmptyDataset => write!(f, "数据集为空"),
             DataLoaderError::Io(err) => write!(f, "IO 错误: {}", err),
-            DataLoaderError::Tokenizer(err) => write!(f, "Tokenizer 错误: {}", err),
+            DataLoaderError::Tokenizer(err) => write!(f, "分词错误: {}", err),
         }
     }
 }
@@ -120,9 +120,9 @@ impl From<std::io::Error> for DataLoaderError {
     }
 }
 
-impl From<TokenizerError> for DataLoaderError {
-    fn from(err: TokenizerError) -> Self {
-        DataLoaderError::Tokenizer(err)
+impl From<anyhow::Error> for DataLoaderError {
+    fn from(err: anyhow::Error) -> Self {
+        DataLoaderError::Tokenizer(err.to_string())
     }
 }
 
@@ -134,7 +134,7 @@ pub struct DataLoader {
     epoch_samples: Vec<usize>,
     current_position: usize,
     rng: rand::rngs::StdRng,
-    tokenizer: BpeTokenizer,
+    tokenizer: Tokenizer,
 }
 
 impl DataLoader {
@@ -155,7 +155,7 @@ impl DataLoader {
         }
 
         // 初始化 BPE Tokenizer（使用默认配置）
-        let tokenizer = BpeTokenizer::default();
+        let tokenizer = Tokenizer::new();
 
         let mut samples = Vec::with_capacity(raw_samples.len());
         for (i, raw) in raw_samples.iter().enumerate() {
@@ -239,16 +239,16 @@ impl DataLoader {
 
     /// 使用 tokenizer 预处理样本
     fn preprocess_with_tokenizer(
-        tokenizer: &BpeTokenizer,
+        tokenizer: &Tokenizer,
         config: &DataLoaderConfig,
         raw: &RawSample,
     ) -> Result<TrainingSample, DataLoaderError> {
-        if config.sft_config.is_some()
-            && (raw.instruction.is_some() || raw.output.is_some())
-        {
+        if config.sft_config.is_some() && (raw.instruction.is_some() || raw.output.is_some()) {
             Self::preprocess_sft_with_tokenizer(tokenizer, config, raw)
         } else if let Some(ref text) = raw.text {
-            Ok(Self::preprocess_causal_lm_with_tokenizer(tokenizer, config, text))
+            Ok(Self::preprocess_causal_lm_with_tokenizer(
+                tokenizer, config, text,
+            ))
         } else {
             Err(DataLoaderError::InvalidFormat(
                 "无法确定样本格式：缺少必要字段".to_string(),
@@ -257,7 +257,7 @@ impl DataLoader {
     }
 
     fn preprocess_causal_lm_with_tokenizer(
-        tokenizer: &BpeTokenizer,
+        tokenizer: &Tokenizer,
         config: &DataLoaderConfig,
         text: &str,
     ) -> TrainingSample {
@@ -283,26 +283,23 @@ impl DataLoader {
     }
 
     fn preprocess_sft_with_tokenizer(
-        tokenizer: &BpeTokenizer,
+        tokenizer: &Tokenizer,
         config: &DataLoaderConfig,
         sample: &RawSample,
     ) -> Result<TrainingSample, DataLoaderError> {
         let sft_config = config
             .sft_config
             .as_ref()
-            .ok_or_else(|| DataLoaderError::InvalidFormat("缺少 SFT 配置".to_string()))?;
+            .ok_or(DataLoaderError::InvalidFormat("缺少 SFT 配置".to_string()))?;
 
-        let instruction = sample
-            .instruction
-            .as_deref()
-            .unwrap_or("");
+        let instruction = sample.instruction.as_deref().unwrap_or("");
         let input = sample.input.as_deref().unwrap_or("");
         let output = sample
             .output
             .as_ref()
-            .ok_or_else(|| {
-                DataLoaderError::InvalidFormat("SFT 模式需要 output 字段".to_string())
-            })?;
+            .ok_or(DataLoaderError::InvalidFormat(
+                "SFT 模式需要 output 字段".to_string(),
+            ))?;
 
         let prompt = sft_config
             .prompt_template
@@ -341,9 +338,8 @@ impl DataLoader {
         let prompt_len = truncated_prompt.len();
         let (input_ids, _labels, _attention_mask) = if sft_config.mask_prompt_loss {
             let mut labels_vec = truncated_tokens.clone();
-            for i in 0..prompt_len.min(labels_vec.len()) {
-                labels_vec[i] = usize::MAX;
-            }
+            let labels_len = labels_vec.len();
+            labels_vec[..prompt_len.min(labels_len)].fill(usize::MAX);
             (
                 truncated_tokens.clone(),
                 labels_vec,
@@ -405,9 +401,7 @@ impl DataLoader {
         let copy_len = ids.len().min(length);
         input_ids[..copy_len].copy_from_slice(&ids[..copy_len]);
         labels[..copy_len].copy_from_slice(&ids[..copy_len]);
-        for mask_val in attention_mask[..copy_len].iter_mut() {
-            *mask_val = 1;
-        }
+        attention_mask[..copy_len].fill(1);
 
         (input_ids, labels, attention_mask)
     }
@@ -470,11 +464,7 @@ impl Batch {
     pub fn from_samples(samples: &[&TrainingSample]) -> Self {
         assert!(!samples.is_empty(), "Batch 不能为空");
 
-        let max_seq_len = samples
-            .iter()
-            .map(|s| s.seq_len)
-            .max()
-            .unwrap_or(0);
+        let max_seq_len = samples.iter().map(|s| s.seq_len).max().unwrap_or(0);
 
         let batch_size = samples.len();
         let mut input_ids = Vec::with_capacity(batch_size);
@@ -496,9 +486,9 @@ impl Batch {
                 let label_copy_len = effective_len.min(sample.labels.len());
                 batch_labels[..label_copy_len].copy_from_slice(&sample.labels[..label_copy_len]);
 
-                for i in 0..effective_len.min(sample.attention_mask.len()) {
-                    batch_attention_mask[i] = sample.attention_mask[i];
-                }
+                let mask_copy_len = effective_len.min(sample.attention_mask.len());
+                batch_attention_mask[..mask_copy_len]
+                    .copy_from_slice(&sample.attention_mask[..mask_copy_len]);
 
                 num_tokens += effective_len;
             }
@@ -626,8 +616,7 @@ mod tests {
         let loader2 = make_loader();
 
         assert_eq!(
-            loader1.epoch_samples,
-            loader2.epoch_samples,
+            loader1.epoch_samples, loader2.epoch_samples,
             "相同 seed 应产生相同的 shuffle 结果"
         );
     }
@@ -701,14 +690,18 @@ mod tests {
         let (padded_ids, padded_labels, mask) = DataLoader::pad_sequence(&ids, 6, 0);
 
         assert_eq!(padded_ids, vec![1, 2, 3, 0, 0, 0]);
-        assert_eq!(padded_labels, vec![1, 2, 3, usize::MAX, usize::MAX, usize::MAX]);
+        assert_eq!(
+            padded_labels,
+            vec![1, 2, 3, usize::MAX, usize::MAX, usize::MAX]
+        );
         assert_eq!(mask, vec![1, 1, 1, 0, 0, 0]);
     }
 
     #[test]
     fn test_sft_preprocessing() {
         let dir = TempDir::new().unwrap();
-        let content = r#"{"instruction": "Translate to Chinese", "input": "Hello", "output": "你好"}"#;
+        let content =
+            r#"{"instruction": "Translate to Chinese", "input": "Hello", "output": "你好"}"#;
         let path = create_test_jsonl(&dir, content);
 
         let config = DataLoaderConfig {
@@ -722,7 +715,8 @@ mod tests {
             drop_last: false,
             shuffle: false,
             sft_config: Some(SFTConfig {
-                prompt_template: "Instruction: {instruction}\nInput: {input}\nResponse: ".to_string(),
+                prompt_template: "Instruction: {instruction}\nInput: {input}\nResponse: "
+                    .to_string(),
                 mask_prompt_loss: true,
                 max_prompt_length: None,
                 max_response_length: None,
@@ -735,9 +729,7 @@ mod tests {
         let batch = loader.into_iter().next().unwrap();
         assert_eq!(batch.batch_size, 1);
 
-        let has_masked_labels = batch.labels[0]
-            .iter()
-            .any(|&label| label == usize::MAX);
+        let has_masked_labels = batch.labels[0].iter().any(|&label| label == usize::MAX);
         assert!(
             has_masked_labels,
             "mask_prompt_loss=true 时应有部分 label 为 -100"
@@ -800,10 +792,7 @@ mod tests {
         };
 
         let result = DataLoader::new(config);
-        assert!(
-            result.is_err(),
-            "空文件应返回错误"
-        );
+        assert!(result.is_err(), "空文件应返回错误");
         matches!(result.unwrap_err(), DataLoaderError::EmptyDataset);
     }
 
@@ -830,16 +819,10 @@ mod tests {
         let loader = DataLoader::new(config).unwrap();
         let batch = loader.into_iter().next().unwrap();
 
-        assert_eq!(
-            batch.seq_len, 512,
-            "序列长度应被截断到 max_seq_length"
-        );
+        assert_eq!(batch.seq_len, 512, "序列长度应被截断到 max_seq_length");
 
         let valid_tokens: usize = batch.attention_mask[0].iter().map(|&x| x as usize).sum();
-        assert_eq!(
-            valid_tokens, 512,
-            "有效 token 数应为 512"
-        );
+        assert_eq!(valid_tokens, 512, "有效 token 数应为 512");
     }
 
     #[test]
@@ -987,7 +970,8 @@ mod tests {
     #[test]
     fn test_sft_max_lengths() {
         let dir = TempDir::new().unwrap();
-        let content = r#"{"instruction": "Long instruction repeated many times", "output": "Short output"}"#;
+        let content =
+            r#"{"instruction": "Long instruction repeated many times", "output": "Short output"}"#;
         let path = create_test_jsonl(&dir, content);
 
         let config = DataLoaderConfig {
@@ -1011,9 +995,6 @@ mod tests {
         let loader = DataLoader::new(config).unwrap();
         let batch = loader.into_iter().next().unwrap();
 
-        assert!(
-            batch.seq_len <= 100,
-            "总长度不应超过 max_seq_length"
-        );
+        assert!(batch.seq_len <= 100, "总长度不应超过 max_seq_length");
     }
 }

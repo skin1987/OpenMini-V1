@@ -90,7 +90,7 @@ impl Default for SpeculativeConfig {
     /// - 接受阈值: 0.5
     fn default() -> Self {
         Self {
-            draft_model_size: 1_000_000_000, // 1B
+            draft_model_size: 1_000_000_000,  // 1B
             target_model_size: 7_000_000_000, // 7B
             max_speculative_tokens: 5,
             accept_threshold: 0.5,
@@ -241,12 +241,7 @@ impl VerificationResult {
     }
 
     /// 创建部分接受的验证结果
-    fn partial_accept(
-        accepted: Vec<u32>,
-        rejected_pos: usize,
-        bonus: u32,
-        time_us: u64,
-    ) -> Self {
+    fn partial_accept(accepted: Vec<u32>, rejected_pos: usize, bonus: u32, time_us: u64) -> Self {
         let count = accepted.len();
         Self {
             accepted_tokens: accepted,
@@ -592,7 +587,7 @@ impl TargetVerifier {
                 // 目标模型通常对相同的 token 给出相似但略有不同的概率
                 // 模拟：以较高概率分配给草稿选择的 token，但加入一些不确定性
                 let noise: f32 = self.rng.gen::<f32>() * 0.2 - 0.1; // [-0.1, 0.1]
-                let target_prob = (draft_prob + noise).max(0.01).min(0.99);
+                let target_prob = (draft_prob + noise).clamp(0.01, 0.99);
                 probs[token as usize] = target_prob;
 
                 // 分配剩余概率给其他 token
@@ -894,8 +889,9 @@ impl SpeculativeEngine {
             self.current_draft_length
         } else {
             self.config.max_speculative_tokens
-        }.min(self.config.max_speculative_tokens)
-          .max(self.config.min_draft_length);
+        }
+        .min(self.config.max_speculative_tokens)
+        .max(self.config.min_draft_length);
 
         // 创建临时配置用于本次推测
         let step_config = SpeculativeConfig {
@@ -904,7 +900,9 @@ impl SpeculativeEngine {
         };
 
         // 1. 草稿模型生成候选
-        let candidates = self.draft_model.generate_candidates(current_tokens, &step_config)?;
+        let candidates = self
+            .draft_model
+            .generate_candidates(current_tokens, &step_config)?;
 
         if candidates.is_empty() {
             return Ok(StepResult {
@@ -921,7 +919,11 @@ impl SpeculativeEngine {
         );
 
         // 3. 更新统计信息
-        self.update_stats(&candidates, &verification, step_start.elapsed().as_micros() as u64);
+        self.update_stats(
+            &candidates,
+            &verification,
+            step_start.elapsed().as_micros() as u64,
+        );
 
         // 4. 自适应调整草稿长度
         if self.config.enable_adaptive_draft {
@@ -996,8 +998,8 @@ impl SpeculativeEngine {
 
         if rate > self.config.accept_threshold + 0.15 {
             // 高接受率，增加草稿长度
-            self.current_draft_length = (self.current_draft_length + 1)
-                .min(self.config.max_speculative_tokens);
+            self.current_draft_length =
+                (self.current_draft_length + 1).min(self.config.max_speculative_tokens);
         } else if rate < self.config.accept_threshold - 0.15 {
             // 低接受率，减少草稿长度
             self.current_draft_length = self
@@ -1371,12 +1373,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // 高概率匹配的情况
-        let (accepted, _) = TargetVerifier::typical_acceptance_verify(
-            &[0.3],
-            &[0.7],
-            &[10],
-            &mut rng,
-        );
+        let (accepted, _) =
+            TargetVerifier::typical_acceptance_verify(&[0.3], &[0.7], &[10], &mut rng);
 
         // 应该有较高的接受概率
         assert!(accepted <= 1);
@@ -1387,21 +1385,13 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(123);
 
         // 极低概率
-        let (accepted1, bonus1) = TargetVerifier::typical_acceptance_verify(
-            &[0.99],
-            &[0.01],
-            &[50],
-            &mut rng,
-        );
+        let (accepted1, bonus1) =
+            TargetVerifier::typical_acceptance_verify(&[0.99], &[0.01], &[50], &mut rng);
         assert!(accepted1 <= 1);
 
         // 极高概率
-        let (accepted2, bonus2) = TargetVerifier::typical_acceptance_verify(
-            &[0.01],
-            &[0.99],
-            &[60],
-            &mut rng,
-        );
+        let (accepted2, bonus2) =
+            TargetVerifier::typical_acceptance_verify(&[0.01], &[0.99], &[60], &mut rng);
         assert!(accepted2 <= 1);
 
         // 验证 bonus token 存在性
@@ -1510,7 +1500,10 @@ mod tests {
         engine.reset_stats();
         assert_eq!(engine.stats().total_speculation_steps, 0);
         assert_eq!(engine.stats().total_draft_tokens, 0);
-        assert_eq!(engine.current_draft_length(), engine.config.max_speculative_tokens);
+        assert_eq!(
+            engine.current_draft_length(),
+            engine.config.max_speculative_tokens
+        );
     }
 
     #[test]
@@ -1534,9 +1527,7 @@ mod tests {
             final_length
         );
         // 可能已经改变
-        assert!(
-            final_length == initial_length || (final_length >= 2 && final_length <= 6)
-        );
+        assert!(final_length == initial_length || (final_length >= 2 && final_length <= 6));
     }
 
     #[test]
@@ -1627,7 +1618,8 @@ mod tests {
         // 位置 2 和位置 3 应该不同
         let row1: Vec<f32> = emb1.row(2).to_vec();
         let row2: Vec<f32> = emb2.row(2).to_vec();
-        let diff: f32 = row1.iter()
+        let diff: f32 = row1
+            .iter()
             .zip(row2.iter())
             .map(|(a, b)| (a - b).abs())
             .sum();
@@ -1708,9 +1700,7 @@ mod tests {
         for config in configs {
             let engine = SpeculativeEngine::new(config);
             assert!(engine.current_draft_length() >= engine.config.min_draft_length);
-            assert!(
-                engine.current_draft_length() <= engine.config.max_speculative_tokens
-            );
+            assert!(engine.current_draft_length() <= engine.config.max_speculative_tokens);
         }
     }
 
@@ -1744,7 +1734,8 @@ mod tests {
 
         // 验证统计一致性
         if stats.total_speculation_steps > 0 {
-            let expected_avg_draft = stats.total_draft_tokens as f32 / stats.total_speculation_steps as f32;
+            let expected_avg_draft =
+                stats.total_draft_tokens as f32 / stats.total_speculation_steps as f32;
             assert!(
                 (stats.avg_draft_length - expected_avg_draft).abs() < 0.01
                     || stats.avg_draft_length > 0.0,

@@ -49,7 +49,7 @@
 use crate::distributed::communication::{CollectiveOps, ReduceOp};
 use crate::distributed::config::{DistributedConfig, DistributedError};
 use log::{debug, info, trace};
-use ndarray::{Array2, s};
+use ndarray::{s, Array2};
 use std::sync::Arc;
 
 /// 并行类型枚举
@@ -150,9 +150,7 @@ impl TensorParallelManager {
     pub fn new(config: &DistributedConfig) -> Result<Self, DistributedError> {
         info!(
             "Initializing TensorParallelManager: rank={}, world_size={}, tp_degree={}",
-            config.rank,
-            config.world_size,
-            config.tp_degree
+            config.rank, config.world_size, config.tp_degree
         );
 
         // 验证配置
@@ -170,12 +168,9 @@ impl TensorParallelManager {
         // 创建LocalComm作为默认后端
         // 生产环境中这里会根据config.backend选择NCCL/Gloo/MPI
         let comm: Arc<dyn CollectiveOps> = match config.backend {
-            crate::distributed::config::CommBackend::Local => {
-                Arc::new(crate::distributed::communication::LocalComm::new(
-                    config.rank,
-                    config.world_size,
-                ))
-            }
+            crate::distributed::config::CommBackend::Local => Arc::new(
+                crate::distributed::communication::LocalComm::new(config.rank, config.world_size),
+            ),
             _ => {
                 return Err(DistributedError::Unsupported(format!(
                     "Backend {:?} not yet implemented",
@@ -280,10 +275,7 @@ impl TensorParallelManager {
             );
         }
 
-        info!(
-            "Weight split into {} column-parallel shards",
-            shards.len()
-        );
+        info!("Weight split into {} column-parallel shards", shards.len());
         shards
     }
 
@@ -348,10 +340,7 @@ impl TensorParallelManager {
             );
         }
 
-        info!(
-            "Weight split into {} row-parallel shards",
-            shards.len()
-        );
+        info!("Weight split into {} row-parallel shards", shards.len());
         shards
     }
 
@@ -384,10 +373,7 @@ impl TensorParallelManager {
             tensor[[row, col]] = *val;
         }
 
-        debug!(
-            "AllReduce completed: shape={:?}",
-            tensor.shape()
-        );
+        debug!("AllReduce completed: shape={:?}", tensor.shape());
         Ok(())
     }
 
@@ -419,10 +405,9 @@ impl TensorParallelManager {
 
         // 重塑为2D数组
         let rows = local.nrows();
-        let result =
-            Array2::from_shape_vec((rows, global_cols), global_data).map_err(|e| {
-                DistributedError::TensorParallel(format!("Failed to reshape gathered data: {}", e))
-            })?;
+        let result = Array2::from_shape_vec((rows, global_cols), global_data).map_err(|e| {
+            DistributedError::TensorParallel(format!("Failed to reshape gathered data: {}", e))
+        })?;
 
         debug!(
             "AllGather completed: local_shape={:?}, global_shape={:?}",
@@ -450,13 +435,9 @@ impl TensorParallelManager {
 
         self.comm.reduce_scatter(global_data, &mut local_data)?;
 
-        let result =
-            Array2::from_shape_vec((rows, local_cols), local_data).map_err(|e| {
-                DistributedError::TensorParallel(format!(
-                    "Failed to reshape scattered data: {}",
-                    e
-                ))
-            })?;
+        let result = Array2::from_shape_vec((rows, local_cols), local_data).map_err(|e| {
+            DistributedError::TensorParallel(format!("Failed to reshape scattered data: {}", e))
+        })?;
 
         debug!(
             "ReduceScatter completed: global_shape={:?}, local_shape={:?}",
@@ -558,10 +539,7 @@ impl TensorParallelManager {
             }
         }
 
-        trace!(
-            "Local output computed: shape={:?}",
-            local_output.shape()
-        );
+        trace!("Local output computed: shape={:?}", local_output.shape());
 
         // 4. All-Gather合并结果
         let output = self.all_gather(&local_output)?;
@@ -650,9 +628,16 @@ mod tests {
     use ndarray::{Array, Array2, Axis};
     use std::sync::Mutex;
 
-    fn create_tp_manager(world_size: usize, rank: usize) -> (TensorParallelManager, Arc<Mutex<Vec<Vec<f32>>>>) {
+    fn create_tp_manager(
+        world_size: usize,
+        rank: usize,
+    ) -> (TensorParallelManager, Arc<Mutex<Vec<Vec<f32>>>>) {
         let shared = Arc::new(Mutex::new(vec![vec![0.0f32; 1024]; world_size]));
-        let comm = Arc::new(LocalComm::with_shared_state(rank, world_size, shared.clone()));
+        let comm = Arc::new(LocalComm::with_shared_state(
+            rank,
+            world_size,
+            shared.clone(),
+        ));
 
         let tp = TensorParallelManager {
             rank,
@@ -710,9 +695,9 @@ mod tests {
         assert_eq!(shards[1].shape(), [4, 4]);
 
         // 验证数据正确性
-        assert_eq!(shards[0][[0, 0]], 0.0);   // weight[0,0]
-        assert_eq!(shards[0][[3, 3]], 15.0);  // weight[3,3]
-        assert_eq!(shards[1][[0, 0]], 16.0);  // weight[4,0]
+        assert_eq!(shards[0][[0, 0]], 0.0); // weight[0,0]
+        assert_eq!(shards[0][[3, 3]], 15.0); // weight[3,3]
+        assert_eq!(shards[1][[0, 0]], 16.0); // weight[4,0]
     }
 
     #[test]
@@ -855,8 +840,10 @@ mod tests {
         let config = DistributedConfig::for_local_testing(4);
         let tp = TensorParallelManager::new(&config).unwrap();
 
-        let weight: Array2<f32> = Array::from_shape_fn((16, 16), |(i, j)| (i * 16 + j) as f32 * 0.01);
-        let input: Array2<f32> = Array::from_shape_fn((4, 16), |(i, j)| ((i * 16 + j) as f32) * 0.05);
+        let weight: Array2<f32> =
+            Array::from_shape_fn((16, 16), |(i, j)| (i * 16 + j) as f32 * 0.01);
+        let input: Array2<f32> =
+            Array::from_shape_fn((4, 16), |(i, j)| ((i * 16 + j) as f32) * 0.05);
 
         // 测试列并行
         let col_result = tp.parallel_forward(&input, &weight, ParallelType::ColumnParallel);
@@ -865,7 +852,8 @@ mod tests {
         assert_eq!(col_out.shape(), [4, 16]);
 
         // 测试行并行
-        let row_weight: Array2<f32> = Array::from_shape_fn((16, 8), |(i, j)| (i * 8 + j) as f32 * 0.01);
+        let row_weight: Array2<f32> =
+            Array::from_shape_fn((16, 8), |(i, j)| (i * 8 + j) as f32 * 0.01);
         let row_result = tp.parallel_forward(&input, &row_weight, ParallelType::RowParallel);
         assert!(row_result.is_ok());
         let row_out = row_result.unwrap();
@@ -877,8 +865,7 @@ mod tests {
         let config = DistributedConfig::for_local_testing(2);
         let tp = TensorParallelManager::new(&config).unwrap();
 
-        let original: Array2<f32> =
-            Array::from_shape_fn((6, 10), |(i, j)| (i * 10 + j) as f32);
+        let original: Array2<f32> = Array::from_shape_fn((6, 10), |(i, j)| (i * 10 + j) as f32);
 
         let col_shards = tp.column_parallel_weight(&original);
         let col_reconstructed: Array2<f32> = ndarray::concatenate(

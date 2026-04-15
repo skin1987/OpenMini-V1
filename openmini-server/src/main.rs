@@ -115,6 +115,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.server.max_connections
     );
 
+    // 显示分布式推理配置信息（如果启用）
+    if config.distributed_inference.total_gpus > 0
+        || config.distributed_inference.model_parallel.tp_degree > 1
+        || config.distributed_inference.model_parallel.pp_degree > 1
+    {
+        info!(
+            "Distributed inference enabled: TP={}, PP={}, total_gpus={}, memory={} GB/GPU",
+            config.distributed_inference.model_parallel.tp_degree,
+            config.distributed_inference.model_parallel.pp_degree,
+            config.distributed_inference.total_gpus,
+            config.distributed_inference.gpu_memory_gb
+        );
+    }
+
     // ========================================================================
     // 内存监控器初始化
     // ========================================================================
@@ -135,7 +149,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.scheduler.max_concurrent,
         config.scheduler.queue_capacity,
     )
-    .with_batching(config.scheduler.batch_size, config.scheduler.batch_timeout_ms);
+    .with_batching(
+        config.scheduler.batch_size,
+        config.scheduler.batch_timeout_ms,
+    );
 
     info!(
         max_concurrent = scheduler_config.max_concurrent,
@@ -233,12 +250,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// 加载服务器配置
 fn load_config() -> ServerConfig {
     let config_path = std::path::Path::new("config/server.toml");
+    let mut config = ServerConfig::default();
 
     if config_path.exists() {
         match ServerConfig::from_file(config_path) {
-            Ok(config) => {
+            Ok(loaded_config) => {
                 info!("Loaded config from {}", config_path.display());
-                return config;
+                config = loaded_config;
             }
             Err(e) => {
                 warn!("Failed to load config file: {}, using defaults", e);
@@ -246,7 +264,78 @@ fn load_config() -> ServerConfig {
         }
     }
 
-    ServerConfig::default()
+    // 验证分布式推理配置（如果启用）
+    validate_distributed_inference_config(&config);
+
+    config
+}
+
+/// 验证分布式推理配置
+///
+/// 检查分布式推理配置的合法性，如果配置无效则记录警告。
+/// 此验证不会阻止服务器启动，但会提醒用户配置问题。
+fn validate_distributed_inference_config(config: &ServerConfig) {
+    use tracing::warn;
+
+    // 检查是否启用了分布式推理相关配置
+    let total_gpus = config.distributed_inference.total_gpus;
+    let tp_degree = config.distributed_inference.model_parallel.tp_degree;
+    let pp_degree = config.distributed_inference.model_parallel.pp_degree;
+
+    if total_gpus > 1 || tp_degree > 1 || pp_degree > 1 {
+        // 尝试验证配置
+        match config.distributed_inference.validate() {
+            Ok(()) => {
+                tracing::info!(
+                    "Distributed inference config validated: TP={}, PP={}, total_gpus={}",
+                    tp_degree,
+                    pp_degree,
+                    total_gpus
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Distributed inference config validation failed: {}. \
+                    Server will start with potentially suboptimal performance.",
+                    e
+                );
+
+                // 检查常见配置问题
+                if total_gpus < tp_degree * pp_degree {
+                    warn!(
+                        "Insufficient GPUs: TP({}) * PP({}) = {} > total_gpus({})",
+                        tp_degree,
+                        pp_degree,
+                        tp_degree * pp_degree,
+                        total_gpus
+                    );
+                }
+            }
+        }
+
+        // 检查与引擎配置的兼容性
+        if config.engine.target_device == "cpu" && total_gpus > 0 {
+            warn!(
+                "Engine target device is 'cpu' but distributed config has {} GPUs. \
+                Consider setting target_device to 'auto', 'cuda', or 'vulkan'.",
+                total_gpus
+            );
+        }
+
+        // 检查显存需求
+        let estimated_memory_gb = config
+            .distributed_inference
+            .estimate_memory_requirements_gb();
+        let gpu_memory_gb = config.distributed_inference.gpu_memory_gb as f64;
+
+        if estimated_memory_gb > gpu_memory_gb {
+            warn!(
+                "Estimated memory requirement ({:.1} GB) exceeds GPU memory ({} GB). \
+                This may cause out-of-memory errors during inference.",
+                estimated_memory_gb, gpu_memory_gb
+            );
+        }
+    }
 }
 
 /// 设置关闭信号监听器

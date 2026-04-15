@@ -16,12 +16,11 @@
 //! RUSTFLAGS="-Z sanitizer=address" cargo +nightly test --test quant_simd_regression_test
 //! ```
 
-use openmini_server::model::inference::quant_simd::{
-    safe_dequantize, safe_dequantize_q4_0, safe_dequantize_q8_0, safe_dequantize_q4_1,
-    detect_simd_support, QuantError, SimdSupport,
-    dequantize_simd, dequantize_simd_parallel,
-};
 use openmini_server::model::inference::gguf::GgufTensorType;
+use openmini_server::model::inference::quant_simd::{
+    dequantize_simd, dequantize_simd_parallel, detect_simd_support, safe_dequantize,
+    safe_dequantize_q4_0, safe_dequantize_q4_1, safe_dequantize_q8_0, QuantError, SimdSupport,
+};
 
 // ============================================================================
 // 辅助函数
@@ -108,8 +107,10 @@ fn test_detect_simd_support() {
     // 在 x86_64 上应该至少支持 SSE4.2 或 AVX2
     #[cfg(target_arch = "x86_64")]
     {
-        assert!(support.sse42 || support.avx2 || support.avx512,
-            "x86_64 应该至少支持一种 SIMD 指令集");
+        assert!(
+            support.sse42 || support.avx2 || support.avx512,
+            "x86_64 应该至少支持一种 SIMD 指令集"
+        );
     }
 
     // 在 aarch64 上应该支持 NEON
@@ -302,14 +303,23 @@ fn test_original_api_vs_safe_api_consistency() {
     let safe_result = safe_dequantize_q4_0(&q4_data, size).unwrap();
     let original_result = dequantize_simd(&q4_data, GgufTensorType::Q4_0, size);
 
-    assert_eq!(safe_result.len(), original_result.len(),
-        "安全 API 和原始 API 输出长度不一致");
+    assert_eq!(
+        safe_result.len(),
+        original_result.len(),
+        "安全 API 和原始 API 输出长度不一致"
+    );
 
     // 允许微小的浮点误差
     for (i, (safe_val, orig_val)) in safe_result.iter().zip(original_result.iter()).enumerate() {
         let diff = (safe_val - orig_val).abs();
-        assert!(diff < 1e-6 || diff / safe_val.abs().max(1e-10) < 1e-5,
-            "Q4_0 元素[{}]: safe={}, original={}, diff={}", i, safe_val, orig_val, diff);
+        assert!(
+            diff < 1e-6 || diff / safe_val.abs().max(1e-10) < 1e-5,
+            "Q4_0 元素[{}]: safe={}, original={}, diff={}",
+            i,
+            safe_val,
+            orig_val,
+            diff
+        );
     }
 
     // Q8_0
@@ -321,8 +331,13 @@ fn test_original_api_vs_safe_api_consistency() {
 
     for (i, (safe_val, orig_val)) in safe_result.iter().zip(original_result.iter()).enumerate() {
         let diff = (safe_val - orig_val).abs();
-        assert!(diff < 1e-6 || diff / safe_val.abs().max(1e-10) < 1e-5,
-            "Q8_0 元素[{}]: safe={}, original={}", i, safe_val, orig_val);
+        assert!(
+            diff < 1e-6 || diff / safe_val.abs().max(1e-10) < 1e-5,
+            "Q8_0 元素[{}]: safe={}, original={}",
+            i,
+            safe_val,
+            orig_val
+        );
     }
 }
 
@@ -415,20 +430,29 @@ fn test_repeated_calls_no_memory_leak() {
             let mem_current = get_memory_usage_mb();
             let mem_growth = mem_current.saturating_sub(mem_before);
             // 允许合理的增长（< 100MB），如果持续增长则可能有泄漏
-            assert!(mem_growth < 100,
+            assert!(
+                mem_growth < 100,
                 "可能存在内存泄漏: 初始={}MB, 当前={}MB, 增长={}MB",
-                mem_before, mem_current, mem_growth);
+                mem_before,
+                mem_current,
+                mem_growth
+            );
         }
     }
 
     let mem_after = get_memory_usage_mb();
     let total_growth = mem_after.saturating_sub(mem_before);
-    println!("内存使用: 前={}MB, 后={}MB, 增长={}MB ({} 次迭代)",
-        mem_before, mem_after, total_growth, iterations);
+    println!(
+        "内存使用: 前={}MB, 后={}MB, 增长={}MB ({} 次迭代)",
+        mem_before, mem_after, total_growth, iterations
+    );
 
     // 总增长不应超过 50MB（允许一些碎片化）
-    assert!(total_growth < 50,
-        "总内存增长过大: {}MB (可能存在内存泄漏)", total_growth);
+    assert!(
+        total_growth < 50,
+        "总内存增长过大: {}MB (可能存在内存泄漏)",
+        total_growth
+    );
 }
 
 #[test]
@@ -536,7 +560,11 @@ fn test_truncated_data_handling() {
             assert!(result.is_ok(), "完整数据 ({} bytes) 应该成功", truncate_len);
         } else {
             // 不完整数据应该返回错误
-            assert!(result.is_err(), "截断数据 ({} bytes) 应该返回错误", truncate_len);
+            assert!(
+                result.is_err(),
+                "截断数据 ({} bytes) 应该返回错误",
+                truncate_len
+            );
         }
     }
 }
@@ -547,7 +575,7 @@ fn test_zero_scale_edge_case() {
     use half::f16;
 
     let mut data = vec![0u8; 18]; // 一个 Q4_0 block
-    // 设置 scale 为 0
+                                  // 设置 scale 为 0
     let zero_scale = f16::from_f32(0.0);
     data[0..2].copy_from_slice(&zero_scale.to_le_bytes());
 
@@ -557,7 +585,11 @@ fn test_zero_scale_edge_case() {
 
     // 所有值应该是 0（因为 scale=0）
     for &val in &output {
-        assert!((val - 0.0).abs() < 1e-7, "scale=0 时输出应为 0, 得到 {}", val);
+        assert!(
+            (val - 0.0).abs() < 1e-7,
+            "scale=0 时输出应为 0, 得到 {}",
+            val
+        );
     }
 }
 

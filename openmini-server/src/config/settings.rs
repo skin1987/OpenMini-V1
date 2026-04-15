@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use ts_rs::TS;
 
+use crate::model::inference::distributed_inference_config::DistributedInferenceConfig;
+
 /// 服务器完整配置
 ///
 /// 包含所有子系统配置的顶层结构
@@ -35,6 +37,10 @@ pub struct ServerConfig {
     /// 引擎配置
     #[serde(default)]
     pub engine: EngineSettings,
+    /// 分布式推理配置
+    #[serde(default)]
+    #[ts(skip)]
+    pub distributed_inference: DistributedInferenceConfig,
     /// Worker 进程设置 (DEPRECATED: TaskScheduler 已替代)
     pub worker: WorkerSettings,
     /// Per-Core Actor 设置
@@ -60,18 +66,27 @@ pub struct SchedulerSettings {
     pub queue_capacity: usize,
     /// 任务类型: "blocking" | "async" | "auto"
     #[serde(default = "default_scheduler_worker_type")]
+    #[ts(skip)]
     pub worker_type: String,
     /// 批处理大小
     #[serde(default = "default_scheduler_batch_size")]
+    #[ts(skip)]
     pub batch_size: usize,
     /// 批处理超时 (ms)
     #[serde(default = "default_scheduler_batch_timeout_ms")]
+    #[ts(skip)]
     pub batch_timeout_ms: u64,
 }
 
-fn default_scheduler_worker_type() -> String { "auto".to_string() }
-fn default_scheduler_batch_size() -> usize { 8 }
-fn default_scheduler_batch_timeout_ms() -> u64 { 5 }
+fn default_scheduler_worker_type() -> String {
+    "auto".to_string()
+}
+fn default_scheduler_batch_size() -> usize {
+    8
+}
+fn default_scheduler_batch_timeout_ms() -> u64 {
+    5
+}
 
 /// Per-Core Actor 设置
 #[derive(Debug, Clone, Default, Deserialize, serde::Serialize, TS)]
@@ -97,10 +112,18 @@ pub struct CoreSettings {
     pub kv_cache_mb: usize,
 }
 
-fn default_core_binding() -> bool { true }
-fn default_core_strategy() -> String { "round_robin".to_string() }
-fn default_max_concurrent() -> usize { 5000 }
-fn default_kv_cache_mb() -> usize { 2048 }
+fn default_core_binding() -> bool {
+    true
+}
+fn default_core_strategy() -> String {
+    "round_robin".to_string()
+}
+fn default_max_concurrent() -> usize {
+    5000
+}
+fn default_kv_cache_mb() -> usize {
+    2048
+}
 
 /// 服务器基础设置
 #[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
@@ -152,6 +175,7 @@ pub struct ModelSettings {
     pub context_length: usize,
     /// 架构类型: native | deepseek_v3 | gemma3
     #[serde(default = "default_architecture")]
+    #[ts(skip)]
     pub architecture: String,
 }
 
@@ -165,38 +189,62 @@ fn default_architecture() -> String {
 pub struct MoESettings {
     /// 策略: cyclic | full_layer | hybrid
     #[serde(default = "default_moe_strategy")]
+    #[ts(skip)]
     pub strategy: String,
     /// 循环周期
     #[serde(default = "default_moe_cycle_period")]
+    #[ts(skip)]
     pub cycle_period: usize,
     /// FullLayer策略时的FFN前缀层数
     #[serde(default = "default_moe_ffn_prefix_layers")]
+    #[ts(skip)]
     pub ffn_prefix_layers: usize,
     /// 路由专家数量
     #[serde(default = "default_moe_num_routing_experts")]
+    #[ts(skip)]
     pub num_routing_experts: usize,
     /// 共享专家数量
     #[serde(default = "default_moe_num_shared_experts")]
+    #[ts(skip)]
     pub num_shared_experts: usize,
     /// Top-K 选择数
     #[serde(default = "default_moe_top_k")]
+    #[ts(skip)]
     pub top_k: usize,
     /// 容量因子
     #[serde(default = "default_moe_capacity_factor")]
+    #[ts(skip)]
     pub capacity_factor: f64,
     /// 是否启用负载均衡
     #[serde(default = "default_moe_load_balance")]
+    #[ts(skip)]
     pub load_balance: bool,
 }
 
-fn default_moe_strategy() -> String { "cyclic".to_string() }
-fn default_moe_cycle_period() -> usize { 3 }
-fn default_moe_ffn_prefix_layers() -> usize { 3 }
-fn default_moe_num_routing_experts() -> usize { 8 }
-fn default_moe_num_shared_experts() -> usize { 0 }
-fn default_moe_top_k() -> usize { 2 }
-fn default_moe_capacity_factor() -> f64 { 1.25 }
-fn default_moe_load_balance() -> bool { true }
+fn default_moe_strategy() -> String {
+    "cyclic".to_string()
+}
+fn default_moe_cycle_period() -> usize {
+    3
+}
+fn default_moe_ffn_prefix_layers() -> usize {
+    3
+}
+fn default_moe_num_routing_experts() -> usize {
+    8
+}
+fn default_moe_num_shared_experts() -> usize {
+    0
+}
+fn default_moe_top_k() -> usize {
+    2
+}
+fn default_moe_capacity_factor() -> f64 {
+    1.25
+}
+fn default_moe_load_balance() -> bool {
+    true
+}
 
 /// 视觉编码器配置
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default, TS)]
@@ -204,18 +252,27 @@ fn default_moe_load_balance() -> bool { true }
 pub struct VisionSettings {
     /// 编码器类型: none | siglip
     #[serde(default = "default_vision_encoder")]
+    #[ts(skip)]
     pub encoder: String,
     /// 图像尺寸
     #[serde(default = "default_vision_image_size")]
+    #[ts(skip)]
     pub image_size: usize,
     /// 图像token数量
     #[serde(default = "default_vision_num_image_tokens")]
+    #[ts(skip)]
     pub num_image_tokens: usize,
 }
 
-fn default_vision_encoder() -> String { "none".to_string() }
-fn default_vision_image_size() -> usize { 224 }
-fn default_vision_num_image_tokens() -> usize { 256 }
+fn default_vision_encoder() -> String {
+    "none".to_string()
+}
+fn default_vision_image_size() -> usize {
+    224
+}
+fn default_vision_num_image_tokens() -> usize {
+    256
+}
 
 /// 引擎配置
 #[derive(Debug, Clone, Deserialize, serde::Serialize, Default, TS)]
@@ -223,34 +280,55 @@ fn default_vision_num_image_tokens() -> usize { 256 }
 pub struct EngineSettings {
     /// GEMM后端: auto | candle | ndarray
     #[serde(default = "default_engine_gemm_backend")]
+    #[ts(skip)]
     pub gemm_backend: String,
     /// 是否启用Arena分配器
     #[serde(default = "default_engine_enable_arena")]
+    #[ts(skip)]
     pub enable_arena: bool,
     /// Arena大小(MB)
     #[serde(default = "default_engine_arena_size_mb")]
+    #[ts(skip)]
     pub arena_size_mb: usize,
     /// 是否使用FP8 KV Cache
     #[serde(default = "default_engine_fp8_kv_cache")]
+    #[ts(skip)]
     pub fp8_kv_cache: bool,
-    /// 目标设备: auto | cpu | cuda | metal
+    /// 目标设备: auto | cpu | cuda | metal | vulkan
     #[serde(default = "default_engine_target_device")]
+    #[ts(skip)]
     pub target_device: String,
     /// DSA阈值
     #[serde(default = "default_engine_dsa_threshold")]
+    #[ts(skip)]
     pub dsa_threshold: usize,
     /// 最大批处理大小
     #[serde(default = "default_engine_max_batch_size")]
+    #[ts(skip)]
     pub max_batch_size: usize,
 }
 
-fn default_engine_gemm_backend() -> String { "auto".to_string() }
-fn default_engine_enable_arena() -> bool { true }
-fn default_engine_arena_size_mb() -> usize { 64 }
-fn default_engine_fp8_kv_cache() -> bool { false }
-fn default_engine_target_device() -> String { "auto".to_string() }
-fn default_engine_dsa_threshold() -> usize { 1024 }
-fn default_engine_max_batch_size() -> usize { 1 }
+fn default_engine_gemm_backend() -> String {
+    "auto".to_string()
+}
+fn default_engine_enable_arena() -> bool {
+    true
+}
+fn default_engine_arena_size_mb() -> usize {
+    64
+}
+fn default_engine_fp8_kv_cache() -> bool {
+    false
+}
+fn default_engine_target_device() -> String {
+    "auto".to_string()
+}
+fn default_engine_dsa_threshold() -> usize {
+    1024
+}
+fn default_engine_max_batch_size() -> usize {
+    1
+}
 
 /// Worker 进程设置
 #[derive(Debug, Clone, Deserialize, serde::Serialize, TS)]
@@ -356,6 +434,7 @@ impl Default for ServerConfig {
                 dsa_threshold: 1024,
                 max_batch_size: 1,
             },
+            distributed_inference: DistributedInferenceConfig::default(),
             worker: WorkerSettings {
                 count: 1,
                 restart_on_failure: true,

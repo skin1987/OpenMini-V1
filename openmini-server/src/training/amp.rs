@@ -17,7 +17,9 @@ pub enum MixedPrecision {
 }
 
 impl Default for MixedPrecision {
-    fn default() -> Self { Self::None }
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 impl std::fmt::Display for MixedPrecision {
@@ -57,11 +59,21 @@ pub struct AmpConfig {
     pub growth_interval: usize,
 }
 
-fn default_initial_scale() -> f64 { 2.0_f64.powi(15) }  // 32768.0
-fn default_growth_factor() -> f64 { 2.0 }
-fn default_backoff_factor() -> f64 { 0.5 }
-fn default_max_scale() -> f64 { 2.0_f64.powi(24) }  // 16777216.0
-fn default_growth_interval() -> usize { 2000 }
+fn default_initial_scale() -> f64 {
+    2.0_f64.powi(15)
+} // 32768.0
+fn default_growth_factor() -> f64 {
+    2.0
+}
+fn default_backoff_factor() -> f64 {
+    0.5
+}
+fn default_max_scale() -> f64 {
+    2.0_f64.powi(24)
+} // 16777216.0
+fn default_growth_interval() -> usize {
+    2000
+}
 
 impl Default for AmpConfig {
     fn default() -> Self {
@@ -136,7 +148,7 @@ impl LossScaler {
         if has_overflow {
             // 检测到溢出：降低 scale
             self.current_scale *= self.config.backoff_factor;
-            self.current_scale = self.current_scale.max(1.0);  // 最小为 1
+            self.current_scale = self.current_scale.max(1.0); // 最小为 1
             self.steps_since_last_overflow = 0;
             self.overflow_count += 1;
 
@@ -226,23 +238,25 @@ pub fn f32_to_f16(value: f32) -> u16 {
     let round_bit = (mantissa >> 12) & 1;
     let sticky = (mantissa & 0xFFF) != 0;
 
-    mantissa >>= 13;  // 从 23 位降到 10 位
+    mantissa >>= 13; // 从 23 位降到 10 位
 
     if round_bit == 1 && (sticky || (mantissa & 1) == 1) {
         mantissa += 1;
 
-        if mantissa >= 0x400 {  // 进位到 exponent
+        if mantissa >= 0x400 {
+            // 进位到 exponent
             mantissa = 0;
             exponent += 1;
 
-            if exponent >= 31 {  // 溢出到 inf
+            if exponent >= 31 {
+                // 溢出到 inf
                 return ((sign << 15) | 0x7C00) as u16;
             }
         }
     }
 
     if exponent > 0 {
-        exponent -= 112;  // bias 调整 (127 → 15)
+        exponent -= 112; // bias 调整 (127 → 15)
     } else {
         exponent = 0;
     }
@@ -280,9 +294,7 @@ pub fn f16_to_f32(bits: u16) -> f32 {
 
 /// 检查数组中是否有 inf/nan（表示溢出）
 pub fn has_overflow(gradients: &[ArrayD<f32>]) -> bool {
-    gradients.iter().any(|g| {
-        g.iter().any(|&v| !v.is_finite())
-    })
+    gradients.iter().any(|g| g.iter().any(|&v| !v.is_finite()))
 }
 
 // 单元测试
@@ -347,7 +359,7 @@ mod tests {
 
         // 检测到溢出
         let skip = scaler.check_and_update(true);
-        assert!(skip);  // 应该跳过更新
+        assert!(skip); // 应该跳过更新
 
         // scale 应该降低
         assert!(scaler.scale() < original_scale);
@@ -365,7 +377,12 @@ mod tests {
             // 允许一定的精度损失（相对误差 < 1%）
             if val.is_finite() && recovered.is_finite() {
                 let rel_error = ((val - recovered).abs() / val.abs().max(1e-30)).abs();
-                assert!(rel_error < 0.01, "FP16 conversion error too large: {} -> {}", val, recovered);
+                assert!(
+                    rel_error < 0.01,
+                    "FP16 conversion error too large: {} -> {}",
+                    val,
+                    recovered
+                );
             }
         }
     }
@@ -382,7 +399,12 @@ mod tests {
             if val.is_finite() && recovered.is_finite() {
                 let rel_error = (val - recovered).abs() / val.abs().max(1e-30);
                 // BF16 精度约为 3-4 位有效数字，相对误差应 < 1%
-                assert!(rel_error < 0.01, "BF16 should preserve large values well: {} -> {}", val, recovered);
+                assert!(
+                    rel_error < 0.01,
+                    "BF16 should preserve large values well: {} -> {}",
+                    val,
+                    recovered
+                );
             }
         }
     }
@@ -392,7 +414,8 @@ mod tests {
         let normal_grads = vec![ArrayD::from_shape_vec([3].as_ref(), vec![1.0, 2.0, 3.0]).unwrap()];
         assert!(!has_overflow(&normal_grads));
 
-        let overflow_grads = vec![ArrayD::from_shape_vec([1].as_ref(), vec![f32::INFINITY]).unwrap()];
+        let overflow_grads =
+            vec![ArrayD::from_shape_vec([1].as_ref(), vec![f32::INFINITY]).unwrap()];
         assert!(has_overflow(&overflow_grads));
 
         let nan_grads = vec![ArrayD::from_shape_vec([1].as_ref(), vec![f32::NAN]).unwrap()];

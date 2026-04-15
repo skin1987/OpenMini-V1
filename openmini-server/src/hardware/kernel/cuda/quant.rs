@@ -152,8 +152,8 @@ impl QuantizationEngine {
         self.lookup_tables.insert(
             QuantFormat::Q4KM,
             vec![
-                -7.0, -6.0, -5.0, -4.0, -3.0, -2.0, -1.0, 0.0,
-                0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
+                -7.0, -6.0, -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
+                7.0,
             ],
         );
 
@@ -161,31 +161,39 @@ impl QuantizationEngine {
         self.lookup_tables.insert(
             QuantFormat::Q4KS,
             vec![
-                -7.0, -5.0, -3.0, -1.0, 1.0, 3.0, 5.0, 7.0,
-                -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 0.0,
+                -7.0, -5.0, -3.0, -1.0, 1.0, 3.0, 5.0, 7.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0,
+                0.0,
             ],
         );
 
         // Q5_K_M 查找表 (32个centroids)
-        let q5km_table: Vec<f32> = (0..32)
-            .map(|i| (i as f32 - 16.0))
-            .collect();
+        let q5km_table: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0)).collect();
         self.lookup_tables.insert(QuantFormat::Q5KM, q5km_table);
 
         // Q6_K 查找表 (64个centroids)
-        let q6k_table: Vec<f32> = (0..64)
-            .map(|i| (i as f32 - 32.0) * 0.5)
-            .collect();
+        let q6k_table: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) * 0.5).collect();
         self.lookup_tables.insert(QuantFormat::Q6K, q6k_table);
 
         // NF4 查找表
         self.lookup_tables.insert(
             QuantFormat::Nf4,
             vec![
-                -1.0, -0.69619277, -0.52507321, -0.394_917_5,
-                -0.28444154, -0.18479936, -0.09105083, 0.0,
-                0.07958047, 0.16093051, 0.246_112_3, 0.337_915_2,
-                0.44070121, 0.562_617_4, 0.722_956_3, 1.0,
+                -1.0,
+                -0.69619277,
+                -0.52507321,
+                -0.394_917_5,
+                -0.28444154,
+                -0.18479936,
+                -0.09105083,
+                0.0,
+                0.07958047,
+                0.16093051,
+                0.246_112_3,
+                0.337_915_2,
+                0.44070121,
+                0.562_617_4,
+                0.722_956_3,
+                1.0,
             ],
         );
 
@@ -263,11 +271,12 @@ impl QuantizationEngine {
         let num_blocks = metadata.num_elements / 256;
         let mut result = Vec::with_capacity(metadata.num_elements);
 
-        let lut = self.lookup_tables
-            .get(&QuantFormat::Q4KM)
-            .ok_or_else(|| CudaError::Internal {
-                message: "Q4_K_M查找表缺失".to_string(),
-            })?;
+        let lut =
+            self.lookup_tables
+                .get(&QuantFormat::Q4KM)
+                .ok_or_else(|| CudaError::Internal {
+                    message: "Q4_K_M查找表缺失".to_string(),
+                })?;
 
         let mut offset = 0;
 
@@ -359,7 +368,8 @@ impl QuantizationEngine {
 
         #[cfg(not(feature = "cuda-native"))]
         {
-            let _dequantized: Vec<f32> = data.iter()
+            let _dequantized: Vec<f32> = data
+                .iter()
                 .take(metadata.num_elements)
                 .map(|&byte| Self::fp8_e4m3_to_f32(byte))
                 .collect();
@@ -407,7 +417,11 @@ impl QuantizationEngine {
         data: &[u8],
         metadata: &QuantMetadata,
     ) -> Result<DequantizeResult, CudaError> {
-        log::info!("反量化: format={}, size={}bytes", metadata.format, data.len());
+        log::info!(
+            "反量化: format={}, size={}bytes",
+            metadata.format,
+            data.len()
+        );
 
         match metadata.format {
             QuantFormat::Q4KM => self.dequantize_q4_k_m(data, metadata),
@@ -501,14 +515,15 @@ impl QuantizationEngine {
         metadata: &QuantMetadata,
     ) -> Result<DequantizeResult, CudaError> {
         let start_time = std::time::Instant::now();
-        
+
         // 直接reinterpret cast
         let output_size = metadata.num_elements * 4;
         let output = CudaBuffer::new(output_size, self.context.device().info().id)?;
 
         #[cfg(not(feature = "cuda-native"))]
         {
-            let _f32_data: Vec<f32> = data.chunks_exact(4)
+            let _f32_data: Vec<f32> = data
+                .chunks_exact(4)
                 .take(metadata.num_elements)
                 .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                 .collect();
@@ -559,12 +574,12 @@ impl QuantizationEngine {
         metadata: &QuantMetadata,
     ) -> Result<(), CudaError> {
         let _ = (format, data, output, metadata);
-        
+
         // 实际实现应：
         // 1. 复制data到GPU constant memory
         // 2. 设置kernel参数
         // 3. launch适当的dequantization kernel
-        
+
         Ok(())
     }
 
@@ -636,7 +651,11 @@ impl F16 {
         let mantissa = self.0 & 0x3FF;
 
         if self.0 == 0x7C00 || self.0 == 0xFC00 {
-            return if sign != 0.0 { f32::NEG_INFINITY } else { f32::INFINITY };
+            return if sign != 0.0 {
+                f32::NEG_INFINITY
+            } else {
+                f32::INFINITY
+            };
         }
         if (self.0 & 0x7FFF) == 0 {
             return if sign != 0.0 { -0.0 } else { 0.0 };
@@ -650,7 +669,7 @@ impl F16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     fn get_test_engine() -> QuantizationEngine {
         let ctx = CudaContext::new(None).unwrap();
         QuantizationEngine::new(ctx).unwrap()
@@ -674,23 +693,23 @@ mod tests {
     #[test]
     fn test_q4km_dequantize_basic() {
         let engine = get_test_engine();
-        
+
         // 构造最小的有效Q4_K_M数据 (1个block = 256 bytes)
         let mut data = vec![0u8; 256];
-        
+
         // 填充scales (fp16, 全部设为1.0)
         for i in 0..32 {
             let scale_bytes = F16::from(1.0).0.to_le_bytes();
             data[i * 2] = scale_bytes[0];
             data[i * 2 + 1] = scale_bytes[1];
         }
-        
+
         // 填充mins (fp16, 全部设为0.0)
         for i in 32..64 {
             data[i * 2] = 0;
             data[i * 2 + 1] = 0;
         }
-        
+
         // 量化值保持全0
 
         let metadata = QuantMetadata {
@@ -710,7 +729,7 @@ mod tests {
     #[test]
     fn test_q4km_insufficient_data() {
         let engine = get_test_engine();
-        
+
         let data = vec![0u8; 10]; // 太小
         let metadata = QuantMetadata {
             format: QuantFormat::Q4KM,
@@ -729,11 +748,11 @@ mod tests {
         // 测试特殊值
         assert!(QuantizationEngine::fp8_e4m3_to_f32(0x7F).is_nan());
         assert!(QuantizationEngine::fp8_e4m3_to_f32(0x80).is_infinite());
-        
+
         // 测试零
         let zero = QuantizationEngine::fp8_e4m3_to_f32(0x00);
         assert_eq!(zero, 0.0);
-        
+
         // 测试1.0 (近似)
         let one = QuantizationEngine::fp8_e4m3_to_f32(0x3C); // 1.0 in E4M3
         assert!((one - 1.0).abs() < 0.1); // 允许一定误差
@@ -742,7 +761,7 @@ mod tests {
     #[test]
     fn test_fp8_dequantize() {
         let engine = get_test_engine();
-        
+
         let data: Vec<u8> = vec![0x3C; 100]; // ~1.0
         let metadata = QuantMetadata {
             format: QuantFormat::Fp8E4m3,
@@ -760,12 +779,13 @@ mod tests {
     #[test]
     fn test_fp32_passthrough() {
         let engine = get_test_engine();
-        
+
         let original: Vec<f32> = vec![1.0, 2.0, 3.14159, -42.0];
-        let data: Vec<u8> = original.iter()
+        let data: Vec<u8> = original
+            .iter()
             .flat_map(|&f| f.to_le_bytes().to_vec())
             .collect();
-        
+
         let metadata = QuantMetadata {
             format: QuantFormat::Fp32,
             shape: vec![4],
@@ -782,7 +802,7 @@ mod tests {
     #[test]
     fn test_unsupported_format() {
         let engine = get_test_engine();
-        
+
         let data = vec![0u8; 100];
         let metadata = QuantMetadata {
             format: QuantFormat::Exl2, // 不支持的格式
@@ -807,10 +827,10 @@ mod tests {
     #[test]
     fn test_lookup_tables_initialized() {
         let engine = get_test_engine();
-        
+
         assert!(engine.lookup_tables.contains_key(&QuantFormat::Q4KM));
         assert!(engine.lookup_tables.contains_key(&QuantFormat::Nf4));
-        
+
         let q4km_lut = engine.lookup_tables.get(&QuantFormat::Q4KM).unwrap();
         assert_eq!(q4km_lut.len(), 16); // 4-bit = 16个值
     }

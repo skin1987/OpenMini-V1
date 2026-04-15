@@ -6,8 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum DeviceType {
     #[default]
     CPU,
@@ -15,7 +14,6 @@ pub enum DeviceType {
     CUDA,
     Metal,
 }
-
 
 impl std::fmt::Display for DeviceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -28,8 +26,7 @@ impl std::fmt::Display for DeviceType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum OutputFormat {
     #[default]
     Json,
@@ -37,7 +34,6 @@ pub enum OutputFormat {
     Prometheus,
     Human,
 }
-
 
 impl std::fmt::Display for OutputFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -127,7 +123,9 @@ impl Default for BenchmarkConfig {
             output_path: None,
             baseline_path: None,
 
-            commit_hash: option_env!("GIT_COMMIT_HASH").unwrap_or("unknown").to_string(),
+            commit_hash: option_env!("GIT_COMMIT_HASH")
+                .unwrap_or("unknown")
+                .to_string(),
             build_timestamp: chrono::Utc::now().to_rfc3339(),
             hardware_info: HardwareInfo::default(),
         }
@@ -191,7 +189,10 @@ impl BenchmarkConfig {
 
     pub fn validate(&self) -> Result<(), String> {
         if !self.model_path.exists() {
-            return Err(format!("Model path does not exist: {}", self.model_path.display()));
+            return Err(format!(
+                "Model path does not exist: {}",
+                self.model_path.display()
+            ));
         }
 
         if self.batch_sizes.is_empty() {
@@ -241,6 +242,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_config_validation() {
         let config = BenchmarkConfig::default();
         let result = config.validate();

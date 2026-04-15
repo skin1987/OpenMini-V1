@@ -14,6 +14,7 @@
 pub mod benchmark;
 pub mod config;
 pub mod db;
+#[cfg(feature = "distributed")]
 pub mod distributed;
 pub mod enterprise;
 pub mod error;

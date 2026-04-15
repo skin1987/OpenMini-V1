@@ -42,10 +42,14 @@ pub async fn get_workers(State(_state): State<AppState>) -> Result<Json<Value>, 
 
 pub async fn restart_service(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     tracing::info!("收到服务重启请求");
-    Ok(Json(serde_json::json!({"message": "重启信号已发送", "status": "restarting"})))
+    Ok(Json(
+        serde_json::json!({"message": "重启信号已发送", "status": "restarting"}),
+    ))
 }
 
 pub async fn stop_service(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     tracing::warn!("收到服务停止请求");
-    Ok(Json(serde_json::json!({"message": "停止信号已发送", "status": "stopping"})))
+    Ok(Json(
+        serde_json::json!({"message": "停止信号已发送", "status": "stopping"}),
+    ))
 }

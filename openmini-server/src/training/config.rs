@@ -71,6 +71,7 @@ pub struct Model14BConfig {
     pub rope_scaling_type: String,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for Model14BConfig {
     fn default() -> Self {
         Self {
@@ -90,16 +91,36 @@ impl Default for Model14BConfig {
     }
 }
 
-fn default_vocab_size() -> usize { 152064 }
-fn default_hidden_size() -> usize { 5120 }
-fn default_intermediate_size() -> usize { 13824 }
-fn default_num_attention_heads() -> usize { 40 }
-fn default_num_kv_heads() -> usize { 10 }
-fn default_num_layers() -> usize { 48 }
-fn max_position_embeddings() -> usize { 131072 }
-fn default_rms_norm_eps() -> f64 { 1e-6 }
-fn default_rope_theta() -> f64 { 10000.0 }
-fn default_rope_scaling() -> String { "linear".to_string() }
+fn default_vocab_size() -> usize {
+    152064
+}
+fn default_hidden_size() -> usize {
+    5120
+}
+fn default_intermediate_size() -> usize {
+    13824
+}
+fn default_num_attention_heads() -> usize {
+    40
+}
+fn default_num_kv_heads() -> usize {
+    10
+}
+fn default_num_layers() -> usize {
+    48
+}
+fn max_position_embeddings() -> usize {
+    131072
+}
+fn default_rms_norm_eps() -> f64 {
+    1e-6
+}
+fn default_rope_theta() -> f64 {
+    10000.0
+}
+fn default_rope_scaling() -> String {
+    "linear".to_string()
+}
 
 impl Model14BConfig {
     /// 计算模型总参数量（估算）
@@ -112,7 +133,8 @@ impl Model14BConfig {
     /// - LM Head: vocab_size * hidden_size
     pub fn estimate_parameters(&self) -> u64 {
         let embed_params = self.vocab_size as u64 * self.hidden_size as u64;
-        let attn_per_layer = 4 * self.hidden_size.pow(2) as u64
+        let attn_per_layer = 4
+            * self.hidden_size.pow(2) as u64
             * (self.num_attention_heads / self.num_key_value_heads.max(1)) as u64;
         let ffn_per_layer = 2 * self.hidden_size as u64 * self.intermediate_size as u64;
         let norm_per_layer = 2 * self.hidden_size as u64;
@@ -126,16 +148,24 @@ impl Model14BConfig {
     /// 验证模型架构配置的有效性
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.hidden_size == 0 {
-            return Err(ConfigError::InvalidValue("hidden_size must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "hidden_size must be > 0".to_string(),
+            ));
         }
         if self.num_hidden_layers == 0 {
-            return Err(ConfigError::InvalidValue("num_hidden_layers must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "num_hidden_layers must be > 0".to_string(),
+            ));
         }
         if self.num_attention_heads == 0 {
-            return Err(ConfigError::InvalidValue("num_attention_heads must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "num_attention_heads must be > 0".to_string(),
+            ));
         }
         if self.num_key_value_heads == 0 {
-            return Err(ConfigError::InvalidValue("num_key_value_heads must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "num_key_value_heads must be > 0".to_string(),
+            ));
         }
         if self.num_attention_heads % self.num_key_value_heads != 0 {
             return Err(ConfigError::InvalidValue(format!(
@@ -144,7 +174,9 @@ impl Model14BConfig {
             )));
         }
         if self.vocab_size == 0 {
-            return Err(ConfigError::InvalidValue("vocab_size must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "vocab_size must be > 0".to_string(),
+            ));
         }
         Ok(())
     }
@@ -176,6 +208,7 @@ pub struct MoEConfig {
     pub router_z_loss_coef: f64,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for MoEConfig {
     fn default() -> Self {
         Self {
@@ -187,10 +220,18 @@ impl Default for MoEConfig {
     }
 }
 
-fn default_num_experts() -> usize { 8 }
-fn default_experts_per_tok() -> usize { 2 }
-fn default_router_aux_loss() -> f64 { 0.001 }
-fn default_router_z_loss() -> f64 { 0.0001 }
+fn default_num_experts() -> usize {
+    8
+}
+fn default_experts_per_tok() -> usize {
+    2
+}
+fn default_router_aux_loss() -> f64 {
+    0.001
+}
+fn default_router_z_loss() -> f64 {
+    0.0001
+}
 
 // ==================== MLA 配置 ====================
 
@@ -211,6 +252,7 @@ pub struct MLAConfig {
     pub num_kv_heads: usize,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for MLAConfig {
     fn default() -> Self {
         Self {
@@ -221,9 +263,15 @@ impl Default for MLAConfig {
     }
 }
 
-fn default_latent_dim() -> usize { 1024 }
-fn default_compress_ratio() -> f64 { 4.0 }
-fn default_num_kv_heads_mla() -> usize { 8 }
+fn default_latent_dim() -> usize {
+    1024
+}
+fn default_compress_ratio() -> f64 {
+    4.0
+}
+fn default_num_kv_heads_mla() -> usize {
+    8
+}
 
 // ==================== 训练超参数配置 ====================
 
@@ -278,6 +326,7 @@ pub struct TrainingHyperParams {
     pub min_lr_ratio: f64,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for TrainingHyperParams {
     fn default() -> Self {
         Self {
@@ -299,32 +348,66 @@ impl Default for TrainingHyperParams {
     }
 }
 
-fn default_batch_size() -> usize { 256 }
-fn default_micro_batch_size() -> usize { 4 }
-fn default_grad_accum_steps() -> usize { 64 }
-fn default_learning_rate() -> f64 { 3e-4 }
-fn default_weight_decay_14b() -> f64 { 0.01 }
-fn default_warmup_steps() -> usize { 5000 }
-fn default_total_steps() -> usize { 500000 }
-fn default_save_steps() -> usize { 5000 }
-fn default_eval_steps() -> usize { 2500 }
-fn default_dtype() -> String { "bf16".to_string() }
-fn default_max_grad_norm() -> f64 { 1.0 }
-fn default_accum_dtype() -> String { "fp32".to_string() }
-fn default_lr_scheduler() -> String { "cosine".to_string() }
-fn default_min_lr_ratio() -> f64 { 0.1 }
+fn default_batch_size() -> usize {
+    256
+}
+fn default_micro_batch_size() -> usize {
+    4
+}
+fn default_grad_accum_steps() -> usize {
+    64
+}
+fn default_learning_rate() -> f64 {
+    3e-4
+}
+fn default_weight_decay_14b() -> f64 {
+    0.01
+}
+fn default_warmup_steps() -> usize {
+    5000
+}
+fn default_total_steps() -> usize {
+    500000
+}
+fn default_save_steps() -> usize {
+    5000
+}
+fn default_eval_steps() -> usize {
+    2500
+}
+fn default_dtype() -> String {
+    "bf16".to_string()
+}
+fn default_max_grad_norm() -> f64 {
+    1.0
+}
+fn default_accum_dtype() -> String {
+    "fp32".to_string()
+}
+fn default_lr_scheduler() -> String {
+    "cosine".to_string()
+}
+fn default_min_lr_ratio() -> f64 {
+    0.1
+}
 
 impl TrainingHyperParams {
     /// 验证训练超参数有效性
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.micro_batch_size == 0 {
-            return Err(ConfigError::InvalidValue("micro_batch_size must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "micro_batch_size must be > 0".to_string(),
+            ));
         }
         if self.gradient_accumulation_steps == 0 {
-            return Err(ConfigError::InvalidValue("gradient_accumulation_steps must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "gradient_accumulation_steps must be > 0".to_string(),
+            ));
         }
         if self.learning_rate <= 0.0 {
-            return Err(ConfigError::InvalidValue("learning_rate must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "learning_rate must be > 0".to_string(),
+            ));
         }
         if self.batch_size != self.micro_batch_size * self.gradient_accumulation_steps {
             return Err(ConfigError::InvalidValue(format!(
@@ -334,7 +417,8 @@ impl TrainingHyperParams {
         }
         if !["bf16", "fp16", "fp32"].contains(&self.dtype.as_str()) {
             return Err(ConfigError::InvalidValue(format!(
-                "Invalid dtype: {} (must be 'bf16', 'fp16', or 'fp32')", self.dtype
+                "Invalid dtype: {} (must be 'bf16', 'fp16', or 'fp32')",
+                self.dtype
             )));
         }
         Ok(())
@@ -382,6 +466,7 @@ pub struct DataMixConfig {
     pub packed_sequence: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for DataMixConfig {
     fn default() -> Self {
         Self {
@@ -398,12 +483,24 @@ impl Default for DataMixConfig {
     }
 }
 
-fn default_train_tokens() -> String { "800B".to_string() }
-fn default_code_tokens() -> String { "100B".to_string() }
-fn default_chinese_tokens() -> String { "200B".to_string() }
-fn default_data_format() -> String { "pretokenized".to_string() }
-fn default_max_seq_len_data() -> usize { 8192 }
-fn default_packed_sequence() -> bool { true }
+fn default_train_tokens() -> String {
+    "800B".to_string()
+}
+fn default_code_tokens() -> String {
+    "100B".to_string()
+}
+fn default_chinese_tokens() -> String {
+    "200B".to_string()
+}
+fn default_data_format() -> String {
+    "pretokenized".to_string()
+}
+fn default_max_seq_len_data() -> usize {
+    8192
+}
+fn default_packed_sequence() -> bool {
+    true
+}
 
 // ==================== SFT 配置 ====================
 
@@ -438,6 +535,7 @@ pub struct SFT14BConfig {
     pub response_length_max: usize,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for SFT14BConfig {
     fn default() -> Self {
         Self {
@@ -461,20 +559,38 @@ impl Default for SFT14BConfig {
     }
 }
 
-fn default_sft_epochs() -> usize { 3 }
-fn default_sft_lr() -> f64 { 1e-5 }
-fn default_lora_rank() -> usize { 64 }
-fn default_lora_alpha() -> usize { 128 }
-fn default_lora_dropout() -> f64 { 0.05 }
+fn default_sft_epochs() -> usize {
+    3
+}
+fn default_sft_lr() -> f64 {
+    1e-5
+}
+fn default_lora_rank() -> usize {
+    64
+}
+fn default_lora_alpha() -> usize {
+    128
+}
+fn default_lora_dropout() -> f64 {
+    0.05
+}
 fn default_lora_targets() -> Vec<String> {
     vec![
-        "q_proj".to_string(), "k_proj".to_string(), "v_proj".to_string(),
-        "o_proj".to_string(), "gate_proj".to_string(), "up_proj".to_string(),
+        "q_proj".to_string(),
+        "k_proj".to_string(),
+        "v_proj".to_string(),
+        "o_proj".to_string(),
+        "gate_proj".to_string(),
+        "up_proj".to_string(),
         "down_proj".to_string(),
     ]
 }
-fn default_mask_prompt() -> bool { true }
-fn default_response_len() -> usize { 4096 }
+fn default_mask_prompt() -> bool {
+    true
+}
+fn default_response_len() -> usize {
+    4096
+}
 
 // ==================== GRPO 配置 ====================
 
@@ -511,6 +627,7 @@ pub struct GRPO14BConfig {
     pub reward_format_weight: f64,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for GRPO14BConfig {
     fn default() -> Self {
         Self {
@@ -526,14 +643,30 @@ impl Default for GRPO14BConfig {
     }
 }
 
-fn default_group_size() -> usize { 64 }
-fn default_kl_coef() -> f64 { 0.001 }
-fn default_clip_range() -> f64 { 0.2 }
-fn default_entropy_coef() -> f64 { 0.01 }
-fn default_adv_eps() -> f64 { 1e-8 }
-fn default_grad_clip_norm() -> f64 { 1.0 }
-fn default_acc_weight() -> f64 { 0.7 }
-fn default_fmt_weight() -> f64 { 0.3 }
+fn default_group_size() -> usize {
+    64
+}
+fn default_kl_coef() -> f64 {
+    0.001
+}
+fn default_clip_range() -> f64 {
+    0.2
+}
+fn default_entropy_coef() -> f64 {
+    0.01
+}
+fn default_adv_eps() -> f64 {
+    1e-8
+}
+fn default_grad_clip_norm() -> f64 {
+    1.0
+}
+fn default_acc_weight() -> f64 {
+    0.7
+}
+fn default_fmt_weight() -> f64 {
+    0.3
+}
 
 impl GRPO14BConfig {
     /// 转换为 RL 模块的 GRPOConfig
@@ -553,17 +686,23 @@ impl GRPO14BConfig {
     /// 验证 GRPO 配置
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.group_size == 0 {
-            return Err(ConfigError::InvalidValue("group_size must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "group_size must be > 0".to_string(),
+            ));
         }
         if self.kl_coef < 0.0 {
-            return Err(ConfigError::InvalidValue("kl_coef must be >= 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "kl_coef must be >= 0".to_string(),
+            ));
         }
         if !(0.0..=1.0).contains(&self.clip_range) {
-            return Err(ConfigError::InvalidValue("clip_range must be in [0, 1]".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "clip_range must be in [0, 1]".to_string(),
+            ));
         }
         if !(0.0..=1.0).contains(&(self.reward_accuracy_weight + self.reward_format_weight)) {
             return Err(ConfigError::InvalidValue(
-                "reward weights sum must be in [0, 1]".to_string()
+                "reward weights sum must be in [0, 1]".to_string(),
             ));
         }
         Ok(())
@@ -608,6 +747,7 @@ pub struct HardwareConfig {
     pub mixed_precision: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for HardwareConfig {
     fn default() -> Self {
         Self {
@@ -624,26 +764,47 @@ impl Default for HardwareConfig {
     }
 }
 
-fn default_num_gpus() -> usize { 8 }
-fn default_gpu_mem() -> usize { 80 }
-fn default_total_mem() -> usize { 640 }
-fn default_tp_size() -> usize { 4 }
-fn default_pp_size() -> usize { 2 }
-fn default_dp_size() -> usize { 1 }
-fn default_act_checkpoint() -> bool { true }
-fn default_mixed_prec() -> bool { true }
+fn default_num_gpus() -> usize {
+    8
+}
+fn default_gpu_mem() -> usize {
+    80
+}
+fn default_total_mem() -> usize {
+    640
+}
+fn default_tp_size() -> usize {
+    4
+}
+fn default_pp_size() -> usize {
+    2
+}
+fn default_dp_size() -> usize {
+    1
+}
+fn default_act_checkpoint() -> bool {
+    true
+}
+fn default_mixed_prec() -> bool {
+    true
+}
 
 impl HardwareConfig {
     /// 验证硬件配置
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.num_gpus == 0 {
-            return Err(ConfigError::InvalidValue("num_gpus must be > 0".to_string()));
+            return Err(ConfigError::InvalidValue(
+                "num_gpus must be > 0".to_string(),
+            ));
         }
         let actual_parallel = self.tensor_parallel_size * self.pipeline_parallel_size;
         if actual_parallel > self.num_gpus {
             return Err(ConfigError::InvalidValue(format!(
                 "TP({}) x PP({}) = {} exceeds num_gpus({})",
-                self.tensor_parallel_size, self.pipeline_parallel_size, actual_parallel, self.num_gpus
+                self.tensor_parallel_size,
+                self.pipeline_parallel_size,
+                actual_parallel,
+                self.num_gpus
             )));
         }
         Ok(())
@@ -682,6 +843,7 @@ pub struct CheckpointExtConfig {
     pub expansion_strategy: ExpansionStrategy,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for CheckpointExtConfig {
     fn default() -> Self {
         Self {
@@ -696,9 +858,10 @@ impl Default for CheckpointExtConfig {
 }
 
 /// 模型扩展策略（从7B到14B）
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ExpansionStrategy {
     /// 随机初始化新增参数
+    #[default]
     RandomInit,
     /// 按比例复制并缩放
     ScaledCopy,
@@ -706,14 +869,18 @@ pub enum ExpansionStrategy {
     Interpolation,
 }
 
-impl Default for ExpansionStrategy {
-    fn default() -> Self { Self::RandomInit }
+fn default_output_dir() -> PathBuf {
+    PathBuf::from("./checkpoints/14b-dense")
 }
-
-fn default_output_dir() -> PathBuf { PathBuf::from("./checkpoints/14b-dense") }
-fn default_save_strategy() -> String { "steps".to_string() }
-fn default_save_limit() -> usize { 5 }
-fn default_expansion_strategy() -> ExpansionStrategy { ExpansionStrategy::RandomInit }
+fn default_save_strategy() -> String {
+    "steps".to_string()
+}
+fn default_save_limit() -> usize {
+    5
+}
+fn default_expansion_strategy() -> ExpansionStrategy {
+    ExpansionStrategy::RandomInit
+}
 
 // ==================== 完整 14B 训练配置 ====================
 
@@ -721,7 +888,7 @@ fn default_expansion_strategy() -> ExpansionStrategy { ExpansionStrategy::Random
 ///
 /// 整合所有配置段为统一的配置结构，
 /// 支持预训练、SFT、GRPO 全流程训练。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TrainingConfig14B {
     /// 模型架构配置
     #[serde(default)]
@@ -758,24 +925,6 @@ pub struct TrainingConfig14B {
     pub early_stopping: EarlyStoppingConfig14B,
 }
 
-impl Default for TrainingConfig14B {
-    fn default() -> Self {
-        Self {
-            model: Model14BConfig::default(),
-            moe: MoEConfig::default(),
-            mla: MLAConfig::default(),
-            training: TrainingHyperParams::default(),
-            data: DataMixConfig::default(),
-            sft: SFT14BConfig::default(),
-            grpo: GRPO14BConfig::default(),
-            hardware: HardwareConfig::default(),
-            checkpoint: CheckpointExtConfig::default(),
-            logging: LoggingConfig14B::default(),
-            early_stopping: EarlyStoppingConfig14B::default(),
-        }
-    }
-}
-
 /// 日志配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig14B {
@@ -791,6 +940,7 @@ pub struct LoggingConfig14B {
     pub wandb_run_name: Option<String>,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for LoggingConfig14B {
     fn default() -> Self {
         Self {
@@ -803,8 +953,12 @@ impl Default for LoggingConfig14B {
     }
 }
 
-fn default_log_steps_14b() -> usize { 10 }
-fn default_logging_dir() -> PathBuf { PathBuf::from("./logs/14b-training") }
+fn default_log_steps_14b() -> usize {
+    10
+}
+fn default_logging_dir() -> PathBuf {
+    PathBuf::from("./logs/14b-training")
+}
 
 /// 早停配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -821,6 +975,7 @@ pub struct EarlyStoppingConfig14B {
     pub mode: String,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for EarlyStoppingConfig14B {
     fn default() -> Self {
         Self {
@@ -833,20 +988,29 @@ impl Default for EarlyStoppingConfig14B {
     }
 }
 
-fn default_es_enabled_14b() -> bool { true }
-fn default_patience_14b() -> usize { 10 }
-fn default_min_delta_14b() -> f64 { 0.001 }
-fn default_monitor_metric() -> String { "val_loss".to_string() }
-fn default_es_mode() -> String { "min".to_string() }
+fn default_es_enabled_14b() -> bool {
+    true
+}
+fn default_patience_14b() -> usize {
+    10
+}
+fn default_min_delta_14b() -> f64 {
+    0.001
+}
+fn default_monitor_metric() -> String {
+    "val_loss".to_string()
+}
+fn default_es_mode() -> String {
+    "min".to_string()
+}
 
 impl TrainingConfig14B {
     /// 从 TOML 文件加载 14B 完整配置
     pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(ConfigError::Io)?;
+        let content = std::fs::read_to_string(path).map_err(ConfigError::Io)?;
 
-        let config: TrainingConfig14B = toml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        let config: TrainingConfig14B =
+            toml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
         config.validate()?;
         Ok(config)
@@ -914,7 +1078,9 @@ pub enum ConfigError {
 }
 
 impl From<std::io::Error> for ConfigError {
-    fn from(err: std::io::Error) -> Self { Self::Io(err) }
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
 }
 
 impl std::fmt::Display for ConfigError {
@@ -952,8 +1118,16 @@ mod tests {
         let params = config.estimate_parameters();
         // 14B 模型参数量估算（简化公式可能偏高，接受较大范围）
         // 实际 ~14.2B 参数，估算值可能因公式不同而变化
-        assert!(params > 10_000_000_000, "Expected > 10B params, got {}", params);
-        assert!(params < 50_000_000_000, "Expected < 50B params, got {}", params);
+        assert!(
+            params > 10_000_000_000,
+            "Expected > 10B params, got {}",
+            params
+        );
+        assert!(
+            params < 50_000_000_000,
+            "Expected < 50B params, got {}",
+            params
+        );
     }
 
     #[test]

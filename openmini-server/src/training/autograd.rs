@@ -4,8 +4,8 @@
 //! 实现了完整的计算图构建、前向传播、反向传播功能。
 
 use ndarray::{ArrayD, Ix2};
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 // ==================== 错误类型 ====================
 
@@ -17,7 +17,10 @@ pub enum AutogradError {
     /// 无效操作
     InvalidOperation(String),
     /// 形状不匹配
-    ShapeMismatch { expected: Vec<usize>, got: Vec<usize> },
+    ShapeMismatch {
+        expected: Vec<usize>,
+        got: Vec<usize>,
+    },
     /// 不是 Loss 节点
     NotALossNode(usize),
     /// 计算图存在循环
@@ -80,8 +83,7 @@ impl TrainingTensor {
         let size: usize = shape.iter().product();
         let data = vec![0.0f32; size];
         Self::new(
-            ArrayD::from_shape_vec(shape.to_vec(), data)
-                .expect("形状不匹配"),
+            ArrayD::from_shape_vec(shape.to_vec(), data).expect("形状不匹配"),
             false,
         )
     }
@@ -98,8 +100,7 @@ impl TrainingTensor {
             "数据长度与形状不匹配"
         );
         Self::new(
-            ArrayD::from_shape_vec(shape.clone(), data.to_vec())
-                .expect("形状不匹配"),
+            ArrayD::from_shape_vec(shape.clone(), data.to_vec()).expect("形状不匹配"),
             true,
         )
     }
@@ -139,8 +140,7 @@ impl From<ArrayD<f32>> for TrainingTensor {
 impl From<Vec<f32>> for TrainingTensor {
     fn from(data: Vec<f32>) -> Self {
         Self::new(
-            ArrayD::from_shape_vec(vec![data.len()], data)
-                .expect("形状不匹配"),
+            ArrayD::from_shape_vec(vec![data.len()], data).expect("形状不匹配"),
             false,
         )
     }
@@ -210,15 +210,9 @@ pub type NodeId = usize;
 #[derive(Debug, Clone)]
 pub enum GraphNode {
     /// 输入节点
-    Input {
-        name: String,
-        value: TrainingTensor,
-    },
+    Input { name: String, value: TrainingTensor },
     /// 参数节点
-    Param {
-        name: String,
-        value: TrainingTensor,
-    },
+    Param { name: String, value: TrainingTensor },
     /// 操作节点
     Op {
         op_type: OpType,
@@ -227,16 +221,16 @@ pub enum GraphNode {
         cache: OpCache,
     },
     /// 损失函数节点
-    Loss {
-        value: f32,
-        grad: f32,
-    },
+    Loss { value: f32, grad: f32 },
 }
 
 // ==================== 算子实现 ====================
 
 /// 矩阵乘法前向传播
-fn forward_matmul(a: &ArrayD<f32>, b: &ArrayD<f32>) -> Result<(ArrayD<f32>, OpCache), AutogradError> {
+fn forward_matmul(
+    a: &ArrayD<f32>,
+    b: &ArrayD<f32>,
+) -> Result<(ArrayD<f32>, OpCache), AutogradError> {
     // 检查维度
     if a.ndim() != 2 || b.ndim() != 2 {
         return Err(AutogradError::InvalidOperation(
@@ -329,7 +323,7 @@ fn forward_layernorm(x: &ArrayD<f32>, eps: f64) -> Result<(ArrayD<f32>, OpCache)
     // 对最后一个维度进行归一化
     let last_dim = shape[shape.len() - 1];
     let mean = x.mean_axis(ndarray::Axis(shape.len() - 1)).unwrap();
-    
+
     // 广播 mean 以便减法
     let mut mean_broadcasted = x.clone();
     for (idx, val) in mean_broadcasted.iter_mut().enumerate() {
@@ -376,7 +370,7 @@ fn backward_layernorm(
     // 简化的 LayerNorm 反向传播
     // 完整实现需要更复杂的广播操作
     let mean = x.mean_axis(ndarray::Axis(shape.len() - 1)).unwrap();
-    
+
     let mean_b = {
         let mut m = x.clone();
         for (idx, val) in m.iter_mut().enumerate() {
@@ -385,7 +379,7 @@ fn backward_layernorm(
         }
         m
     };
-    
+
     let diff = x - &mean_b;
     let var = (&diff * &diff)
         .mean_axis(ndarray::Axis(shape.len() - 1))
@@ -500,10 +494,8 @@ fn backward_gelu(
     // GELU 导数近似
     // d/dx GELU(x) ≈ 0.5 * (1 + tanh(...)) + x * (1 - tanh^2(...)) * (...)
     const SQRT_2_OVER_PI: f32 = 0.797_884_6;
-    
-    let cdf = x.mapv(|v| {
-        0.5 * (1.0 + (SQRT_2_OVER_PI * (v + 0.044715 * v.powi(3))).tanh())
-    });
+
+    let cdf = x.mapv(|v| 0.5 * (1.0 + (SQRT_2_OVER_PI * (v + 0.044715 * v.powi(3))).tanh()));
 
     let pdf = x.mapv(|v| {
         let inner = SQRT_2_OVER_PI * (v + 0.044715 * v.powi(3));
@@ -642,7 +634,9 @@ impl ComputationGraph {
                 forward_gelu(input_tensors[0])?
             }
             _ => {
-                return Err(AutogradError::InvalidOperation("不支持的操作类型".to_string()));
+                return Err(AutogradError::InvalidOperation(
+                    "不支持的操作类型".to_string(),
+                ));
             }
         };
 
@@ -762,9 +756,9 @@ impl ComputationGraph {
             } = self.nodes[node_id]
             {
                 // 获取输出梯度
-                let output_grad = output.grad().unwrap_or_else(|| {
-                    ArrayD::from_elem(output.data.shape(), 0.0f32)
-                });
+                let output_grad = output
+                    .grad()
+                    .unwrap_or_else(|| ArrayD::from_elem(output.data.shape(), 0.0f32));
 
                 // 收集输入张量
                 let input_tensors: Vec<ArrayD<f32>> = inputs
@@ -786,11 +780,11 @@ impl ComputationGraph {
                     OpType::Softmax { axis: _ } => {
                         backward_softmax(&input_tensors[0], &output_grad, cache)?
                     }
-                    OpType::GELU => {
-                        backward_gelu(&input_tensors[0], &output_grad, cache)?
-                    }
+                    OpType::GELU => backward_gelu(&input_tensors[0], &output_grad, cache)?,
                     _ => {
-                        return Err(AutogradError::InvalidOperation("不支持的反向传播操作".to_string()));
+                        return Err(AutogradError::InvalidOperation(
+                            "不支持的反向传播操作".to_string(),
+                        ));
                     }
                 };
 
@@ -1004,10 +998,13 @@ mod tests {
         // 验证每行和为 1（使用迭代器）
         let result_slice = result.as_slice().unwrap();
         for row in 0..2 {
-            let row_sum: f32 = (row * 3..(row + 1) * 3)
-                .map(|i| result_slice[i])
-                .sum();
-            assert!((row_sum - 1.0).abs() < 1e-6, "Row {} sum = {}", row, row_sum);
+            let row_sum: f32 = (row * 3..(row + 1) * 3).map(|i| result_slice[i]).sum();
+            assert!(
+                (row_sum - 1.0).abs() < 1e-6,
+                "Row {} sum = {}",
+                row,
+                row_sum
+            );
         }
 
         // 反向传播
@@ -1031,11 +1028,19 @@ mod tests {
         let result_slice = result.as_slice().unwrap();
 
         // GELU(0) ≈ 0 (位置 [0,1] 即索引 1)
-        assert!((result_slice[1]).abs() < 0.01, "GELU(0) = {}", result_slice[1]);
+        assert!(
+            (result_slice[1]).abs() < 0.01,
+            "GELU(0) = {}",
+            result_slice[1]
+        );
 
         // GELU(-x) ≈ -GELU(x) 对于近似 GELU（放宽条件）
         let sum_abs = (result_slice[0] + result_slice[3]).abs();
-        assert!(sum_abs < 1.0, "GELU 奇函数性质: |GELU(-1) + GELU(2)| = {} 应该较小", sum_abs);
+        assert!(
+            sum_abs < 1.0,
+            "GELU 奇函数性质: |GELU(-1) + GELU(2)| = {} 应该较小",
+            sum_abs
+        );
 
         // 反向传播
         let grad = array![[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]].into_dyn();
@@ -1048,8 +1053,16 @@ mod tests {
         let grads_slice = grads[0].as_slice().unwrap();
         // GELU'(0) 对于 tanh 近似约为 0.5，但我们的实现可能有差异
         // 只验证梯度存在且为正值
-        assert!(grads_slice[1] > 0.0, "GELU'(0) 应该为正，得到 {}", grads_slice[1]);
-        assert!(grads_slice[1] < 2.0, "GELU'(0) 应该合理，得到 {}", grads_slice[1]);
+        assert!(
+            grads_slice[1] > 0.0,
+            "GELU'(0) 应该为正，得到 {}",
+            grads_slice[1]
+        );
+        assert!(
+            grads_slice[1] < 2.0,
+            "GELU'(0) 应该合理，得到 {}",
+            grads_slice[1]
+        );
     }
 
     #[test]
@@ -1085,8 +1098,12 @@ mod tests {
 
         // 构建简单网络: Input → MatMul → Add → Softmax → Loss
         // 使用 2x3 和 3x2 矩阵确保输出是 2D
-        let input_id = graph.add_input("input", array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].into_dyn());
-        let weight_id = graph.add_param("weight", array![[0.5, 0.3], [0.2, 0.4], [0.1, 0.6]].into_dyn());
+        let input_id =
+            graph.add_input("input", array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].into_dyn());
+        let weight_id = graph.add_param(
+            "weight",
+            array![[0.5, 0.3], [0.2, 0.4], [0.1, 0.6]].into_dyn(),
+        );
         let bias_id = graph.add_param("bias", array![[0.1, 0.1], [0.1, 0.1]].into_dyn());
 
         let matmul_id = graph.op(OpType::MatMul, &[input_id, weight_id]).unwrap();
@@ -1127,12 +1144,7 @@ mod tests {
 
     #[test]
     fn test_layernorm_forward() {
-        let x = array![
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [7.0, 8.0, 9.0]
-        ]
-        .into_dyn();
+        let x = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]].into_dyn();
 
         let (result, _) = forward_layernorm(&x, 1e-5).unwrap();
 
@@ -1177,10 +1189,7 @@ mod tests {
 
         // 验证梯度已被缩放
         let clipped_grad = param.grad().unwrap();
-        let new_norm_sq: f64 = clipped_grad
-            .iter()
-            .map(|&x| (x as f64) * (x as f64))
-            .sum();
+        let new_norm_sq: f64 = clipped_grad.iter().map(|&x| (x as f64) * (x as f64)).sum();
         let new_norm = new_norm_sq.sqrt();
         assert!(new_norm <= max_norm + 1e-6);
     }
@@ -1189,7 +1198,12 @@ mod tests {
     fn test_error_handling() {
         // 测试形状不匹配错误 (3x2 和 3x4 不能相乘)
         let a = array![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]].into_dyn(); // 3x2
-        let b = array![[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]].into_dyn(); // 3x4
+        let b = array![
+            [1.0, 2.0, 3.0, 4.0],
+            [5.0, 6.0, 7.0, 8.0],
+            [9.0, 10.0, 11.0, 12.0]
+        ]
+        .into_dyn(); // 3x4
         let result = forward_matmul(&a, &b);
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -1260,12 +1274,7 @@ mod tests {
     #[test]
     fn test_layernorm_backward() {
         // 使用简单的 2x3 矩阵
-        let x = array![
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [7.0, 8.0, 9.0]
-        ]
-        .into_dyn();
+        let x = array![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]].into_dyn();
 
         let (output, cache) = forward_layernorm(&x, 1e-5).unwrap();
 

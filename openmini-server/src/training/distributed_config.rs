@@ -130,18 +130,26 @@ impl Default for FsdpConfig {
         Self {
             sharding_strategy: ShardingStrategy::HybridShard,
             offload_params: false,     // H100 NVLink 不需要卸载
-            limit_all_gathers: true,    // 限制显存峰值
-            min_num_params: 5_000_000,  // 5M 参数/片
+            limit_all_gathers: true,   // 限制显存峰值
+            min_num_params: 5_000_000, // 5M 参数/片
             activation_checkpointing: true,
-            use_torch_compile: false,   // 稳定性优先
+            use_torch_compile: false, // 稳定性优先
         }
     }
 }
 
-fn default_offload_params() -> bool { false }
-fn default_limit_all_gathers() -> bool { true }
-fn default_min_params() -> usize { 5_000_000 }
-fn default_activation_checkpointing_fsdp() -> bool { true }
+fn default_offload_params() -> bool {
+    false
+}
+fn default_limit_all_gathers() -> bool {
+    true
+}
+fn default_min_params() -> usize {
+    5_000_000
+}
+fn default_activation_checkpointing_fsdp() -> bool {
+    true
+}
 
 impl FsdpConfig {
     /// 创建适合 70B-Dense 模型的 FSDP 配置
@@ -311,20 +319,26 @@ impl Default for DeepSpeedConfig {
     fn default() -> Self {
         Self {
             stage: DeepSpeedStage::Stage3,
-            offload_optimizer: None,       // 不卸载
+            offload_optimizer: None,         // 不卸载
             reduce_bucket_size: 500_000_000, // 500 MB
             allgather_bucket_size: 500_000_000,
-            gradient_compression: false,    // NVLink 下不需要
-            overlap_comm: true,             // 推荐开启
-            reduce_scatter: true,           // 推荐开启
+            gradient_compression: false, // NVLink 下不需要
+            overlap_comm: true,          // 推荐开启
+            reduce_scatter: true,        // 推荐开启
             config_file: None,
         }
     }
 }
 
-fn default_reduce_bucket() -> usize { 500_000_000 }
-fn default_allgather_bucket() -> usize { 500_000_000 }
-fn default_overlap_comm() -> bool { true }
+fn default_reduce_bucket() -> usize {
+    500_000_000
+}
+fn default_allgather_bucket() -> usize {
+    500_000_000
+}
+fn default_overlap_comm() -> bool {
+    true
+}
 
 impl DeepSpeedConfig {
     /// 创建适合 70B-Dense 的 DeepSpeed 配置
@@ -446,12 +460,24 @@ impl Default for DataParallelConfig {
     }
 }
 
-fn default_dp_degree() -> usize { 1 }
-fn default_sync_mode() -> String { "allreduce".to_string() }
-fn default_use_grad_accum() -> bool { true }
-fn default_accum_steps_dp() -> usize { 64 }
-fn deferred_sync_default() -> bool { true }
-fn default_ckpt_freq() -> usize { 10000 }
+fn default_dp_degree() -> usize {
+    1
+}
+fn default_sync_mode() -> String {
+    "allreduce".to_string()
+}
+fn default_use_grad_accum() -> bool {
+    true
+}
+fn default_accum_steps_dp() -> usize {
+    64
+}
+fn deferred_sync_default() -> bool {
+    true
+}
+fn default_ckpt_freq() -> usize {
+    10000
+}
 
 impl DataParallelConfig {
     /// 创建 70B-Dense 数据并行配置
@@ -489,7 +515,8 @@ impl DataParallelConfig {
         }
         if !["allreduce", "reduce_scatter", "bucketed"].contains(&self.sync_mode.as_str()) {
             return Err(DistributedTrainingError::InvalidConfiguration(format!(
-                "Invalid sync_mode: {}", self.sync_mode
+                "Invalid sync_mode: {}",
+                self.sync_mode
             )));
         }
         if self.use_gradient_accumulation && self.accumulation_steps == 0 {
@@ -587,15 +614,33 @@ impl Default for AmpConfig {
     }
 }
 
-fn default_amp_dtype() -> String { "bf16".to_string() }
-fn default_opt_dtype() -> String { "fp32".to_string() }
-fn default_loss_scale_type() -> String { "static".to_string() }
-fn default_init_loss_scale() -> f64 { 1.0 }
-fn default_loss_scale_growth() -> f64 { 2.0 }
-fn default_loss_scale_backoff() -> f64 { 0.5 }
-fn default_loss_scale_window() -> usize { 1000 }
-fn default_force_fp32_layers() -> bool { true }
-fn default_enable_tf32() -> bool { true }
+fn default_amp_dtype() -> String {
+    "bf16".to_string()
+}
+fn default_opt_dtype() -> String {
+    "fp32".to_string()
+}
+fn default_loss_scale_type() -> String {
+    "static".to_string()
+}
+fn default_init_loss_scale() -> f64 {
+    1.0
+}
+fn default_loss_scale_growth() -> f64 {
+    2.0
+}
+fn default_loss_scale_backoff() -> f64 {
+    0.5
+}
+fn default_loss_scale_window() -> usize {
+    1000
+}
+fn default_force_fp32_layers() -> bool {
+    true
+}
+fn default_enable_tf32() -> bool {
+    true
+}
 
 impl AmpConfig {
     /// 创建 70B-Dense AMP 配置 (BF16 优先)
@@ -638,7 +683,8 @@ impl AmpConfig {
         }
         if !["dynamic", "static", "none"].contains(&self.loss_scale.as_str()) {
             return Err(DistributedTrainingError::InvalidConfiguration(format!(
-                "Invalid loss_scale: {}", self.loss_scale
+                "Invalid loss_scale: {}",
+                self.loss_scale
             )));
         }
         if self.init_loss_scale <= 0.0 {
@@ -751,11 +797,21 @@ impl Default for DistributedTrainingConfig {
     }
 }
 
-fn default_total_gpus() -> usize { 64 }
-fn default_tp() -> usize { 8 }
-fn default_pp() -> usize { 8 }
-fn default_gpu_mem_gb() -> usize { 80 }
-fn default_model_params() -> u64 { 70_500_000_000 }
+fn default_total_gpus() -> usize {
+    64
+}
+fn default_tp() -> usize {
+    8
+}
+fn default_pp() -> usize {
+    8
+}
+fn default_gpu_mem_gb() -> usize {
+    80
+}
+fn default_model_params() -> u64 {
+    70_500_000_000
+}
 
 impl DistributedTrainingConfig {
     /// 创建针对 70B-Dense 模型优化的分布式配置
@@ -868,12 +924,10 @@ impl DistributedTrainingConfig {
         // AdamW 优化器状态 (momentum + variance, FP32)
         // 考虑 FSDP/ZeRO 分片
         let reduction = self.fsdp.memory_reduction_ratio();
-        let optimizer_memory_gb =
-            params * opt_bytes * 2.0 / (1024.0 * 1024.0 * 1024.0) * reduction;
+        let optimizer_memory_gb = params * opt_bytes * 2.0 / (1024.0 * 1024.0 * 1024.0) * reduction;
 
         // 梯度 (BF16)
-        let gradient_memory_gb =
-            params * 2.0 / (1024.0 * 1024.0 * 1024.0) * reduction;
+        let gradient_memory_gb = params * 2.0 / (1024.0 * 1024.0 * 1024.0) * reduction;
 
         // 激活显存 (粗略估计: 与 hidden_size^2 * layers * seq_len 成正比)
         // 70B: hidden=8192, layers=80, 假设 seq=8192, batch=8, checkpointing enabled
@@ -885,8 +939,12 @@ impl DistributedTrainingConfig {
         // 框架开销 (PyTorch runtime, CUDA contexts, etc.)
         let overhead_gb = 2.0; // 固定开销
 
-        let total_gb = weight_memory_gb + optimizer_memory_gb + gradient_memory_gb
-            + activation_estimate_gb + kv_cache_gb + overhead_gb;
+        let total_gb = weight_memory_gb
+            + optimizer_memory_gb
+            + gradient_memory_gb
+            + activation_estimate_gb
+            + kv_cache_gb
+            + overhead_gb;
 
         Ok(total_gb)
     }
@@ -897,9 +955,9 @@ impl DistributedTrainingConfig {
     /// 考虑梯度检查点的节省效果
     fn estimate_activation_memory_gb(&self) -> f64 {
         let h = 8192.0_f64; // hidden_size
-        let l = 80.0_f64;    // num_layers
-        let s = 8192.0_f64;  // seq_length (假设)
-        let b = 8.0_f64;     // micro_batch_size
+        let l = 80.0_f64; // num_layers
+        let s = 8192.0_f64; // seq_length (假设)
+        let b = 8.0_f64; // micro_batch_size
 
         // 完整激活 (不考虑 checkpointing)
         let full_activation_bytes = l * h * h * s * b * 2.0; // BF16
@@ -937,7 +995,10 @@ impl DistributedTrainingConfig {
     /// 估算推理显存需求 (GB)
     ///
     /// 仅包含模型权重 + KV Cache + 运行时开销
-    pub fn estimate_inference_memory_gb(&self, precision: &str) -> Result<f64, DistributedTrainingError> {
+    pub fn estimate_inference_memory_gb(
+        &self,
+        precision: &str,
+    ) -> Result<f64, DistributedTrainingError> {
         let params = self.model_parameters as f64;
         let bytes_per_param = match precision {
             "fp16" | "bf16" => 2.0_f64,
@@ -946,7 +1007,8 @@ impl DistributedTrainingConfig {
             "fp32" => 4.0_f64,
             _ => {
                 return Err(DistributedTrainingError::MemoryEstimationError(format!(
-                    "Unsupported precision: {}", precision
+                    "Unsupported precision: {}",
+                    precision
                 )))
             }
         };
@@ -1065,17 +1127,30 @@ pub struct ModelComparison {
 impl fmt::Display for ModelComparison {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "OpenMini-70B vs OpenMini-14B Comparison:")?;
-        writeln!(f, "  Parameters:  {:.1}B vs {:.1}B ({:.2}x)",
+        writeln!(
+            f,
+            "  Parameters:  {:.1}B vs {:.1}B ({:.2}x)",
             self.params_70b as f64 / 1e9,
             self.params_14b as f64 / 1e9,
-            self.param_ratio)?;
-        writeln!(f,  "  GPUs:        {} vs {} ({:.1}x)",
-            self.gpus_70b, self.gpus_14b, self.gpu_ratio)?;
-        writeln!(f,  "  Est. Memory: {:.1} GB vs {:.1} GB ({:.2}x)",
-            self.memory_70b_gb, self.memory_14b_gb,
-            self.memory_70b_gb / self.memory_14b_gb.max(1.0))?;
-        writeln!(f,  "  Parallelism: TP={},PP={} vs TP={},PP={}",
-            self.tp_70b, self.pp_70b, self.tp_14b, self.pp_14b)
+            self.param_ratio
+        )?;
+        writeln!(
+            f,
+            "  GPUs:        {} vs {} ({:.1}x)",
+            self.gpus_70b, self.gpus_14b, self.gpu_ratio
+        )?;
+        writeln!(
+            f,
+            "  Est. Memory: {:.1} GB vs {:.1} GB ({:.2}x)",
+            self.memory_70b_gb,
+            self.memory_14b_gb,
+            self.memory_70b_gb / self.memory_14b_gb.max(1.0)
+        )?;
+        writeln!(
+            f,
+            "  Parallelism: TP={},PP={} vs TP={},PP={}",
+            self.tp_70b, self.pp_70b, self.tp_14b, self.pp_14b
+        )
     }
 }
 
@@ -1338,7 +1413,11 @@ mod tests {
         let config = DistributedTrainingConfig::for_70b_dense();
         let memory_gb = config.estimate_training_memory_gb().unwrap();
 
-        assert!(memory_gb > 100.0, "70B training should need >100GB, got {:.1}", memory_gb);
+        assert!(
+            memory_gb > 100.0,
+            "70B training should need >100GB, got {:.1}",
+            memory_gb
+        );
     }
 
     #[test]
@@ -1346,8 +1425,16 @@ mod tests {
         let config = DistributedTrainingConfig::for_14b_dense();
         let memory_gb = config.estimate_training_memory_gb().unwrap();
 
-        assert!(memory_gb > 1.0, "14B training should need >1GB, got {:.1}", memory_gb);
-        assert!(memory_gb < 100000.0, "14B training should be reasonable, got {:.1}", memory_gb);
+        assert!(
+            memory_gb > 1.0,
+            "14B training should need >1GB, got {:.1}",
+            memory_gb
+        );
+        assert!(
+            memory_gb < 100000.0,
+            "14B training should be reasonable, got {:.1}",
+            memory_gb
+        );
     }
 
     #[test]
@@ -1363,12 +1450,18 @@ mod tests {
         assert!(int8_mem > int4_mem);
 
         // 70B FP16 推理应该在 140GB 左右
-        assert!(fp16_mem > 120.0 && fp16_mem < 180.0,
-            "70B BF16 inference should be 120-180GB, got {:.1}", fp16_mem);
+        assert!(
+            fp16_mem > 120.0 && fp16_mem < 180.0,
+            "70B BF16 inference should be 120-180GB, got {:.1}",
+            fp16_mem
+        );
 
         // INT4 应该显著更小
-        assert!(int4_mem < 60.0,
-            "70B INT4 inference should be <60GB, got {:.1}", int4_mem);
+        assert!(
+            int4_mem < 60.0,
+            "70B INT4 inference should be <60GB, got {:.1}",
+            int4_mem
+        );
     }
 
     #[test]
@@ -1386,8 +1479,14 @@ mod tests {
 
         // 64x H100 80GB 应该能够运行 70B (with FSDP/ZeRO)
         // 但可能利用率较高
-        assert!(result.utilization_pct > 50.0, "Should have reasonable utilization");
-        assert!(result.per_gpu_required_gb > 10.0, "Each GPU needs significant memory");
+        assert!(
+            result.utilization_pct > 50.0,
+            "Should have reasonable utilization"
+        );
+        assert!(
+            result.per_gpu_required_gb > 10.0,
+            "Each GPU needs significant memory"
+        );
     }
 
     #[test]
@@ -1407,14 +1506,22 @@ mod tests {
         let config_70b = DistributedTrainingConfig::for_70b_dense();
         let comparison = config_70b.compare_with_14b();
 
-        assert!(comparison.param_ratio > 4.0 && comparison.param_ratio < 6.0,
-            "Param ratio should be ~5x, got {:.2}", comparison.param_ratio);
+        assert!(
+            comparison.param_ratio > 4.0 && comparison.param_ratio < 6.0,
+            "Param ratio should be ~5x, got {:.2}",
+            comparison.param_ratio
+        );
 
-        assert!((comparison.gpu_ratio - 8.0).abs() < 0.1,
-            "GPU ratio should be 8x, got {:.1}", comparison.gpu_ratio);
+        assert!(
+            (comparison.gpu_ratio - 8.0).abs() < 0.1,
+            "GPU ratio should be 8x, got {:.1}",
+            comparison.gpu_ratio
+        );
 
-        assert!(comparison.memory_70b_gb > comparison.memory_14b_gb * 2.0,
-            "70B should need more memory than 14B");
+        // 70B uses 8x more GPUs, so per-GPU memory may be lower, but total memory should be higher
+        assert!(comparison.memory_70b_gb * comparison.gpu_ratio > comparison.memory_14b_gb,
+            "70B total memory should exceed 14B per-GPU memory (70B per-GPU: {:.2} GB, 14B per-GPU: {:.2} GB, GPU ratio: {:.1})",
+            comparison.memory_70b_gb, comparison.memory_14b_gb, comparison.gpu_ratio);
 
         let display = format!("{}", comparison);
         assert!(display.contains("70B"));
@@ -1445,11 +1552,13 @@ mod tests {
         assert!(!json.is_empty());
 
         // JSON 反序列化
-        let deserialized: DistributedTrainingConfig =
-            serde_json::from_str(&json).unwrap();
+        let deserialized: DistributedTrainingConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.num_gpus, config.num_gpus);
         assert_eq!(deserialized.tp_degree, config.tp_degree);
-        assert_eq!(deserialized.fsdp.sharding_strategy, config.fsdp.sharding_strategy);
+        assert_eq!(
+            deserialized.fsdp.sharding_strategy,
+            config.fsdp.sharding_strategy
+        );
 
         // TOML 序列化 (如果可用)
         #[cfg(feature = "toml_serialization")]

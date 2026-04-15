@@ -76,10 +76,7 @@ pub struct RegressionReport {
 }
 
 impl RegressionReport {
-    pub fn new(
-        baseline_commit: impl Into<String>,
-        current_commit: impl Into<String>,
-    ) -> Self {
+    pub fn new(baseline_commit: impl Into<String>, current_commit: impl Into<String>) -> Self {
         RegressionReport {
             baseline_commit: baseline_commit.into(),
             current_commit: current_commit.into(),
@@ -123,10 +120,7 @@ impl RegressionReport {
 
         self.summary = format!(
             "Regression Test Result: {} | Pass: {} | Warn: {} | Fail: {}",
-            self.overall_status,
-            pass_count,
-            warn_count,
-            fail_count
+            self.overall_status, pass_count, warn_count, fail_count
         );
     }
 }
@@ -146,7 +140,10 @@ impl RegressionChecker {
         RegressionChecker { thresholds }
     }
 
-    pub fn load_baseline(&self, path: &PathBuf) -> anyhow::Result<crate::benchmark::runner::BenchmarkResults> {
+    pub fn load_baseline(
+        &self,
+        path: &PathBuf,
+    ) -> anyhow::Result<crate::benchmark::runner::BenchmarkResults> {
         let content = fs::read_to_string(path)?;
         let results: crate::benchmark::runner::BenchmarkResults = serde_json::from_str(&content)?;
         Ok(results)
@@ -219,9 +216,15 @@ impl RegressionChecker {
                 ));
             }
 
-            let overall_status = if comparisons.iter().any(|c| c.status == RegressionStatus::Fail) {
+            let overall_status = if comparisons
+                .iter()
+                .any(|c| c.status == RegressionStatus::Fail)
+            {
                 RegressionStatus::Fail
-            } else if comparisons.iter().any(|c| c.status == RegressionStatus::Warn) {
+            } else if comparisons
+                .iter()
+                .any(|c| c.status == RegressionStatus::Warn)
+            {
                 RegressionStatus::Warn
             } else {
                 RegressionStatus::Pass
@@ -282,9 +285,18 @@ impl RegressionChecker {
         let mut md = String::new();
 
         md.push_str("# 📊 Performance Regression Report\n\n");
-        md.push_str(&format!("**Overall Status:** {}\n\n", report.overall_status));
-        md.push_str(&format!("- **Baseline Commit:** `{}`\n", report.baseline_commit));
-        md.push_str(&format!("- **Current Commit:** `{}`\n", report.current_commit));
+        md.push_str(&format!(
+            "**Overall Status:** {}\n\n",
+            report.overall_status
+        ));
+        md.push_str(&format!(
+            "- **Baseline Commit:** `{}`\n",
+            report.baseline_commit
+        ));
+        md.push_str(&format!(
+            "- **Current Commit:** `{}`\n",
+            report.current_commit
+        ));
         md.push_str(&format!(
             "- **Generated:** {}\n\n",
             report.timestamp.format("%Y-%m-%d %H:%M:%S UTC")
@@ -316,7 +328,10 @@ impl RegressionChecker {
         md.push_str("## Scenario Results\n\n");
 
         for sc in &report.scenario_comparisons {
-            md.push_str(&format!("### {} ({})\n\n", sc.scenario_name, sc.overall_status));
+            md.push_str(&format!(
+                "### {} ({})\n\n",
+                sc.scenario_name, sc.overall_status
+            ));
 
             if !sc.comparisons.is_empty() {
                 md.push_str("| Metric | Baseline | Current | Change | Status |\n");
@@ -331,7 +346,11 @@ impl RegressionChecker {
 
                     md.push_str(&format!(
                         "| {} | {:.2} | {:.2} | {} | {} |\n",
-                        comp.metric_name, comp.baseline_value, comp.current_value, change_str, comp.status
+                        comp.metric_name,
+                        comp.baseline_value,
+                        comp.current_value,
+                        change_str,
+                        comp.status
                     ));
                 }
             }
@@ -418,10 +437,10 @@ mod tests {
         let mut results = BenchmarkResults::new(config);
 
         let mut metrics = BenchmarkMetrics::default();
-        metrics.ttft_ms.mean = 45.0;  // 改善10%（从50ms降到45ms）
-        metrics.tpot_ms_per_token.mean = 9.0;  // 改善10%（从10ms降到9ms）
-        metrics.throughput_tokens_s = 104.0;  // 改善4%（从100增加到104，<5% warn阈值避免误报）
-        metrics.memory.peak_mb = 2050.0;  // 增长2.5%（从2000到2050，<10% warn阈值）
+        metrics.ttft_ms.mean = 45.0; // 改善10%（从50ms降到45ms）
+        metrics.tpot_ms_per_token.mean = 9.0; // 改善10%（从10ms降到9ms）
+        metrics.throughput_tokens_s = 104.0; // 改善4%（从100增加到104，<5% warn阈值避免误报）
+        metrics.memory.peak_mb = 2050.0; // 增长2.5%（从2000到2050，<10% warn阈值）
 
         results.add_result(ScenarioResult {
             scenario: Scenario::MediumContext,

@@ -66,10 +66,10 @@ pub struct ModelDetail {
     pub base: ModelInfo,
 
     // 模型规格参数
-    pub parameters: u64,           // 参数量（十亿）
-    pub quantization: String,      // 量化方式 (FP16/INT8/Q4_K_M 等)
-    pub context_length: u32,       // 上下文长度
-    pub max_tokens: u32,           // 最大生成长度
+    pub parameters: u64,      // 参数量（十亿）
+    pub quantization: String, // 量化方式 (FP16/INT8/Q4_K_M 等)
+    pub context_length: u32,  // 上下文长度
+    pub max_tokens: u32,      // 最大生成长度
 
     // 能力支持
     pub supported_features: Vec<String>,
@@ -129,7 +129,7 @@ pub struct ModelConfigUpdate {
     #[serde(default)]
     pub repeat_penalty: Option<f64>,
     #[serde(default)]
-    pub gpu_layers: Option<i32>,  // -1 表示全部卸载到 GPU
+    pub gpu_layers: Option<i32>, // -1 表示全部卸载到 GPU
     #[serde(default)]
     pub n_batch: Option<u32>,
     #[serde(default)]
@@ -158,14 +158,14 @@ pub struct ModelListQuery {
     pub status: Option<String>,
     pub provider: Option<String>,
     pub format: Option<String>,
-    pub search: Option<String>,  // 搜索关键词（匹配名称或描述）
+    pub search: Option<String>, // 搜索关键词（匹配名称或描述）
 }
 
 impl ModelListQuery {
     /// 标准化分页参数
     pub fn normalized(&self) -> (i64, i64) {
         let page = self.page.unwrap_or(1).max(1) as i64;
-        let page_size = self.page_size.unwrap_or(20).min(100).max(1) as i64;
+        let page_size = self.page_size.unwrap_or(20).clamp(1, 100) as i64;
         (page, page_size)
     }
 
@@ -213,7 +213,9 @@ pub async fn list_models(
     let mut bind_values: Vec<String> = vec![];
 
     if let Some(ref status) = params.status {
-        if !status.is_empty() && ["available", "loading", "loaded", "unloading", "error"].contains(&status.as_str()) {
+        if !status.is_empty()
+            && ["available", "loading", "loaded", "unloading", "error"].contains(&status.as_str())
+        {
             conditions.push("status = ?".to_string());
             bind_values.push(status.clone());
         }
@@ -228,7 +230,8 @@ pub async fn list_models(
 
     if let Some(ref search) = params.search {
         if !search.is_empty() {
-            conditions.push("(name LIKE ? OR display_name LIKE ? OR description LIKE ?)".to_string());
+            conditions
+                .push("(name LIKE ? OR display_name LIKE ? OR description LIKE ?)".to_string());
             let search_pattern = format!("%{}%", search);
             bind_values.push(search_pattern.clone());
             bind_values.push(search_pattern.clone());
@@ -242,28 +245,32 @@ pub async fn list_models(
     let models = generate_mock_models();
 
     // 应用过滤逻辑（实际应在 SQL 层面完成）
-    let filtered_models: Vec<&ModelInfo> = models.iter().filter(|m| {
-        let mut matches = true;
+    let filtered_models: Vec<&ModelInfo> = models
+        .iter()
+        .filter(|m| {
+            let mut matches = true;
 
-        if let Some(ref status) = params.status {
-            matches &= m.status.to_string() == *status;
-        }
+            if let Some(ref status) = params.status {
+                matches &= m.status.to_string() == *status;
+            }
 
-        if let Some(ref provider) = params.provider {
-            matches &= m.provider == *provider;
-        }
+            if let Some(ref provider) = params.provider {
+                matches &= m.provider == *provider;
+            }
 
-        if let Some(ref search) = params.search {
-            let search_lower = search.to_lowercase();
-            matches &= m.name.to_lowercase().contains(&search_lower)
-                || m.display_name.to_lowercase().contains(&search_lower)
-                || m.description.as_ref()
-                    .map(|d| d.to_lowercase().contains(&search_lower))
-                    .unwrap_or(false);
-        }
+            if let Some(ref search) = params.search {
+                let search_lower = search.to_lowercase();
+                matches &= m.name.to_lowercase().contains(&search_lower)
+                    || m.display_name.to_lowercase().contains(&search_lower)
+                    || m.description
+                        .as_ref()
+                        .map(|d| d.to_lowercase().contains(&search_lower))
+                        .unwrap_or(false);
+            }
 
-        matches
-    }).collect();
+            matches
+        })
+        .collect();
 
     let total = filtered_models.len() as i64;
     let offset = params.offset() as usize;
@@ -304,9 +311,8 @@ pub async fn get_model_detail(
     State(_state): State<AppState>,
 ) -> Result<Json<Value>, AppError> {
     // 查找模型（实际实现中应该从数据库或模型注册表查找）
-    let model = find_model_by_id(&model_id).ok_or_else(|| {
-        AppError::NotFound(format!("模型不存在: {}", model_id))
-    })?;
+    let model = find_model_by_id(&model_id)
+        .ok_or_else(|| AppError::NotFound(format!("模型不存在: {}", model_id)))?;
 
     let detail = ModelDetail {
         base: model,
@@ -406,7 +412,10 @@ pub async fn load_model(
 ///
 /// # 返回
 /// 卸载操作结果
-pub async fn unload_model(Path(id): Path<String>, State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
+pub async fn unload_model(
+    Path(id): Path<String>,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, AppError> {
     // 验证模型存在性
     if find_model_by_id(&id).is_none() {
         return Err(AppError::NotFound(format!("模型不存在: {}", id)));
@@ -480,10 +489,20 @@ pub async fn update_model_config(
 /// - `from_model_id`: 当前模型 ID
 /// - `to_model_id`: 目标模型 ID
 /// - `graceful_timeout_ms`: 优雅切换超时时间（毫秒），可选
-pub async fn switch_model(State(_state): State<AppState>, Json(req): Json<Value>) -> Result<Json<Value>, AppError> {
-    let from_model = req.get("from_model_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let to_model = req.get("to_model_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let graceful_timeout = req.get("graceful_timeout_ms")
+pub async fn switch_model(
+    State(_state): State<AppState>,
+    Json(req): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let from_model = req
+        .get("from_model_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let to_model = req
+        .get("to_model_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let graceful_timeout = req
+        .get("graceful_timeout_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(30000); // 默认 30 秒
 
@@ -519,7 +538,10 @@ pub async fn switch_model(State(_state): State<AppState>, Json(req): Json<Value>
 ///
 /// # 返回
 /// 模型健康状态、资源占用等信息
-pub async fn check_health(Path(id): Path<String>, State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
+pub async fn check_health(
+    Path(id): Path<String>,
+    State(_state): State<AppState>,
+) -> Result<Json<Value>, AppError> {
     if find_model_by_id(&id).is_none() {
         return Err(AppError::NotFound(format!("模型不存在: {}", id)));
     }

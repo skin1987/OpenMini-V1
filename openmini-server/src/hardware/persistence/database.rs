@@ -7,7 +7,7 @@
 //! - 健康检查和统计信息收集
 //! - 过期数据清理
 
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -215,10 +215,7 @@ impl DatabaseManager {
         }
 
         // 构建数据库连接 URL
-        let db_url = format!(
-            "sqlite://{}?mode=rwc",
-            config.db_path.to_string_lossy()
-        );
+        let db_url = format!("sqlite://{}?mode=rwc", config.db_path.to_string_lossy());
 
         // 创建连接池
         let pool = SqlitePoolOptions::new()
@@ -226,7 +223,9 @@ impl DatabaseManager {
             .max_connections(config.max_connections)
             .connect(&db_url)
             .await
-            .map_err(|e| PersistenceError::Connection(format!("Failed to create connection pool: {}", e)))?;
+            .map_err(|e| {
+                PersistenceError::Connection(format!("Failed to create connection pool: {}", e))
+            })?;
 
         let manager = Self {
             config,
@@ -268,10 +267,7 @@ impl DatabaseManager {
     pub async fn health_check(&self) -> Result<bool, PersistenceError> {
         tracing::debug!("Executing health check");
 
-        match sqlx::query("SELECT 1")
-            .fetch_one(&self.pool)
-            .await
-        {
+        match sqlx::query("SELECT 1").fetch_one(&self.pool).await {
             Ok(_) => {
                 self.update_db_size().await;
                 tracing::debug!("Health check passed");
@@ -398,15 +394,22 @@ impl DatabaseManager {
         sqlx::raw_sql(create_kv_cache)
             .execute(&mut *tx)
             .await
-            .map_err(|e| PersistenceError::Query(format!("Failed to create kv_cache_store table: {}", e)))?;
+            .map_err(|e| {
+                PersistenceError::Query(format!("Failed to create kv_cache_store table: {}", e))
+            })?;
 
         sqlx::raw_sql(create_session_store)
             .execute(&mut *tx)
             .await
-            .map_err(|e| PersistenceError::Query(format!("Failed to create session_store table: {}", e)))?;
+            .map_err(|e| {
+                PersistenceError::Query(format!("Failed to create session_store table: {}", e))
+            })?;
 
         tx.commit().await.map_err(|e| {
-            PersistenceError::Query(format!("Failed to commit initialization transaction: {}", e))
+            PersistenceError::Query(format!(
+                "Failed to commit initialization transaction: {}",
+                e
+            ))
         })?;
 
         tracing::info!("Database tables initialized successfully");
@@ -427,7 +430,7 @@ impl DatabaseManager {
         tracing::debug!("Configuring SQLite pragmas");
 
         // 注意：以下 PRAGMA 必须在事务外设置（SQLite 限制）
-        
+
         // 启用 WAL 模式以提高并发读写性能
         if self.config.enable_wal {
             sqlx::raw_sql("PRAGMA journal_mode=WAL;")
@@ -439,12 +442,16 @@ impl DatabaseManager {
             sqlx::raw_sql("PRAGMA wal_autocheckpoint=1000;")
                 .execute(&self.pool)
                 .await
-                .map_err(|e| PersistenceError::Query(format!("Failed to set autocheckpoint: {}", e)))?;
+                .map_err(|e| {
+                    PersistenceError::Query(format!("Failed to set autocheckpoint: {}", e))
+                })?;
         } else {
             sqlx::raw_sql("PRAGMA journal_mode=DELETE;")
                 .execute(&self.pool)
                 .await
-                .map_err(|e| PersistenceError::Query(format!("Failed to set journal mode: {}", e)))?;
+                .map_err(|e| {
+                    PersistenceError::Query(format!("Failed to set journal mode: {}", e))
+                })?;
         }
 
         // 设置忙等待超时时间（毫秒）
@@ -458,14 +465,18 @@ impl DatabaseManager {
         sqlx::raw_sql("PRAGMA foreign_keys=ON;")
             .execute(&self.pool)
             .await
-            .map_err(|e| PersistenceError::Query(format!("Failed to enable foreign keys: {}", e)))?;
+            .map_err(|e| {
+                PersistenceError::Query(format!("Failed to enable foreign keys: {}", e))
+            })?;
 
         // 同步模式：NORMAL 在性能和数据安全之间取得平衡
         // FULL 最安全但最慢，OFF 最快但可能损坏数据
         sqlx::raw_sql("PRAGMA synchronous=NORMAL;")
             .execute(&self.pool)
             .await
-            .map_err(|e| PersistenceError::Query(format!("Failed to set synchronous mode: {}", e)))?;
+            .map_err(|e| {
+                PersistenceError::Query(format!("Failed to set synchronous mode: {}", e))
+            })?;
 
         // 缓存大小设置为 -2000 (2MB)
         // 负值表示 KB，正值表示页面数
@@ -551,7 +562,9 @@ impl DatabaseManager {
             .bind(age_days)
             .execute(&self.pool)
             .await
-            .map_err(|e| PersistenceError::Query(format!("Failed to cleanup expired data: {}", e)))?;
+            .map_err(|e| {
+                PersistenceError::Query(format!("Failed to cleanup expired data: {}", e))
+            })?;
 
         let deleted_count = result.rows_affected();
 
@@ -633,9 +646,7 @@ mod tests {
             .expect("Failed to create database manager");
 
         // 测试健康检查
-        let healthy = db.health_check()
-            .await
-            .expect("Health check failed");
+        let healthy = db.health_check().await.expect("Health check failed");
         assert!(healthy, "Database should be healthy after creation");
 
         // 测试获取统计信息
@@ -674,15 +685,18 @@ mod tests {
         .expect("Failed to insert test data");
 
         // 清理超过 0 天的数据（应该删除刚插入的数据）
-        let _deleted = db.cleanup_expired("kv_cache_store", 0)
+        let _deleted = db
+            .cleanup_expired("kv_cache_store", 0)
             .await
             .expect("Cleanup failed");
-        
+
         // 注意：由于我们刚刚插入数据，可能不会被删除（取决于精度）
         // 这里主要验证方法不会报错
 
         // 测试非法表名
-        let result = db.cleanup_expired("malicious_table; DROP TABLE users--", 30).await;
+        let result = db
+            .cleanup_expired("malicious_table; DROP TABLE users--", 30)
+            .await;
         assert!(result.is_err(), "Should reject invalid table names");
 
         db.close().await.expect("Failed to close database");

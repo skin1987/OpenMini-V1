@@ -31,20 +31,20 @@ use super::mesh::MeshNode;
 use super::protocol::*;
 use crate::error::AppError;
 
-/// 工作节点配置
+/// 分布式工作节点配置
 #[derive(Debug, Clone)]
-pub struct WorkerConfig {
+pub struct DistributedWorkerConfig {
     /// 心跳间隔（秒）
     pub heartbeat_interval_secs: u64,
     /// 最大并发任务数
     pub max_concurrent_tasks: usize,
 }
 
-impl Default for WorkerConfig {
+impl Default for DistributedWorkerConfig {
     fn default() -> Self {
         Self {
-            heartbeat_interval_secs: 5, // 默认 5 秒心跳间隔
-            max_concurrent_tasks: 4,    // 默认最大 4 个并发任务
+            heartbeat_interval_secs: 5,
+            max_concurrent_tasks: 4,
         }
     }
 }
@@ -63,7 +63,7 @@ pub struct WorkerNode {
     /// 是否正在处理任务
     processing: bool,
     /// 配置参数
-    config: WorkerConfig,
+    config: DistributedWorkerConfig,
     /// 统计信息：已处理的任务总数
     tasks_processed: u64,
 }
@@ -75,7 +75,7 @@ impl WorkerNode {
     ///
     /// - `mesh`: 已初始化并连接到协调器的 Mesh 网络节点
     /// - `config`: 可选的工作节点配置，默认值见 [`WorkerConfig::default`]
-    pub fn new(mesh: MeshNode, config: Option<WorkerConfig>) -> Self {
+    pub fn new(mesh: MeshNode, config: Option<DistributedWorkerConfig>) -> Self {
         let config = config.unwrap_or_default();
 
         info!(
@@ -197,13 +197,12 @@ impl WorkerNode {
     /// 2. 收集输出 token 和统计信息
     /// 3. 构建响应消息
     /// 4. 发送结果给协调器
-    async fn process_task(
-        &mut self,
-        task_msg: DistributedMessage,
-    ) -> Result<(), AppError> {
+    async fn process_task(&mut self, task_msg: DistributedMessage) -> Result<(), AppError> {
         // 提取任务信息
         let (task_id, request) = match task_msg {
-            DistributedMessage::TaskAssign { task_id, payload, .. } => (task_id, payload),
+            DistributedMessage::TaskAssign {
+                task_id, payload, ..
+            } => (task_id, payload),
             _ => return Err(AppError::Internal("无效的任务消息".to_string())),
         };
 
@@ -313,10 +312,10 @@ impl WorkerNode {
 
         // 模拟统计信息
         let stats = InferenceStats {
-            ttft_ms: 5.0,           // 模拟首 token 延迟
+            ttft_ms: 5.0,             // 模拟首 token 延迟
             tokens_per_second: 100.0, // 模拟生成速度
-            total_time_ms: 15.0,    // 模拟总时间
-            gpu_memory_mb: 1024,    // 模拟显存占用
+            total_time_ms: 15.0,      // 模拟总时间
+            gpu_memory_mb: 1024,      // 模拟显存占用
         };
 
         Ok(InferenceResponse::success(
@@ -344,11 +343,7 @@ impl WorkerNode {
 
         // 在实际实现中，应该发送给已知的 coordinator ID
         // 这里简化处理，假设 coordinator 已连接
-        if let Err(e) = self
-            .mesh
-            .send_to(/* coordinator_id */ "", heartbeat)
-            .await
-        {
+        if let Err(e) = self.mesh.send_to(/* coordinator_id */ "", heartbeat).await {
             warn!(
                 worker_id = %self.mesh.node_id(),
                 error = %e,
@@ -408,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn test_worker_custom_config() {
         let (mesh, _) = create_test_mesh();
-        let config = WorkerConfig {
+        let config = DistributedWorkerConfig {
             heartbeat_interval_secs: 10,
             max_concurrent_tasks: 8,
         };
@@ -423,13 +418,8 @@ mod tests {
         let (mesh, _) = create_test_mesh();
         let worker = WorkerNode::new(mesh, None);
 
-        let request = InferenceRequest::new(
-            "session-1",
-            "test-model",
-            vec![1, 2, 3, 4, 5],
-            20,
-            0.8,
-        );
+        let request =
+            InferenceRequest::new("session-1", "test-model", vec![1, 2, 3, 4, 5], 20, 0.8);
 
         let result = worker.process_inference(request).await.unwrap();
 

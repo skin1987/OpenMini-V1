@@ -3,32 +3,4 @@
 /**
  * 引擎配置
  */
-export type EngineSettings = { 
-/**
- * GEMM后端: auto | candle | ndarray
- */
-gemm_backend: string, 
-/**
- * 是否启用Arena分配器
- */
-enable_arena: boolean, 
-/**
- * Arena大小(MB)
- */
-arena_size_mb: number, 
-/**
- * 是否使用FP8 KV Cache
- */
-fp8_kv_cache: boolean, 
-/**
- * 目标设备: auto | cpu | cuda | metal
- */
-target_device: string, 
-/**
- * DSA阈值
- */
-dsa_threshold: number, 
-/**
- * 最大批处理大小
- */
-max_batch_size: number, };
+export type EngineSettings = {  };

@@ -186,11 +186,7 @@ impl Coordinator {
                 Some(worker_id) => {
                     // 取出队首任务
                     if let Some(request) = self.pending_tasks.pop_front() {
-                        let task_id = format!(
-                            "task-{}-{}",
-                            self.mesh.node_id(),
-                            self.task_counter
-                        );
+                        let task_id = format!("task-{}-{}", self.mesh.node_id(), self.task_counter);
 
                         // 发送任务分配消息
                         let msg = DistributedMessage::TaskAssign {
@@ -318,8 +314,7 @@ impl Coordinator {
     ///
     /// 返回 (task_id, InferenceResponse) 的列表
     pub fn collect_results(&mut self) -> Vec<(String, InferenceResponse)> {
-        let results: Vec<(String, InferenceResponse)> =
-            self.results.drain().collect();
+        let results: Vec<(String, InferenceResponse)> = self.results.drain().collect();
         results
     }
 
@@ -344,11 +339,7 @@ impl Coordinator {
     /// - 待处理任务数
     /// - 已完成任务数
     pub fn status(&self) -> CoordinatorStatus {
-        let healthy_count = self
-            .workers
-            .values()
-            .filter(|w| w.healthy)
-            .count();
+        let healthy_count = self.workers.values().filter(|w| w.healthy).count();
 
         CoordinatorStatus {
             total_workers: self.workers.len(),
@@ -412,7 +403,9 @@ mod tests {
 
         // 注册工作节点
         let worker_caps = create_test_capabilities();
-        coordinator.register_worker("worker-1".to_string(), worker_caps).await;
+        coordinator
+            .register_worker("worker-1".to_string(), worker_caps)
+            .await;
 
         let status = coordinator.status();
         assert_eq!(status.total_workers, 1);
@@ -431,13 +424,7 @@ mod tests {
         let (mesh, _) = MeshNode::new("coord", caps);
         let mut coordinator = Coordinator::new(mesh);
 
-        let request = InferenceRequest::new(
-            "session-1",
-            "test-model",
-            vec![1, 2, 3],
-            50,
-            0.7,
-        );
+        let request = InferenceRequest::new("session-1", "test-model", vec![1, 2, 3], 50, 0.7);
 
         let task_id = coordinator.submit(request).await.unwrap();
         assert!(!task_id.is_empty());
@@ -467,7 +454,9 @@ mod tests {
         let mut coordinator = Coordinator::new(mesh);
 
         // 先注册 worker
-        coordinator.register_worker("worker-1".to_string(), create_test_capabilities()).await;
+        coordinator
+            .register_worker("worker-1".to_string(), create_test_capabilities())
+            .await;
 
         // 处理心跳消息
         let heartbeat_msg = DistributedMessage::Heartbeat {

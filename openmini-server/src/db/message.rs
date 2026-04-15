@@ -164,10 +164,7 @@ impl Message {
     ///
     /// # 返回
     /// 成功返回消息列表（按序号排序）
-    pub async fn find_by_session(
-        pool: &SqlitePool,
-        session_id: &str,
-    ) -> anyhow::Result<Vec<Self>> {
+    pub async fn find_by_session(pool: &SqlitePool, session_id: &str) -> anyhow::Result<Vec<Self>> {
         let messages = sqlx::query_as::<_, Message>(
             r#"
             SELECT * FROM messages WHERE session_id = ? ORDER BY message_idx ASC
@@ -217,10 +214,7 @@ impl Message {
     ///
     /// # 返回
     /// 成功返回消息数量
-    pub async fn count_by_session(
-        pool: &SqlitePool,
-        session_id: &str,
-    ) -> anyhow::Result<i64> {
+    pub async fn count_by_session(pool: &SqlitePool, session_id: &str) -> anyhow::Result<i64> {
         let count: (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*) FROM messages WHERE session_id = ?
@@ -242,10 +236,7 @@ impl Message {
     ///
     /// # 返回
     /// 成功返回 ()
-    pub async fn delete_by_session(
-        pool: &SqlitePool,
-        session_id: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn delete_by_session(pool: &SqlitePool, session_id: &str) -> anyhow::Result<()> {
         let result = sqlx::query("DELETE FROM messages WHERE session_id = ?")
             .bind(session_id)
             .execute(pool)

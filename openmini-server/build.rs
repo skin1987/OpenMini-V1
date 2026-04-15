@@ -34,19 +34,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ========================================================================
     // 2. 配置 TypeScript 类型输出路径
     // ========================================================================
-    
+
     // 设置 TypeScript 输出目录（前端项目的 types/api 目录）
     let ts_output_path = "../openmini-admin-web/src/types/api";
-    
+
     // 告诉 cargo 在以下条件变化时重新运行构建脚本
     println!("cargo:rerun-if-changed=src/service/http/types.rs");
     println!("cargo:rerun-if-changed=src/service/grpc/types.rs");
     println!("cargo:rerun-if-changed=src/error.rs");
     println!("cargo:rerun-if-changed=src/config/settings.rs");
     println!("cargo:rerun-if-changed=src/monitoring/health_check.rs");
-    
+
     // 输出 TypeScript 输出路径信息（供开发者参考）
-    println!("cargo:warning=TypeScript types will be generated to: {}", ts_output_path);
+    println!(
+        "cargo:warning=TypeScript types will be generated to: {}",
+        ts_output_path
+    );
 
     Ok(())
 }

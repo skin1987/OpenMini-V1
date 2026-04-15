@@ -993,8 +993,7 @@ impl MetalBackend {
         let eps_buffer = MetalBuffer::from_data(self.device.device(), &[eps])?;
 
         let grid_size = metal::MTLSize {
-            width: rows.div_ceil(LAYERNORM_BLOCK_SIZE as usize)
-                as u64,
+            width: rows.div_ceil(LAYERNORM_BLOCK_SIZE as usize) as u64,
             height: 1,
             depth: 1,
         };
@@ -1049,8 +1048,7 @@ impl MetalBackend {
         let eps_buffer = MetalBuffer::from_data(self.device.device(), &[eps])?;
 
         let grid_size = metal::MTLSize {
-            width: rows.div_ceil(LAYERNORM_BLOCK_SIZE as usize)
-                as u64,
+            width: rows.div_ceil(LAYERNORM_BLOCK_SIZE as usize) as u64,
             height: 1,
             depth: 1,
         };
@@ -1132,10 +1130,8 @@ impl MetalBackend {
         };
 
         let grid_size = metal::MTLSize {
-            width: seq_len.div_ceil(ATTENTION_BLOCK_SIZE as usize)
-                as u64,
-            height: head_dim.div_ceil(ATTENTION_BLOCK_SIZE as usize)
-                as u64,
+            width: seq_len.div_ceil(ATTENTION_BLOCK_SIZE as usize) as u64,
+            height: head_dim.div_ceil(ATTENTION_BLOCK_SIZE as usize) as u64,
             depth: 1,
         };
         let threadgroup_size = metal::MTLSize {
@@ -1204,8 +1200,7 @@ impl MetalBackend {
         let scale_buffer = MetalBuffer::from_data(self.device.device(), &[scale])?;
 
         let grid_size = metal::MTLSize {
-            width: head_dim.div_ceil(ATTENTION_BLOCK_SIZE as usize)
-                as u64,
+            width: head_dim.div_ceil(ATTENTION_BLOCK_SIZE as usize) as u64,
             height: 1,
             depth: 1,
         };

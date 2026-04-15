@@ -150,7 +150,7 @@ impl OpenMiniService {
     /// - `session_id`: 会话ID
     /// - `memory`: 记忆内容
     pub async fn inject_memory(&self, session_id: &str, memory: Vec<String>) {
-        use crate::db::memory::{Memory, NewMemory, MemoryLevel};
+        use crate::db::memory::{Memory, MemoryLevel, NewMemory};
 
         let new_memory = NewMemory {
             session_id: session_id.to_string(),
@@ -991,7 +991,7 @@ pub async fn text_to_speech(
         // 真实实现会调用 TTS 引擎（如 Coqui TTS、VITS 等）
         let base_audio_size = calculate_tts_audio_size(&text, speed);
         let chunk_size = 1024; // 每个音频块的大小（字节）
-        let total_chunks = (base_audio_size + chunk_size - 1) / chunk_size;
+        let total_chunks = base_audio_size.div_ceil(chunk_size);
 
         tracing::debug!(
             total_chunks = total_chunks,
@@ -1302,8 +1302,8 @@ fn create_openmini_router(
         Result<tonic::Response<tonic::body::BoxBody>, std::convert::Infallible>,
     >,
 > + Clone
-   + Send
-   + 'static {
+       + Send
+       + 'static {
     // 使用真实的 OpenMini gRPC 服务实现
     // 该实现通过请求路径路由到对应的业务处理函数：
     // - /openmini.OpenMini/Chat -> chat()

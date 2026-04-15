@@ -74,7 +74,7 @@ use super::error::{InferenceError, InferenceResult};
 use super::gemm_engine::get_gemm_engine_manager;
 use super::gguf::MoEWeightsV2;
 use super::sampler::GenerateParams;
-use super::sliding_window::{SlidingWindowConfig, AttentionMode, sliding_window_attention};
+use super::sliding_window::{sliding_window_attention, AttentionMode, SlidingWindowConfig};
 
 impl From<ndarray::ShapeError> for InferenceError {
     fn from(e: ndarray::ShapeError) -> Self {
@@ -240,8 +240,8 @@ pub const IM_START_TOKEN_ID: usize = 151646;
 pub const IM_PATCH_TOKEN_ID: usize = 151647;
 pub const IM_END_TOKEN_ID: usize = 151648;
 
-/// 默认词汇表大小
-const DEFAULT_VOCAB_SIZE: usize = 151936;
+/// 默认词汇表大小（模型回退值，非标准Llama词表）
+const FALLBACK_VOCAB_SIZE: usize = 151936;
 /// 默认隐藏层维度
 pub const DEFAULT_HIDDEN_SIZE: usize = 3584;
 /// 默认中间层维度
@@ -302,7 +302,7 @@ pub struct ModelConfig {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
-            vocab_size: DEFAULT_VOCAB_SIZE,
+            vocab_size: FALLBACK_VOCAB_SIZE,
             hidden_size: DEFAULT_HIDDEN_SIZE,
             intermediate_size: DEFAULT_INTERMEDIATE_SIZE,
             num_hidden_layers: DEFAULT_NUM_HIDDEN_LAYERS,
@@ -419,13 +419,21 @@ impl KVCache {
     /// - `v`: 新的 V 张量，形状 `(new_len, num_heads, head_dim)`
     ///
     /// # 性能
-    /// 形状检查仅在 debug 模式下执行，release 模式下跳过以提升性能
+    /// 形状检查在所有模式下执行以确保安全性
     pub fn update(&mut self, k: &Array3<f32>, v: &Array3<f32>) -> InferenceResult<()> {
         let new_len = k.dim().0;
 
-        debug_assert_eq!(k.dim(), v.dim(), "K and V must have same shape");
-        debug_assert_eq!(k.dim().1, self.k_cache.dim().1, "num_heads mismatch");
-        debug_assert_eq!(k.dim().2, self.k_cache.dim().2, "head_dim mismatch");
+        if k.dim() != v.dim() {
+            return Err(InferenceError::generation(
+                "K and V must have same shape".to_string(),
+            ));
+        }
+        if k.dim().1 != self.k_cache.dim().1 {
+            return Err(InferenceError::generation("num_heads mismatch".to_string()));
+        }
+        if k.dim().2 != self.k_cache.dim().2 {
+            return Err(InferenceError::generation("head_dim mismatch".to_string()));
+        }
 
         let available = self.max_seq_len.saturating_sub(self.seq_len);
 
@@ -601,7 +609,11 @@ impl MLACache {
     pub fn update(&mut self, c_kv: &Array2<f32>) -> InferenceResult<()> {
         let new_len = c_kv.dim().0;
 
-        debug_assert_eq!(c_kv.dim().1, self.latent_dim, "latent_dim mismatch");
+        if c_kv.dim().1 != self.latent_dim {
+            return Err(InferenceError::generation(
+                "latent_dim mismatch".to_string(),
+            ));
+        }
 
         let available = self.max_seq_len.saturating_sub(self.seq_len);
 
@@ -699,7 +711,10 @@ impl FFNWeights {
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
         let engine = get_gemm_engine_manager();
 
-        match engine.engine().fused_gemm_silu(x, &self.gate_proj, &self.up_proj, None) {
+        match engine
+            .engine()
+            .fused_gemm_silu(x, &self.gate_proj, &self.up_proj, None)
+        {
             Ok(result) => {
                 let down_proj_t = self.down_proj.t().to_owned();
                 match engine.engine().matmul(&result, &down_proj_t) {
@@ -719,7 +734,9 @@ impl FFNWeights {
     /// 使用 GEMM 引擎的 FFN 前向传播（返回 Result）
     pub fn forward_gemm(&self, x: &Array2<f32>) -> InferenceResult<Array2<f32>> {
         let engine = get_gemm_engine_manager();
-        let hidden = engine.engine().fused_gemm_silu(x, &self.gate_proj, &self.up_proj, None)?;
+        let hidden = engine
+            .engine()
+            .fused_gemm_silu(x, &self.gate_proj, &self.up_proj, None)?;
         let down_proj_t = self.down_proj.t().to_owned();
         engine.engine().matmul(&hidden, &down_proj_t)
     }
@@ -1030,7 +1047,10 @@ pub struct TransformerLayerWeights {
 pub fn linear(x: &Array2<f32>, weight: &Array2<f32>) -> Array2<f32> {
     let engine = get_gemm_engine_manager();
     let weight_t = weight.t().to_owned();
-    engine.engine().matmul(x, &weight_t).unwrap_or_else(|_| x.dot(&weight_t))
+    engine
+        .engine()
+        .matmul(x, &weight_t)
+        .unwrap_or_else(|_| x.dot(&weight_t))
 }
 
 /// 使用 GEMM 引擎的线性投影（返回 Result）
@@ -1997,7 +2017,6 @@ impl TransformerLayerWeights {
 
                     let num_heads = config.num_attention_heads;
                     let head_dim = config.head_dim;
-                    let seq_len = seq_len;
 
                     let mut output = Array2::zeros((seq_len, head_dim * num_heads));
                     for h in 0..num_heads {
@@ -2005,20 +2024,43 @@ impl TransformerLayerWeights {
                         let k_head = k_sw.slice(s![.., h, ..]).to_owned();
                         let v_head = v_sw.slice(s![.., h, ..]).to_owned();
 
-                        let q_head_2d = q_head.into_shape_with_order((seq_len, head_dim))
-                            .map_err(|e| InferenceError::generation(format!("SWA Q reshape failed: {}", e)))?;
-                        let k_head_2d = k_head.into_shape_with_order((seq_len, head_dim))
-                            .map_err(|e| InferenceError::generation(format!("SWA K reshape failed: {}", e)))?;
-                        let v_head_2d = v_head.into_shape_with_order((seq_len, head_dim))
-                            .map_err(|e| InferenceError::generation(format!("SWA V reshape failed: {}", e)))?;
+                        let q_head_2d =
+                            q_head
+                                .into_shape_with_order((seq_len, head_dim))
+                                .map_err(|e| {
+                                    InferenceError::generation(format!(
+                                        "SWA Q reshape failed: {}",
+                                        e
+                                    ))
+                                })?;
+                        let k_head_2d =
+                            k_head
+                                .into_shape_with_order((seq_len, head_dim))
+                                .map_err(|e| {
+                                    InferenceError::generation(format!(
+                                        "SWA K reshape failed: {}",
+                                        e
+                                    ))
+                                })?;
+                        let v_head_2d =
+                            v_head
+                                .into_shape_with_order((seq_len, head_dim))
+                                .map_err(|e| {
+                                    InferenceError::generation(format!(
+                                        "SWA V reshape failed: {}",
+                                        e
+                                    ))
+                                })?;
 
                         let sw_out = sliding_window_attention(
-                            &q_head_2d,
-                            &k_head_2d,
-                            &v_head_2d,
-                            sw_config,
-                            None,
-                        ).map_err(|e| InferenceError::generation(format!("Sliding window attention failed: {}", e)))?;
+                            &q_head_2d, &k_head_2d, &v_head_2d, sw_config, None,
+                        )
+                        .map_err(|e| {
+                            InferenceError::generation(format!(
+                                "Sliding window attention failed: {}",
+                                e
+                            ))
+                        })?;
 
                         for i in 0..seq_len {
                             for j in 0..head_dim {
@@ -2084,7 +2126,8 @@ impl TransformerLayerWeights {
 
         if let Some(moe_v2) = &self.moe_v2 {
             let x_3d = normed2.clone().insert_axis(Axis(0));
-            let (ffn_out_3d, _loss) = moe_v2.forward(&x_3d)
+            let (ffn_out_3d, _loss) = moe_v2
+                .forward(&x_3d)
                 .map_err(|e| InferenceError::generation(format!("MoE V2 forward failed: {}", e)))?;
             let ffn_out = ffn_out_3d.index_axis_move(Axis(0), 0);
             if config.use_mhc {
@@ -4091,8 +4134,7 @@ impl MultimodalTransformer {
         let mut embedding = self.get_token_embedding(tokens)?;
 
         if let Some(features) = visual_features {
-            embedding =
-                self.fuse_image_features_with_validation(&embedding, features, tokens)?;
+            embedding = self.fuse_image_features_with_validation(&embedding, features, tokens)?;
         }
 
         let mut state = self.init_generation_state(&embedding)?;
@@ -4311,7 +4353,10 @@ use ndarray::ArrayD;
 pub enum TrainingError {
     Io(std::io::Error),
     Serialization(String),
-    ShapeMismatch { expected: Vec<usize>, got: Vec<usize> },
+    ShapeMismatch {
+        expected: Vec<usize>,
+        got: Vec<usize>,
+    },
     WeightNotFound(String),
     Other(String),
 }
@@ -4395,7 +4440,11 @@ impl MultimodalTransformer {
         })
     }
 
-    fn compute_cross_entropy_loss(&self, logits: &Array2<f32>, labels: &[usize]) -> InferenceResult<f32> {
+    fn compute_cross_entropy_loss(
+        &self,
+        logits: &Array2<f32>,
+        labels: &[usize],
+    ) -> InferenceResult<f32> {
         let seq_len = logits.nrows();
         if labels.len() != seq_len {
             return Err(InferenceError::generation(format!(

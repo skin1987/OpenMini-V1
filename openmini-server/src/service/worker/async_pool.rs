@@ -83,14 +83,7 @@ impl AsyncInferencePool {
             Arc::new(engine_fn);
 
         tokio::spawn(async move {
-            Self::batch_loop(
-                task_rx,
-                engine,
-                batch_size_max,
-                batch_timeout,
-                shutdown_rx,
-            )
-            .await;
+            Self::batch_loop(task_rx, engine, batch_size_max, batch_timeout, shutdown_rx).await;
         });
 
         let pool = Self {
@@ -114,10 +107,7 @@ impl AsyncInferencePool {
     pub async fn submit(&self, task: InferenceTask) -> Result<InferenceResult, String> {
         let (response_tx, response_rx) = oneshot::channel();
 
-        let wrapper = TaskWithCallback {
-            task,
-            response_tx,
-        };
+        let wrapper = TaskWithCallback { task, response_tx };
 
         self.task_tx
             .send(wrapper)
@@ -199,11 +189,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_pool_submit_and_receive() {
-        let (pool, _shutdown) = AsyncInferencePool::create(
-            100,
-            4,
-            Duration::from_millis(10),
-            |tasks| {
+        let (pool, _shutdown) =
+            AsyncInferencePool::create(100, 4, Duration::from_millis(10), |tasks| {
                 tasks
                     .iter()
                     .map(|t| InferenceResult {
@@ -212,8 +199,7 @@ mod tests {
                         finished: true,
                     })
                     .collect()
-            },
-        );
+            });
 
         let task = InferenceTask {
             prompt: "Hello".to_string(),
@@ -230,11 +216,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_pool_multiple_submits() {
-        let (pool, _shutdown) = AsyncInferencePool::create(
-            200,
-            8,
-            Duration::from_millis(50),
-            |tasks| {
+        let (pool, _shutdown) =
+            AsyncInferencePool::create(200, 8, Duration::from_millis(50), |tasks| {
                 tasks
                     .iter()
                     .map(|t| InferenceResult {
@@ -243,8 +226,7 @@ mod tests {
                         finished: true,
                     })
                     .collect()
-            },
-        );
+            });
 
         // 使用 Arc 共享 pool 引用，解决 AsyncInferencePool 不可 Clone 的问题
         let pool_arc = Arc::new(pool);
@@ -272,11 +254,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_pool_shutdown() {
-        let (pool, shutdown_tx) = AsyncInferencePool::create(
-            100,
-            4,
-            Duration::from_millis(10),
-            |tasks| {
+        let (pool, shutdown_tx) =
+            AsyncInferencePool::create(100, 4, Duration::from_millis(10), |tasks| {
                 tasks
                     .iter()
                     .map(|t| InferenceResult {
@@ -285,8 +264,7 @@ mod tests {
                         finished: true,
                     })
                     .collect()
-            },
-        );
+            });
 
         // 发送关闭信号
         let _ = shutdown_tx.send(true);

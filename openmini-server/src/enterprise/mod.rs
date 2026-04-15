@@ -25,16 +25,16 @@
 //! 所有核心结构体均实现 `Send + Sync`，可在多线程环境中安全使用。
 //! 内部使用 `Arc<RwLock<T>` 或 `Mutex<T>` 保证并发安全。
 
-pub mod auth;
 pub mod audit;
+pub mod auth;
 pub mod rbac;
 pub mod sla;
 
-use auth::AuthManager;
 use audit::AuditLogger;
+use auth::AuthManager;
 use rbac::RbacManager;
-use sla::SlaMonitor;
 use serde::{Deserialize, Serialize};
+use sla::SlaMonitor;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -73,7 +73,7 @@ pub struct EnterpriseSuite {
 /// 企业版配置
 ///
 /// 包含所有企业级功能的配置项，支持从 TOML/JSON 反序列化。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnterpriseConfig {
     /// 认证配置
     #[serde(default)]
@@ -87,17 +87,6 @@ pub struct EnterpriseConfig {
     /// SLA 配置
     #[serde(default)]
     pub sla: SlaConfig,
-}
-
-impl Default for EnterpriseConfig {
-    fn default() -> Self {
-        Self {
-            auth: AuthConfig::default(),
-            rbac: RbacConfig::default(),
-            audit: AuditConfig::default(),
-            sla: SlaConfig::default(),
-        }
-    }
 }
 
 /// 认证配置
@@ -311,11 +300,10 @@ impl EnterpriseSuite {
         let rbac = RbacManager::new(&config.rbac)
             .map_err(|e| EnterpriseError::Authorization(e.to_string()))?;
 
-        let audit = AuditLogger::new(&config.audit)
-            .map_err(|e| EnterpriseError::Audit(e.to_string()))?;
+        let audit =
+            AuditLogger::new(&config.audit).map_err(|e| EnterpriseError::Audit(e.to_string()))?;
 
-        let sla = SlaMonitor::new(&config.sla)
-            .map_err(|e| EnterpriseError::Sla(e.to_string()))?;
+        let sla = SlaMonitor::new(&config.sla).map_err(|e| EnterpriseError::Sla(e.to_string()))?;
 
         Ok(Self {
             auth: Arc::new(auth),
@@ -362,7 +350,7 @@ impl EnterpriseSuite {
             .map_err(|e| EnterpriseError::Authentication(e.to_string()))?;
 
         // Step 2: 授权 (RBAC)
-        let action_enum = rbac::Action::from_str(action);
+        let action_enum = rbac::Action::from_str_or_read(action);
         let authorized = self.rbac.check_permission(&ctx, resource, action_enum);
 
         if !authorized {

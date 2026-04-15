@@ -1,6 +1,8 @@
-use candle_core::{Device, DType, Result as CandleResult, Tensor};
 use ndarray::{Array1, Array2, Array3};
 use std::sync::OnceLock;
+
+#[cfg(feature = "candle")]
+use candle_core::{DType, Device, Result as CandleResult, Tensor};
 
 #[cfg(feature = "cuda")]
 mod cuda_backend;
@@ -82,11 +84,11 @@ impl GemmEngine for NdarrayFallbackBackend {
             results.push(a_slice.to_owned().dot(&b_slice.to_owned()));
         }
 
-        Ok(Array3::from_shape_vec(
+        Array3::from_shape_vec(
             (batch_size, results[0].shape()[0], results[0].shape()[1]),
             results.into_iter().flatten().collect(),
         )
-        .map_err(|e| InferenceError::generation(e.to_string()))?)
+        .map_err(|e| InferenceError::generation(e.to_string()))
     }
 
     fn fused_gemm_relu(
@@ -97,7 +99,7 @@ impl GemmEngine for NdarrayFallbackBackend {
     ) -> InferenceResult<Array2<f32>> {
         let mut result = a.dot(w);
         if let Some(b) = bias {
-            result = result + b;
+            result += b;
         }
         result.mapv_inplace(|x| x.max(0.0));
         Ok(result)
@@ -112,12 +114,13 @@ impl GemmEngine for NdarrayFallbackBackend {
     ) -> InferenceResult<Array2<f32>> {
         let gate = x.dot(gate_w);
         let up = x.dot(up_w);
-        let mut result = gate * up.mapv(|x| {
-            let sig = 1.0 / (1.0 + (-x).exp());
-            x * sig
-        });
+        let mut result = gate
+            * up.mapv(|x| {
+                let sig = 1.0 / (1.0 + (-x).exp());
+                x * sig
+            });
         if let Some(b) = bias {
-            result = result + b;
+            result += b;
         }
         Ok(result)
     }
@@ -127,13 +130,24 @@ impl GemmEngine for NdarrayFallbackBackend {
     }
 }
 
+#[cfg(feature = "candle")]
 pub struct CandleCpuBlasBackend {
     device: Device,
 }
 
+#[cfg(feature = "candle")]
+impl Default for CandleCpuBlasBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "candle")]
 impl CandleCpuBlasBackend {
     pub fn new() -> Self {
-        Self { device: Device::Cpu }
+        Self {
+            device: Device::Cpu,
+        }
     }
 
     fn array2_to_tensor(&self, a: &Array2<f32>) -> CandleResult<Tensor> {
@@ -182,6 +196,7 @@ impl CandleCpuBlasBackend {
     }
 }
 
+#[cfg(feature = "candle")]
 impl GemmEngine for CandleCpuBlasBackend {
     fn name(&self) -> &'static str {
         "candle_cpu_blas"
@@ -259,8 +274,10 @@ impl GemmEngine for CandleCpuBlasBackend {
         if let Some(b) = bias {
             let bias_data = b.as_slice().unwrap().to_vec();
             let bias_shape = vec![b.len()];
-            let bias_tensor = Tensor::from_vec(bias_data, bias_shape, &self.device)
-                .map_err(|e| InferenceError::generation(format!("Bias tensor creation failed: {}", e)))?;
+            let bias_tensor =
+                Tensor::from_vec(bias_data, bias_shape, &self.device).map_err(|e| {
+                    InferenceError::generation(format!("Bias tensor creation failed: {}", e))
+                })?;
             result = (result + bias_tensor)
                 .map_err(|e| InferenceError::generation(format!("Bias addition failed: {}", e)))?;
         }
@@ -317,19 +334,21 @@ impl GemmEngine for CandleCpuBlasBackend {
         let sigmoid_up = one_tensor
             .div(&exp_neg_up_plus_one)
             .map_err(|e| InferenceError::generation(format!("Division failed: {}", e)))?;
-        let silu_up = up
-            .mul(&sigmoid_up)
-            .map_err(|e| InferenceError::generation(format!("SiLU multiplication failed: {}", e)))?;
+        let silu_up = up.mul(&sigmoid_up).map_err(|e| {
+            InferenceError::generation(format!("SiLU multiplication failed: {}", e))
+        })?;
 
-        let mut result = gate
-            .mul(&silu_up)
-            .map_err(|e| InferenceError::generation(format!("Final multiplication failed: {}", e)))?;
+        let mut result = gate.mul(&silu_up).map_err(|e| {
+            InferenceError::generation(format!("Final multiplication failed: {}", e))
+        })?;
 
         if let Some(b) = bias {
             let bias_data = b.as_slice().unwrap().to_vec();
             let bias_shape = vec![b.len()];
-            let bias_tensor = Tensor::from_vec(bias_data, bias_shape, &self.device)
-                .map_err(|e| InferenceError::generation(format!("Bias tensor creation failed: {}", e)))?;
+            let bias_tensor =
+                Tensor::from_vec(bias_data, bias_shape, &self.device).map_err(|e| {
+                    InferenceError::generation(format!("Bias tensor creation failed: {}", e))
+                })?;
             result = (result + bias_tensor)
                 .map_err(|e| InferenceError::generation(format!("Bias addition failed: {}", e)))?;
         }
@@ -348,11 +367,10 @@ struct GemmEngineManagerInner {
 
 impl GemmEngineManagerInner {
     pub fn new() -> Self {
-        let engine: Box<dyn GemmEngine> =
-            Self::try_create_cuda_backend()
-                .or_else(|| Self::try_create_metal_backend())
-                .or_else(|| Self::try_create_blas_backend())
-                .unwrap_or_else(|| Box::new(NdarrayFallbackBackend));
+        let engine: Box<dyn GemmEngine> = Self::try_create_cuda_backend()
+            .or_else(Self::try_create_metal_backend)
+            .or_else(|| Self::try_create_blas_backend())
+            .unwrap_or_else(|| Box::new(NdarrayFallbackBackend));
 
         let backend_name = engine.name();
         tracing::info!("GEMM engine initialized: {}", backend_name);
@@ -388,6 +406,7 @@ impl GemmEngineManagerInner {
         None
     }
 
+    #[cfg(feature = "candle")]
     fn try_create_blas_backend() -> Option<Box<dyn GemmEngine>> {
         match std::panic::catch_unwind(|| {
             let backend = CandleCpuBlasBackend::new();
@@ -397,10 +416,21 @@ impl GemmEngineManagerInner {
             _ => None,
         }
     }
+
+    #[cfg(not(feature = "candle"))]
+    fn try_create_blas_backend() -> Option<Box<dyn GemmEngine>> {
+        None
+    }
 }
 
 pub struct GemmEngineManager {
     inner: GemmEngineManagerInner,
+}
+
+impl Default for GemmEngineManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GemmEngineManager {
@@ -422,5 +452,5 @@ impl GemmEngineManager {
 static GEMM_ENGINE_MANAGER: OnceLock<GemmEngineManager> = OnceLock::new();
 
 pub fn get_gemm_engine_manager() -> &'static GemmEngineManager {
-    GEMM_ENGINE_MANAGER.get_or_init(|| GemmEngineManager::new())
+    GEMM_ENGINE_MANAGER.get_or_init(GemmEngineManager::new)
 }

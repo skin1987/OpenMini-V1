@@ -67,14 +67,12 @@
 //! }
 //! ```
 
-use std::collections::{HashMap, VecDeque};
+use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use sqlx::SqlitePool;
-use chrono::{DateTime, Utc};
+use std::collections::{HashMap, VecDeque};
 
-use crate::hardware::persistence::{
-    compression::{CompressionManager, CompressionAlgorithm},
-};
+use crate::hardware::persistence::compression::{CompressionAlgorithm, CompressionManager};
 
 // ============================================================================
 // 核心数据结构定义
@@ -421,15 +419,19 @@ impl KvSwapManager {
 
         // 创建压缩管理器
         let compressor = if config.enable_compression {
-            CompressionManager::with_config(crate::hardware::persistence::compression::CompressionConfig {
-                algorithm: config.compression_algorithm,
-                ..Default::default()
-            })
+            CompressionManager::with_config(
+                crate::hardware::persistence::compression::CompressionConfig {
+                    algorithm: config.compression_algorithm,
+                    ..Default::default()
+                },
+            )
         } else {
-            CompressionManager::with_config(crate::hardware::persistence::compression::CompressionConfig {
-                algorithm: CompressionAlgorithm::None,
-                ..Default::default()
-            })
+            CompressionManager::with_config(
+                crate::hardware::persistence::compression::CompressionConfig {
+                    algorithm: CompressionAlgorithm::None,
+                    ..Default::default()
+                },
+            )
         };
 
         let manager = Self {
@@ -523,7 +525,7 @@ impl KvSwapManager {
                 stats.miss_count += 1;
                 stats.swap_in_count += 1;
                 stats.total_swapped_in_bytes += data.len() as u64;
-                
+
                 // 更新平均延迟 (指数移动平均)
                 if stats.avg_swap_in_latency_us == 0 {
                     stats.avg_swap_in_latency_us = latency_us;
@@ -592,7 +594,7 @@ impl KvSwapManager {
         // 2. 写入内存
         {
             let mut in_mem = self.in_memory.write();
-            
+
             // 如果是更新已有 block，不需要增加计数
             let is_update = in_mem.contains_key(&block_id);
             in_mem.insert(block_id.clone(), data);
@@ -642,10 +644,7 @@ impl KvSwapManager {
             return Ok(());
         }
 
-        tracing::debug!(
-            count = blocks.len(),
-            "Batch putting blocks"
-        );
+        tracing::debug!(count = blocks.len(), "Batch putting blocks");
 
         // 批量写入内存
         for (session_id, layer, block, data) in blocks {
@@ -703,10 +702,7 @@ impl KvSwapManager {
             return Ok(0);
         }
 
-        tracing::info!(
-            requested = count,
-            "Force eviction requested"
-        );
+        tracing::info!(requested = count, "Force eviction requested");
 
         // 选择要换出的 victims
         let victims = self.select_victims(count);
@@ -844,12 +840,10 @@ impl KvSwapManager {
         }
 
         // 4. 从数据库删除
-        let db_result = sqlx::query(
-            "DELETE FROM kv_cache_store WHERE session_id = ?"
-        )
-        .bind(session_id)
-        .execute(&self.db_pool)
-        .await?;
+        let db_result = sqlx::query("DELETE FROM kv_cache_store WHERE session_id = ?")
+            .bind(session_id)
+            .execute(&self.db_pool)
+            .await?;
 
         total_removed += db_result.rows_affected();
 
@@ -874,11 +868,11 @@ impl KvSwapManager {
     /// 返回当前的统计信息副本，可用于监控和调试。
     pub fn get_stats(&self) -> KvSwapStats {
         let mut stats = self.stats.read().clone();
-        
+
         // 更新实时数值
         stats.current_in_memory = self.in_memory.read().len();
         stats.current_swapped_out = self.swapped_out.read().len();
-        
+
         stats
     }
 
@@ -888,11 +882,11 @@ impl KvSwapManager {
     pub fn reset_stats(&self) {
         let mut stats = self.stats.write();
         *stats = KvSwapStats::default();
-        
+
         // 重新设置当前值
         stats.current_in_memory = self.in_memory.read().len();
         stats.current_swapped_out = self.swapped_out.read().len();
-        
+
         tracing::info!("Statistics reset");
     }
 
@@ -964,21 +958,22 @@ impl KvSwapManager {
     /// 4. 从 swapped_out 映射中移除
     async fn swap_in(&self, db_id: i64, block_id: &BlockId) -> Result<Vec<u8>, anyhow::Error> {
         // 1. 从数据库查询
-        let entry = sqlx::query_as::<_, KvCacheEntry>(
-            "SELECT * FROM kv_cache_store WHERE id = ?"
-        )
-        .bind(db_id)
-        .fetch_optional(&self.db_pool)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Block not found in database: id={}", db_id))?;
+        let entry = sqlx::query_as::<_, KvCacheEntry>("SELECT * FROM kv_cache_store WHERE id = ?")
+            .bind(db_id)
+            .fetch_optional(&self.db_pool)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Block not found in database: id={}", db_id))?;
 
         // 2. 解压（如果需要）
         let data = if entry.compressed && entry.original_size > 0 {
-            let decompressed = self.compressor.decompress(
-                &entry.value_data,
-                entry.original_size as usize,
-                self.config.compression_algorithm,
-            ).map_err(|e| anyhow::anyhow!("Decompression failed for {}: {}", block_id, e))?;
+            let decompressed = self
+                .compressor
+                .decompress(
+                    &entry.value_data,
+                    entry.original_size as usize,
+                    self.config.compression_algorithm,
+                )
+                .map_err(|e| anyhow::anyhow!("Decompression failed for {}: {}", block_id, e))?;
             decompressed.data
         } else {
             entry.value_data
@@ -1080,7 +1075,7 @@ impl KvSwapManager {
                     last_accessed_at = excluded.last_accessed_at,
                     compressed = excluded.compressed,
                     original_size = excluded.original_size
-                "#
+                "#,
             )
             .bind(block_id.session())
             .bind(block_id.layer() as i64)
@@ -1113,10 +1108,10 @@ impl KvSwapManager {
                         Ok((db_id,)) => {
                             let mut swapped = self.swapped_out.write();
                             swapped.insert(block_id.clone(), db_id);
-                            
+
                             // 从 LRU 移除
                             self.remove_from_lru(&block_id);
-                            
+
                             success_count += 1;
                             total_bytes += data.len();
                         }
@@ -1135,7 +1130,7 @@ impl KvSwapManager {
                         error = %e,
                         "Failed to swap out block to database"
                     );
-                    
+
                     // 失败时放回内存
                     let mut in_mem = self.in_memory.write();
                     in_mem.insert(block_id, data);
@@ -1149,14 +1144,14 @@ impl KvSwapManager {
             let mut stats = self.stats.write();
             stats.swap_out_count += 1;
             stats.total_swapped_out_bytes += total_bytes as u64;
-            
+
             if stats.avg_swap_out_latency_us == 0 {
                 stats.avg_swap_out_latency_us = latency_us;
             } else {
                 stats.avg_swap_out_latency_us =
                     (stats.avg_swap_out_latency_us * 9 + latency_us) / 10;
             }
-            
+
             stats.current_in_memory = self.in_memory.read().len();
             stats.current_swapped_out = self.swapped_out.read().len();
         }
@@ -1224,7 +1219,7 @@ impl KvSwapManager {
         }
 
         let lru = self.lru_queue.read();
-        
+
         // 如果队列很短，直接返回前面的元素
         if lru.len() <= count {
             return lru.iter().cloned().collect();
@@ -1248,12 +1243,12 @@ impl KvSwapManager {
     /// 当 block 被访问时调用，将其标记为最近使用。
     fn touch_lru(&self, block_id: &BlockId) {
         let mut lru = self.lru_queue.write();
-        
+
         // 移除现有位置（如果有）
         if let Some(pos) = lru.iter().position(|id| id == block_id) {
             lru.remove(pos);
         }
-        
+
         // 添加到尾部
         lru.push_back(block_id.clone());
     }
@@ -1297,10 +1292,10 @@ mod tests {
     async fn create_test_manager(config: Option<KvSwapConfig>) -> KvSwapManager {
         let pool = create_test_db().await;
         let config = config.unwrap_or_else(|| KvSwapConfig {
-            max_in_memory_blocks: 10,  // 小阈值以便测试换出
+            max_in_memory_blocks: 10, // 小阈值以便测试换出
             high_watermark: 8,
             low_watermark: 6,
-            enable_compression: false,  // 关闭压缩以简化测试
+            enable_compression: false, // 关闭压缩以简化测试
             ..Default::default()
         });
 
@@ -1349,7 +1344,7 @@ mod tests {
         }
 
         let stats = manager.get_stats();
-        
+
         // 应该触发了自动换出
         assert!(
             stats.current_in_memory <= manager.config.high_watermark,
@@ -1358,8 +1353,7 @@ mod tests {
 
         println!(
             "Auto eviction test: in_memory={}, swapped_out={}",
-            stats.current_in_memory,
-            stats.current_swapped_out
+            stats.current_in_memory, stats.current_swapped_out
         );
     }
 
@@ -1391,16 +1385,15 @@ mod tests {
             match result {
                 Ok(data) => {
                     let stats_after = manager.get_stats();
-                    
+
                     // 验证数据完整性
                     assert!(!data.is_empty(), "Data should not be empty");
-                    
+
                     // 如果发生了换入，统计信息应该反映这一点
                     if stats_after.swap_in_count > stats_before.swap_in_count {
                         println!(
                             "Swap-in occurred: swap_in_count increased from {} to {}",
-                            stats_before.swap_in_count,
-                            stats_after.swap_in_count
+                            stats_before.swap_in_count, stats_after.swap_in_count
                         );
                     }
                 }
@@ -1420,12 +1413,14 @@ mod tests {
 
         // 准备批量数据
         let blocks: Vec<(String, usize, usize, Vec<u8>)> = (0..5i32)
-            .map(|i| (
-                "batch-session".to_string(),
-                0,
-                i as usize,
-                format!("batch-data-{}", i).into_bytes(),
-            ))
+            .map(|i| {
+                (
+                    "batch-session".to_string(),
+                    0,
+                    i as usize,
+                    format!("batch-data-{}", i).into_bytes(),
+                )
+            })
             .collect();
 
         // 批量写入
@@ -1441,7 +1436,10 @@ mod tests {
         }
 
         let stats = manager.get_stats();
-        assert_eq!(stats.current_in_memory, 5, "All 5 blocks should be in memory");
+        assert_eq!(
+            stats.current_in_memory, 5,
+            "All 5 blocks should be in memory"
+        );
     }
 
     #[tokio::test]
@@ -1464,7 +1462,11 @@ mod tests {
         }
 
         // 验证初始状态
-        assert_eq!(manager.in_memory_count(), 6, "Should have 6 blocks initially");
+        assert_eq!(
+            manager.in_memory_count(),
+            6,
+            "Should have 6 blocks initially"
+        );
 
         // 清理 session-A
         let removed = manager
@@ -1472,8 +1474,15 @@ mod tests {
             .await
             .expect("Failed to evict session");
 
-        assert!(removed >= 3, "Should remove at least 3 blocks for session-A");
-        assert_eq!(manager.in_memory_count(), 3, "Should have 3 blocks remaining (session-B)");
+        assert!(
+            removed >= 3,
+            "Should remove at least 3 blocks for session-A"
+        );
+        assert_eq!(
+            manager.in_memory_count(),
+            3,
+            "Should have 3 blocks remaining (session-B)"
+        );
 
         // 验证 session-B 的数据仍然可访问
         let result = manager.get_block("session-B", 0, 0).await;
@@ -1500,9 +1509,7 @@ mod tests {
                 .expect("Failed to create manager with compression");
 
             // 写入可压缩的数据
-            let repetitive_data: Vec<u8> = (0..10000)
-                .map(|i| (i % 256) as u8)
-                .collect();
+            let repetitive_data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
 
             for i in 0..6i32 {
                 manager
@@ -1519,7 +1526,7 @@ mod tests {
                     comp_stats.overall_ratio(),
                     comp_stats.saved_bytes()
                 );
-                
+
                 // 验证确实进行了压缩
                 assert!(
                     comp_stats.overall_ratio() < 1.0,
@@ -1542,23 +1549,35 @@ mod tests {
         // 1. 写入 3 个 blocks
         for i in 0..3i32 {
             let data = format!("stats-test-{}", i).into_bytes();
-            manager.put_block("stats-session", 0, i as usize, &data).await.unwrap();
+            manager
+                .put_block("stats-session", 0, i as usize, &data)
+                .await
+                .unwrap();
         }
 
         // 2. 读取它们（命中）
         for i in 0..3i32 {
-            manager.get_block("stats-session", 0, i as usize).await.unwrap();
+            manager
+                .get_block("stats-session", 0, i as usize)
+                .await
+                .unwrap();
         }
 
         // 3. 重复读取（再次命中）
         for i in 0..3i32 {
-            manager.get_block("stats-session", 0, i as usize).await.unwrap();
+            manager
+                .get_block("stats-session", 0, i as usize)
+                .await
+                .unwrap();
         }
 
         // 验证统计信息
         let stats = manager.get_stats();
 
-        assert_eq!(stats.hit_count, 6, "Should have 6 hits (3 initial + 3 repeat)");
+        assert_eq!(
+            stats.hit_count, 6,
+            "Should have 6 hits (3 initial + 3 repeat)"
+        );
         assert_eq!(stats.miss_count, 0, "Should have 0 misses");
         assert!(stats.hit_rate() > 0.99, "Hit rate should be very high");
         assert_eq!(stats.current_in_memory, 3, "Should have 3 blocks in memory");
@@ -1579,10 +1598,17 @@ mod tests {
         // 写入一些 blocks
         for i in 0..5i32 {
             let data = format!("force-evict-{}", i).into_bytes();
-            manager.put_block("force-session", 0, i as usize, &data).await.unwrap();
+            manager
+                .put_block("force-session", 0, i as usize, &data)
+                .await
+                .unwrap();
         }
 
-        assert_eq!(manager.in_memory_count(), 5, "Should have 5 blocks before force evict");
+        assert_eq!(
+            manager.in_memory_count(),
+            5,
+            "Should have 5 blocks before force evict"
+        );
 
         // 强制换出 2 个
         let evicted = manager.force_evict(2).await.expect("Force eviction failed");
@@ -1629,13 +1655,16 @@ mod tests {
         // 验证预取后这些 block 可以快速访问
         for i in 0..3i32 {
             let result = manager.get_block("prefetch-session", 0, i as usize).await;
-            assert!(result.is_ok(), "Prefetched block {} should be accessible", i);
+            assert!(
+                result.is_ok(),
+                "Prefetched block {} should be accessible",
+                i
+            );
         }
 
         println!(
             "Prefetch test: swap_in before={}, after={}",
-            stats_before.swap_in_count,
-            stats_after.swap_in_count
+            stats_before.swap_in_count, stats_after.swap_in_count
         );
     }
 
@@ -1644,7 +1673,11 @@ mod tests {
         let manager = create_test_manager(None).await;
 
         // 初始状态
-        assert_eq!(manager.estimate_memory_usage(), 0, "Initial memory usage should be 0");
+        assert_eq!(
+            manager.estimate_memory_usage(),
+            0,
+            "Initial memory usage should be 0"
+        );
 
         // 写入已知大小的数据
         let data_1kb = vec![0u8; 1024];
@@ -1679,7 +1712,10 @@ mod tests {
         let id = BlockId::new("test-session", 5, 10);
         let display = format!("{}", id);
 
-        assert!(display.contains("test-session"), "Should contain session ID");
+        assert!(
+            display.contains("test-session"),
+            "Should contain session ID"
+        );
         assert!(display.contains("layer=5"), "Should contain layer index");
         assert!(display.contains("block=10"), "Should contain block index");
     }
@@ -1713,10 +1749,13 @@ mod tests {
         };
 
         let display = format!("{}", stats);
-        
+
         assert!(display.contains("hit_rate:"), "Should show hit rate");
         assert!(display.contains("swap_in:"), "Should show swap-in count");
         assert!(display.contains("swap_out:"), "Should show swap-out count");
-        assert!(display.contains("in_memory:"), "Should show in-memory count");
+        assert!(
+            display.contains("in_memory:"),
+            "Should show in-memory count"
+        );
     }
 }

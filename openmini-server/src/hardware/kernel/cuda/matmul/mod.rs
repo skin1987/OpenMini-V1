@@ -51,17 +51,18 @@ impl CublasHandle {
     /// 创建新的cuBLAS句柄
     pub fn new(context: CudaContext, algorithm: Option<GemmAlgorithm>) -> Result<Self, CudaError> {
         let algorithm = algorithm.unwrap_or(GemmAlgorithm::Auto);
-        
+
         info!("初始化cuBLAS句柄 (算法: {:?})", algorithm);
-        
+
         #[cfg(feature = "cuda-native")]
         {
             use cudarc::blas::cublas::Cublas;
-            let handle = Cublas::new(context.device().info().id)
-                .map_err(|e| CudaError::CublasInitFailed {
+            let handle = Cublas::new(context.device().info().id).map_err(|e| {
+                CudaError::CublasInitFailed {
                     message: e.to_string(),
-                })?;
-            
+                }
+            })?;
+
             Ok(Self {
                 context,
                 handle: Box::into_raw(Box::new(handle)) as *mut std::ffi::c_void,
@@ -114,17 +115,16 @@ impl CublasHandle {
         #[cfg(feature = "cuda-native")]
         {
             use cudarc::blas::sys::{
-                cublasOperation_t, cublasSgemm, cublasHandle_t,
-                CUBLAS_OP_N, CUBLAS_OP_T,
+                cublasHandle_t, cublasOperation_t, cublasSgemm, CUBLAS_OP_N, CUBLAS_OP_T,
             };
-            
+
             let op_a = if transa { CUBLAS_OP_T } else { CUBLAS_OP_N };
             let op_b = if transb { CUBLAS_OP_T } else { CUBLAS_OP_N };
-            
+
             let lda = if transa { k } else { m };
             let ldb = if transb { n } else { k };
             let ldc = m;
-            
+
             unsafe {
                 let result = cublasSgemm(
                     self.handle as cublasHandle_t,
@@ -142,7 +142,7 @@ impl CublasHandle {
                     c.as_mut_ptr() as *mut f32,
                     ldc as i32,
                 );
-                
+
                 if result != 0 {
                     return Err(CudaError::KernelLaunchFailed {
                         message: format!("cuBLAS sgemm 错误码: {}", result),
@@ -159,18 +159,14 @@ impl CublasHandle {
 
         let elapsed = start_time.elapsed();
         let elapsed_us = elapsed.as_micros() as u64;
-        
+
         // 计算TFLOPS
         let flops = 2.0 * m as f64 * n as f64 * k as f64;
         let tflops = flops / (elapsed.as_secs_f64() * 1e12);
 
         let algorithm_used = self.select_algorithm(m, n, k);
 
-        trace!(
-            "GEMM 完成: {:.2}us ({:.2} TFLOPS)",
-            elapsed_us,
-            tflops
-        );
+        trace!("GEMM 完成: {:.2}us ({:.2} TFLOPS)", elapsed_us, tflops);
 
         Ok(GemmResult {
             m,
@@ -196,10 +192,7 @@ impl CublasHandle {
         beta: F16,
         c: &mut CudaBuffer<F16>,
     ) -> Result<GemmResult, CudaError> {
-        debug!(
-            "GEMM F16: {}x{} @ {}x{} (Tensor Core加速)",
-            m, k, k, n
-        );
+        debug!("GEMM F16: {}x{} @ {}x{} (Tensor Core加速)", m, k, k, n);
 
         // 检查设备是否支持Tensor Core
         if !self.context.device().supports_compute_capability(7, 0) {
@@ -213,11 +206,11 @@ impl CublasHandle {
         #[cfg(feature = "cuda-native")]
         {
             // 使用H-GEMM或自动降级
-            use cudarc::blas::sys::{cublasHgemm, cublasHandle_t, cublasOperation_t};
-            
-            let op_a = if transa { 1u32 } else { 0 }; // CUBLAS_OP_T/N
-            let op_b = if transb { 1u32 } else { 0 };
-            
+            use cudarc::blas::sys::{cublasHandle_t, cublasHgemm, cublasOperation_t};
+
+            let op_a = if _transa { 1u32 } else { 0 }; // CUBLAS_OP_T/N
+            let op_b = if _transb { 1u32 } else { 0 };
+
             unsafe {
                 let result = cublasHgemm(
                     self.handle as cublasHandle_t,
@@ -228,14 +221,14 @@ impl CublasHandle {
                     k as i32,
                     &alpha.to_bits(),
                     a.as_ptr() as *const u16,
-                    if transa { k as i32 } else { m as i32 },
+                    if _transa { k as i32 } else { m as i32 },
                     b.as_ptr() as *const u16,
-                    if transb { n as i32 } else { k as i32 },
+                    if _transb { n as i32 } else { k as i32 },
                     &beta.to_bits(),
                     c.as_mut_ptr() as *mut u16,
                     m as i32,
                 );
-                
+
                 if result != 0 {
                     return Err(CudaError::KernelLaunchFailed {
                         message: format!("cuBLAS hgemm 错误误: {}", result),
@@ -279,7 +272,7 @@ impl CublasHandle {
         c_array: &mut [&mut CudaBuffer<f32>],
     ) -> Result<Vec<GemmResult>, CudaError> {
         let batch_size = a_array.len();
-        
+
         if batch_size == 0 {
             return Ok(vec![]);
         }
@@ -298,8 +291,7 @@ impl CublasHandle {
         #[cfg(feature = "cuda-native")]
         {
             use cudarc::blas::sys::{
-                cublasSgemmBatched, cublasHandle_t, cublasOperation_t,
-                CUBLAS_OP_N, CUBLAS_OP_T,
+                cublasHandle_t, cublasOperation_t, cublasSgemmBatched, CUBLAS_OP_N, CUBLAS_OP_T,
             };
 
             let op_a = if transa { CUBLAS_OP_T } else { CUBLAS_OP_N };
@@ -348,8 +340,7 @@ impl CublasHandle {
             // CPU fallback：逐个执行
             for i in 0..batch_size {
                 self.gemm_f32_cpu(
-                    transa, transb, m, n, k,
-                    alpha, a_array[i], b_array[i], beta, c_array[i]
+                    transa, transb, m, n, k, alpha, a_array[i], b_array[i], beta, c_array[i],
                 )?;
             }
         }
@@ -359,7 +350,9 @@ impl CublasHandle {
 
         for _ in 0..batch_size {
             results.push(GemmResult {
-                m, n, k,
+                m,
+                n,
+                k,
                 algorithm_used: GemmAlgorithm::Standard,
                 execution_time_us: avg_time,
                 tflops: 0.0,
@@ -419,7 +412,7 @@ impl CublasHandle {
         }
 
         let total_elements = m * n * k;
-        
+
         // 小矩阵阈值：< 1M元素
         if total_elements < 1_000_000 {
             GemmAlgorithm::SmallMatrix
@@ -431,8 +424,7 @@ impl CublasHandle {
         // 中等矩阵且支持Tensor Core
         else if self.context.device().supports_compute_capability(7, 0) {
             GemmAlgorithm::TensorCore
-        }
-        else {
+        } else {
             GemmAlgorithm::Standard
         }
     }
@@ -467,16 +459,16 @@ impl CublasHandle {
                     } else {
                         a_data[i * k + l]
                     };
-                    
+
                     let b_val = if transb {
                         b_data[j * k + l]
                     } else {
                         b_data[l * n + j]
                     };
-                    
+
                     sum += a_val * b_val;
                 }
-                
+
                 c_data[i * n + j] = alpha * sum + beta * c_data[i * n + j];
             }
         }
@@ -500,21 +492,23 @@ impl F16 {
         let bits = v.to_bits();
         let exponent = ((bits >> 23) & 0xFF) as i32 - 127 + 15;
         let mantissa = bits & 0x007FFFFF;
-        
+
         if exponent <= 0 {
             F16(0) // 下溢
         } else if exponent >= 31 {
             F16(0x7C00 | (((bits >> 16) & 0x8000) as u16)) // 无穷
         } else {
-            F16((((bits >> 16) & 0x8000) as u16) | ((exponent as u16) << 10) | ((mantissa >> 13) as u16))
+            F16((((bits >> 16) & 0x8000) as u16)
+                | ((exponent as u16) << 10)
+                | ((mantissa >> 13) as u16))
         }
     }
 
     pub fn to_f32(self) -> f32 {
         f32::from_bits(
             ((self.0 as u32 & 0x8000) << 16)
-            | (((((self.0 as u32 >> 10) & 0x1F) as i32 + 127 - 15) as u32) << 23)
-            | ((self.0 as u32 & 0x3FF) << 13)
+                | (((((self.0 as u32 >> 10) & 0x1F) as i32 + 127 - 15) as u32) << 23)
+                | ((self.0 as u32 & 0x3FF) << 13),
         )
     }
 
@@ -526,7 +520,7 @@ impl F16 {
 impl Drop for CublasHandle {
     fn drop(&mut self) {
         info!("销毁cuBLAS句柄");
-        
+
         #[cfg(feature = "cuda-native")]
         {
             if !self.handle.is_null() {
@@ -541,7 +535,7 @@ impl Drop for CublasHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     fn get_test_handle() -> CublasHandle {
         let ctx = CudaContext::new(None).unwrap();
         CublasHandle::new(ctx, None).unwrap()
@@ -568,12 +562,14 @@ mod tests {
         let b = CudaBuffer::from_host(&b_data, device_id).unwrap();
         let mut c = CudaBuffer::from_host(&c_data, device_id).unwrap();
 
-        let result = handle.gemm_f32(false, false, 2, 2, 2, 1.0, &a, &b, 0.0, &mut c).unwrap();
+        let result = handle
+            .gemm_f32(false, false, 2, 2, 2, 1.0, &a, &b, 0.0, &mut c)
+            .unwrap();
 
         assert_eq!(result.m, 2);
         assert_eq!(result.n, 2);
         assert_eq!(result.k, 2);
-        assert!(result.execution_time_us >= 0);
+        // execution_time_us is u64, always non-negative
     }
 
     #[test]
@@ -591,7 +587,9 @@ mod tests {
         let mut c = CudaBuffer::from_host(&c_data, device_id).unwrap();
 
         // 测试转置
-        let result = handle.gemm_f32(true, true, 2, 2, 2, 1.0, &a, &b, 0.0, &mut c).unwrap();
+        let result = handle
+            .gemm_f32(true, true, 2, 2, 2, 1.0, &a, &b, 0.0, &mut c)
+            .unwrap();
         assert!(result.algorithm_used != GemmAlgorithm::Auto);
     }
 
@@ -639,10 +637,20 @@ mod tests {
         let b_refs: Vec<&CudaBuffer<f32>> = b_arrays.iter().collect();
         let mut c_refs: Vec<&mut CudaBuffer<f32>> = c_arrays.iter_mut().collect();
 
-        let results = handle.batched_gemm_f32(
-            false, false, 2, 2, 2,
-            1.0, &a_refs, &b_refs, 0.0, &mut c_refs
-        ).unwrap();
+        let results = handle
+            .batched_gemm_f32(
+                false,
+                false,
+                2,
+                2,
+                2,
+                1.0,
+                &a_refs,
+                &b_refs,
+                0.0,
+                &mut c_refs,
+            )
+            .unwrap();
 
         assert_eq!(results.len(), batch_size);
     }
@@ -650,12 +658,9 @@ mod tests {
     #[test]
     fn test_batched_gemm_length_mismatch() {
         let handle = get_test_handle();
-        
-        let result = handle.batched_gemm_f32(
-            false, false, 2, 2, 2,
-            1.0, &[], &[], 0.0, &mut []
-        );
-        
+
+        let result = handle.batched_gemm_f32(false, false, 2, 2, 2, 1.0, &[], &[], 0.0, &mut []);
+
         // 空批次应该成功（0个操作）
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
@@ -664,11 +669,11 @@ mod tests {
     #[test]
     fn test_algorithm_selection() {
         let handle = get_test_handle();
-        
+
         // 小矩阵
         let algo = handle.select_algorithm(64, 64, 64);
         assert_eq!(algo, GemmAlgorithm::SmallMatrix);
-        
+
         // 大矩阵
         let algo = handle.select_algorithm(4096, 4096, 4096);
         assert_eq!(algo, GemmAlgorithm::LargeMatrix);
@@ -679,7 +684,7 @@ mod tests {
         let original: f32 = 3.14159;
         let h = F16::from_f32(original);
         let back = h.to_f32();
-        
+
         // 允许一定误差（f16精度有限）
         assert!((original - back).abs() < 0.01);
     }
@@ -700,11 +705,18 @@ mod tests {
 
         // RTX 4090 (SM 8.9) 支持Tensor Core
         let result = handle.gemm_f16(
-            false, false, 2, 2, 2,
-            F16::from_f32(1.0), &a, &b,
-            F16::from_f32(0.0), &mut c
+            false,
+            false,
+            2,
+            2,
+            2,
+            F16::from_f32(1.0),
+            &a,
+            &b,
+            F16::from_f32(0.0),
+            &mut c,
         );
-        
+
         // Mock模式下可能成功也可能失败
         let _ = result;
     }

@@ -17,6 +17,9 @@ use super::dsa::DSATopKConfig;
 use super::model::ModelConfig;
 use crate::hardware::kv_cache::streaming::{StreamingAttention, StreamingAttentionConfig};
 
+/// KV Cache 返回类型别名
+type KvCacheTuple<'a> = Option<(Cow<'a, Array2<f32>>, Cow<'a, Array2<f32>>)>;
+
 // ============================================================================
 // KV Cache
 // ============================================================================
@@ -164,7 +167,7 @@ impl KvCacheLayer {
     /// 多块场景：返回 `Cow::Owned`（需要拼接所有块）。
     ///
     /// 如果只需要遍历数据，建议使用 `iter_chunks()`。
-    pub fn get(&self) -> Option<(Cow<'_, Array2<f32>>, Cow<'_, Array2<f32>>)> {
+    pub fn get(&self) -> KvCacheTuple<'_> {
         if self.chunks_k.is_empty() {
             return None;
         }
@@ -173,7 +176,7 @@ impl KvCacheLayer {
         if self.chunks_k.len() == 1 {
             return Some((
                 Cow::Borrowed(&self.chunks_k[0]),
-                Cow::Borrowed(&self.chunks_v[0])
+                Cow::Borrowed(&self.chunks_v[0]),
             ));
         }
 
@@ -399,14 +402,24 @@ impl InferenceContext {
     /// # Errors
     /// 当启用 StreamingAttention 且传入的数组不是连续内存布局时返回错误。
     /// 这通常发生在使用 `slice`、`select` 等操作得到的视图上。
-    pub fn update_kv(&mut self, layer_idx: usize, k: Array2<f32>, v: Array2<f32>) -> Result<(), AppError> {
+    pub fn update_kv(
+        &mut self,
+        layer_idx: usize,
+        k: Array2<f32>,
+        v: Array2<f32>,
+    ) -> Result<(), AppError> {
         let seq_len = k.nrows();
 
         if let Some(ref mut sa) = self.streaming_attentions[layer_idx] {
-            let k_flat = k.as_slice().ok_or(AppError::Engine(EngineError::ArrayNotContiguous))?;
-            let v_flat = v.as_slice().ok_or(AppError::Engine(EngineError::ArrayNotContiguous))?;
-            sa.write(self.seq_len, k_flat, v_flat)
-                .map_err(|e| AppError::Engine(EngineError::StreamingAttentionWriteFailed(e.to_string())))?;
+            let k_flat = k
+                .as_slice()
+                .ok_or(AppError::Engine(EngineError::ArrayNotContiguous))?;
+            let v_flat = v
+                .as_slice()
+                .ok_or(AppError::Engine(EngineError::ArrayNotContiguous))?;
+            sa.write(self.seq_len, k_flat, v_flat).map_err(|e| {
+                AppError::Engine(EngineError::StreamingAttentionWriteFailed(e.to_string()))
+            })?;
         } else {
             self.kv_caches[layer_idx].update(k, v)?;
         }
@@ -424,7 +437,7 @@ impl InferenceContext {
     /// # 性能说明
     /// 单块时零拷贝返回，多块时需要拼接。如果只需要遍历数据，
     /// 建议使用 `kv_caches[layer_idx].iter_chunks()`。
-    pub fn get_kv(&self, layer_idx: usize) -> Option<(Cow<'_, Array2<f32>>, Cow<'_, Array2<f32>>)> {
+    pub fn get_kv(&self, layer_idx: usize) -> KvCacheTuple<'_> {
         if self.streaming_attentions[layer_idx].is_some() {
             None
         } else {
@@ -490,9 +503,9 @@ impl InferenceContext {
 ///
 /// # 泛型参数
 /// - `S`: 数组存储类型，支持 `Array2<f32>` 和 `ArrayView2<'_, f32>`
-/// 
+///
 /// # 性能优化
-/// 
+///
 /// 当前版本: SIMD 优化版 (自动检测 CPU 特性)
 /// - AVX2: ~4x 加速 (x86_64)
 /// - NEON: ~2x 加速 (aarch64)
@@ -518,7 +531,10 @@ pub fn build_multimodal_prompt(text_tokens: &[usize], num_image_tokens: usize) -
     let mut tokens = Vec::with_capacity(text_tokens.len() + num_image_tokens + 2);
 
     tokens.push(super::model::IM_START_TOKEN_ID);
-    tokens.extend(std::iter::repeat_n(super::model::IM_PATCH_TOKEN_ID, num_image_tokens));
+    tokens.extend(std::iter::repeat_n(
+        super::model::IM_PATCH_TOKEN_ID,
+        num_image_tokens,
+    ));
     tokens.push(super::model::IM_END_TOKEN_ID);
 
     // 使用预编码的 token ID
@@ -544,7 +560,7 @@ mod tests {
 
         let k = Array2::zeros((10, 64));
         let v = Array2::zeros((10, 64));
-        layer.update(k, v);
+        let _ = layer.update(k, v);
 
         assert!(layer.get().is_some());
         assert_eq!(layer.chunk_count(), 1);
@@ -576,7 +592,7 @@ mod tests {
         // 第一次更新
         let k1 = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v1 = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
-        cache.update(k1, v1);
+        let _ = cache.update(k1, v1);
 
         assert_eq!(cache.chunk_count(), 1);
         let (k, v) = cache.get().unwrap();
@@ -586,7 +602,7 @@ mod tests {
         // 第二次更新（自动合并到第一个块，因为 2 < 512）
         let k2 = ndarray::arr2(&[[9.0, 10.0], [11.0, 12.0]]);
         let v2 = ndarray::arr2(&[[13.0, 14.0], [15.0, 16.0]]);
-        cache.update(k2, v2);
+        let _ = cache.update(k2, v2);
 
         // 验证自动合并：仍然只有 1 个块
         assert_eq!(cache.chunk_count(), 1);
@@ -610,7 +626,7 @@ mod tests {
         for i in 0..5 {
             let k = ndarray::arr2(&[[i as f32, (i + 1) as f32]]);
             let v = ndarray::arr2(&[[i as f32, (i + 2) as f32]]);
-            cache.update(k, v);
+            let _ = cache.update(k, v);
         }
 
         // 验证自动合并：5 次更新，每次 1 行，默认 chunk_size=512
@@ -632,13 +648,13 @@ mod tests {
         // 第一次更新：创建第一个块
         let k1 = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v1 = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
-        cache.update(k1, v1);
+        let _ = cache.update(k1, v1);
         assert_eq!(cache.chunk_count(), 1);
 
         // 第二次更新：合并到第一个块（因为 2 < 10）
         let k2 = ndarray::arr2(&[[9.0, 10.0]]);
         let v2 = ndarray::arr2(&[[11.0, 12.0]]);
-        cache.update(k2, v2);
+        let _ = cache.update(k2, v2);
         assert_eq!(cache.chunk_count(), 1); // 仍然只有一个块
         assert_eq!(cache.total_rows(), 3);
 
@@ -657,19 +673,19 @@ mod tests {
         // 第一次：5 行，刚好填满一个块
         let k1 = Array2::zeros((5, 4));
         let v1 = Array2::zeros((5, 4));
-        cache.update(k1, v1);
+        let _ = cache.update(k1, v1);
         assert_eq!(cache.chunk_count(), 1);
 
         // 第二次：3 行，应该创建新块（因为第一个块已满）
         let k2 = Array2::zeros((3, 4));
         let v2 = Array2::zeros((3, 4));
-        cache.update(k2, v2);
+        let _ = cache.update(k2, v2);
         assert_eq!(cache.chunk_count(), 2);
 
         // 第三次：2 行，应该合并到第二个块
         let k3 = Array2::zeros((2, 4));
         let v3 = Array2::zeros((2, 4));
-        cache.update(k3, v3);
+        let _ = cache.update(k3, v3);
         assert_eq!(cache.chunk_count(), 2); // 仍然是 2 个块
         assert_eq!(cache.total_rows(), 10);
     }
@@ -684,7 +700,7 @@ mod tests {
         for i in 0..5 {
             let k = Array2::from_shape_fn((10, 4), |(r, c)| (i * 10 + r) as f32 + c as f32);
             let v = Array2::zeros((10, 4));
-            cache.update(k, v);
+            let _ = cache.update(k, v);
         }
 
         // 验证有 5 个块
@@ -710,14 +726,14 @@ mod tests {
         // 理想情况：数据刚好填满块
         let k1 = Array2::zeros((10, 4));
         let v1 = Array2::zeros((10, 4));
-        cache.update(k1, v1);
+        let _ = cache.update(k1, v1);
         assert!((cache.fragmentation_ratio() - 1.0).abs() < 0.01);
 
         // 碎片化：添加刚好填满的块（不会触发自动合并）
         for _ in 0..5 {
             let k = Array2::zeros((10, 4));
             let v = Array2::zeros((10, 4));
-            cache.update(k, v);
+            let _ = cache.update(k, v);
         }
 
         // 6 个块，理想也是 6 个块，比率 = 1
@@ -738,7 +754,7 @@ mod tests {
             let v = Array2::from_shape_fn((100, 64), |(i, j)| {
                 (batch * 100 + i) as f32 * 2.0 + j as f32 * 0.01
             });
-            cache.update(k, v);
+            let _ = cache.update(k, v);
         }
 
         // 验证总行数
@@ -772,7 +788,7 @@ mod tests {
                 [i as f32 * 2.0, (i + 1) as f32 * 2.0],
                 [(i + 2) as f32 * 2.0, (i + 3) as f32 * 2.0],
             ]);
-            cache.update(k, v);
+            let _ = cache.update(k, v);
         }
 
         // 验证：由于每次更新 2 行，刚好等于 chunk_size，所以创建了 3 个块
@@ -826,7 +842,7 @@ mod tests {
         // 禁用 StreamingAttention 时更新 kv_caches
         let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
-        ctx.update_kv(0, k, v);
+        let _ = ctx.update_kv(0, k, v);
 
         // get_kv 应该返回有效数据
         let (kv_k, _kv_v) = ctx.get_kv(0).unwrap();
@@ -857,7 +873,7 @@ mod tests {
         for layer in 0..3 {
             let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
             let v = ndarray::arr2(&[[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]]);
-            ctx.update_kv(layer, k, v);
+            let _ = ctx.update_kv(layer, k, v);
         }
 
         // 验证 seq_len 累积（每次 3 行，共 3 次 = 9）
@@ -903,8 +919,8 @@ mod tests {
         // 写入一些数据
         let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
         let v = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
-        ctx.update_kv(0, k.clone(), v.clone());
-        ctx.update_kv(1, k, v);
+        let _ = ctx.update_kv(0, k.clone(), v.clone());
+        let _ = ctx.update_kv(1, k, v);
 
         assert_eq!(ctx.seq_len, 4);
 
@@ -926,7 +942,7 @@ mod tests {
         let mut ctx_traditional = InferenceContext::new(&config);
         let k = Array2::zeros((2, head_dim));
         let v = Array2::zeros((2, head_dim));
-        ctx_traditional.update_kv(0, k.clone(), v.clone());
+        let _ = ctx_traditional.update_kv(0, k.clone(), v.clone());
 
         // 验证传统模式数据存储正确
         let (kv_k, kv_v) = ctx_traditional.get_kv(0).unwrap();
@@ -956,7 +972,7 @@ mod tests {
         for _ in 0..3 {
             let k = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]);
             let v = ndarray::arr2(&[[5.0, 6.0], [7.0, 8.0]]);
-            ctx.update_kv(0, k, v);
+            let _ = ctx.update_kv(0, k, v);
         }
 
         // 验证 seq_len 累积正确（每次 2 行，共 3 次 = 6）
@@ -990,7 +1006,7 @@ mod tests {
         // 添加数据
         let k = Array2::from_shape_fn((5, 64), |(i, j)| i as f32 + j as f32);
         let v = Array2::from_shape_fn((5, 64), |(i, j)| (i as f32 + j as f32) * 2.0);
-        layer.update(k, v);
+        let _ = layer.update(k, v);
 
         assert!(!layer.is_empty());
         assert_eq!(layer.total_rows(), 5);
@@ -1016,7 +1032,7 @@ mod tests {
         // 添加数据后返回第一个块
         let k = Array2::zeros((10, 64));
         let v = Array2::zeros((10, 64));
-        layer.update(k, v);
+        let _ = layer.update(k, v);
 
         let (first_k, first_v) = layer.get_first_chunk().unwrap();
         assert_eq!(first_k.dim(), (10, 64));
@@ -1032,7 +1048,7 @@ mod tests {
         for i in 0..3 {
             let k = Array2::from_shape_fn((5, 4), |(r, c)| (i * 5 + r) as f32 + c as f32);
             let v = Array2::zeros((5, 4));
-            layer.update(k, v);
+            let _ = layer.update(k, v);
         }
 
         // 验证迭代器遍历所有块
@@ -1053,7 +1069,7 @@ mod tests {
 
         let k = Array2::zeros((5, 64));
         let v = Array2::zeros((5, 64));
-        layer.update(k, v);
+        let _ = layer.update(k, v);
 
         // 获取可变引用并修改数据
         if let Some((k_mut, v_mut)) = layer.get_chunk_mut(0) {
@@ -1078,7 +1094,7 @@ mod tests {
         // 单个块且未满
         let k = Array2::zeros((5, 4));
         let v = Array2::zeros((5, 4));
-        layer.update(k, v);
+        let _ = layer.update(k, v);
 
         // 5行，理想块数=1，实际块数=1，比率=1.0
         assert!((layer.fragmentation_ratio() - 1.0).abs() < 0.01);
@@ -1091,7 +1107,7 @@ mod tests {
 
         let k = Array2::zeros((50, 64));
         let v = Array2::zeros((50, 64));
-        layer.update(k, v);
+        let _ = layer.update(k, v);
 
         assert_eq!(layer.chunk_count(), 1);
         layer.defrag(); // 应该立即返回，不做任何事
@@ -1111,7 +1127,7 @@ mod tests {
         // 写入一些数据使seq_len超过阈值
         let k = Array2::zeros((150, config.hidden_size / config.num_attention_heads));
         let v = Array2::zeros((150, config.hidden_size / config.num_attention_heads));
-        ctx.update_kv(0, k, v);
+        let _ = ctx.update_kv(0, k, v);
 
         // seq_len > threshold，应该使用DSA
         assert!(ctx.should_use_dsa(100));

@@ -1,15 +1,18 @@
 #![allow(dead_code)]
 
-use axum::{extract::{Path, Query, State}, Json};
-use serde::{Deserialize, Serialize};
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+use crate::db::models::UserRole;
 use crate::error::AppError;
 use crate::AppState;
-use crate::db::models::UserRole;
 
 // ============ 请求/响应结构体 ============
 
@@ -127,14 +130,16 @@ fn row_to_user_info(row: sqlx::sqlite::SqliteRow) -> UserInfoResponse {
 
 fn generate_temporary_password() -> String {
     let mut rng = thread_rng();
-    (0..12).map(|_| {
-        let b = rng.gen::<u8>();
-        match b % 3 {
-            0 => (b'0' + (b % 10)) as char,
-            1 => (b'a' + (b % 26)) as char,
-            _ => (b'A' + (b % 26)) as char,
-        }
-    }).collect()
+    (0..12)
+        .map(|_| {
+            let b = rng.gen::<u8>();
+            match b % 3 {
+                0 => (b'0' + (b % 10)) as char,
+                1 => (b'a' + (b % 26)) as char,
+                _ => (b'A' + (b % 26)) as char,
+            }
+        })
+        .collect()
 }
 
 // ============ API 处理函数 ============
@@ -154,13 +159,11 @@ pub async fn list_users(
     let total: i64 = count_row.get(0);
 
     // 查询数据（按创建时间倒序）
-    let rows = sqlx::query(
-        "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    )
-    .bind(size as i64)
-    .bind(((page - 1) * size) as i64)
-    .fetch_all(&*state.pool)
-    .await?;
+    let rows = sqlx::query("SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .bind(size as i64)
+        .bind(((page - 1) * size) as i64)
+        .fetch_all(&*state.pool)
+        .await?;
 
     let users: Vec<UserInfoResponse> = rows.into_iter().map(row_to_user_info).collect();
 
@@ -226,12 +229,10 @@ pub async fn get_user_detail(
     let user_info = row_to_user_info(row);
 
     // TODO: 从审计日志表获取登录历史（如果有的话）
-    let login_history = vec![
-        LoginHistoryRecord {
-            login_time: None,
-            ip_address: None,
-        }
-    ];
+    let login_history = vec![LoginHistoryRecord {
+        login_time: None,
+        ip_address: None,
+    }];
 
     Ok(Json(UserDetailResponse {
         user: user_info,
@@ -261,7 +262,10 @@ pub async fn update_user(
         return Err(AppError::BadRequest("没有要更新的字段".into()));
     }
 
-    let sql = format!("UPDATE users SET {} WHERE id = ? RETURNING *", updates.join(", "));
+    let sql = format!(
+        "UPDATE users SET {} WHERE id = ? RETURNING *",
+        updates.join(", ")
+    );
 
     let mut query = sqlx::query(&sql);
     if let Some(email) = &req.email {
@@ -316,18 +320,16 @@ pub async fn update_role(
 
     // 验证角色值
     match req.role {
-        0..=2 => {},
+        0..=2 => {}
         _ => return Err(AppError::BadRequest("无效的角色值".into())),
     }
 
-    let row = sqlx::query(
-        "UPDATE users SET role = ?, updated_at = ? WHERE id = ? RETURNING *"
-    )
-    .bind(req.role)
-    .bind(&now)
-    .bind(id)
-    .fetch_one(&*state.pool)
-    .await?;
+    let row = sqlx::query("UPDATE users SET role = ?, updated_at = ? WHERE id = ? RETURNING *")
+        .bind(req.role)
+        .bind(&now)
+        .bind(id)
+        .fetch_one(&*state.pool)
+        .await?;
 
     let role_name = match UserRole::from(req.role) {
         UserRole::Admin => "管理员",
@@ -353,17 +355,20 @@ pub async fn update_status(
     let is_active = match req.status.to_lowercase().as_str() {
         "active" | "enabled" | "1" | "true" => true,
         "disabled" | "0" | "false" => false,
-        _ => return Err(AppError::BadRequest("无效的状态值，应为 active 或 disabled".into())),
+        _ => {
+            return Err(AppError::BadRequest(
+                "无效的状态值，应为 active 或 disabled".into(),
+            ))
+        }
     };
 
-    let row = sqlx::query(
-        "UPDATE users SET is_active = ?, updated_at = ? WHERE id = ? RETURNING *"
-    )
-    .bind(is_active)
-    .bind(&now)
-    .bind(id)
-    .fetch_one(&*state.pool)
-    .await?;
+    let row =
+        sqlx::query("UPDATE users SET is_active = ?, updated_at = ? WHERE id = ? RETURNING *")
+            .bind(is_active)
+            .bind(&now)
+            .bind(id)
+            .fetch_one(&*state.pool)
+            .await?;
 
     let status_text = if is_active { "启用" } else { "禁用" };
 
@@ -386,7 +391,7 @@ pub async fn reset_password(
                 return Err(AppError::BadRequest("密码长度至少6位".into()));
             }
             pwd
-        },
+        }
         None => generate_temporary_password(),
     };
 
@@ -435,8 +440,7 @@ pub async fn update_my_password(
     let current_hash: String = row.get("password_hash");
 
     // 验证旧密码
-    let valid = bcrypt::verify(&req.old_password, &current_hash)
-        .unwrap_or(false);
+    let valid = bcrypt::verify(&req.old_password, &current_hash).unwrap_or(false);
 
     if !valid {
         return Err(AppError::BadRequest("旧密码错误".into()));
@@ -500,16 +504,25 @@ mod tests {
     async fn create_test_state(pool: &sqlx::SqlitePool) -> AppState {
         AppState {
             pool: Arc::new(pool.clone()),
-            proxy: Arc::new(crate::services::UpstreamProxy::new("http://localhost:8080", 30)),
+            proxy: Arc::new(crate::services::UpstreamProxy::new(
+                "http://localhost:8080",
+                30,
+            )),
             config: crate::config::AdminConfig::default(),
         }
     }
 
     /// 辅助函数：在数据库中插入一个测试用户，返回用户 ID
-    async fn create_test_user(pool: &sqlx::SqlitePool, username: &str, email: &str, password: &str, role: i32) -> i64 {
+    async fn create_test_user(
+        pool: &sqlx::SqlitePool,
+        username: &str,
+        email: &str,
+        password: &str,
+        role: i32,
+    ) -> i64 {
         let password_hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).unwrap();
         let result = sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)"
+            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
         )
         .bind(username)
         .bind(email)
@@ -530,8 +543,15 @@ mod tests {
 
         let response = list_users(
             State(state),
-            Query(UserQueryParams { page: Some(1), page_size: Some(20), keyword: None, role: None, status: None })
-        ).await;
+            Query(UserQueryParams {
+                page: Some(1),
+                page_size: Some(20),
+                keyword: None,
+                role: None,
+                status: None,
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -552,8 +572,15 @@ mod tests {
 
         let response = list_users(
             State(state),
-            Query(UserQueryParams { page: Some(1), page_size: Some(20), keyword: None, role: None, status: None })
-        ).await;
+            Query(UserQueryParams {
+                page: Some(1),
+                page_size: Some(20),
+                keyword: None,
+                role: None,
+                status: None,
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -568,14 +595,28 @@ mod tests {
 
         // 插入 5 个用户
         for i in 0..5 {
-            create_test_user(&pool, &format!("user{}", i), &format!("user{}@test.com", i), "password123", 0).await;
+            create_test_user(
+                &pool,
+                &format!("user{}", i),
+                &format!("user{}@test.com", i),
+                "password123",
+                0,
+            )
+            .await;
         }
 
         // 第一页，每页 2 条
         let response = list_users(
             State(state),
-            Query(UserQueryParams { page: Some(1), page_size: Some(2), keyword: None, role: None, status: None })
-        ).await;
+            Query(UserQueryParams {
+                page: Some(1),
+                page_size: Some(2),
+                keyword: None,
+                role: None,
+                status: None,
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -587,8 +628,15 @@ mod tests {
         let state = create_test_state(&pool).await;
         let response = list_users(
             State(state),
-            Query(UserQueryParams { page: Some(2), page_size: Some(2), keyword: None, role: None, status: None })
-        ).await;
+            Query(UserQueryParams {
+                page: Some(2),
+                page_size: Some(2),
+                keyword: None,
+                role: None,
+                status: None,
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -603,8 +651,15 @@ mod tests {
 
         let response = list_users(
             State(state),
-            Query(UserQueryParams { page: None, page_size: None, keyword: None, role: None, status: None })
-        ).await;
+            Query(UserQueryParams {
+                page: None,
+                page_size: None,
+                keyword: None,
+                role: None,
+                status: None,
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -719,7 +774,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_user_detail_success() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "detailuser", "detail@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "detailuser", "detail@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let response = get_user_detail(axum::extract::Path(user_id), State(state)).await;
@@ -752,7 +808,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_user_email_only() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "updateemail", "old@email.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "updateemail", "old@email.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let request = UpdateUserRequest {
@@ -770,7 +827,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_user_role_only() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "updaterole", "role@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "updaterole", "role@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let request = UpdateUserRequest {
@@ -788,7 +846,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_user_both_fields() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "updateboth", "both@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "updateboth", "both@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let request = UpdateUserRequest {
@@ -807,7 +866,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_user_only_updated_at() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "onlyupdate", "onlyupdate@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "onlyupdate", "onlyupdate@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         // 当 email 和 role 都是 None 时，仍然会更新 updated_at 字段
@@ -832,7 +892,8 @@ mod tests {
             role: None,
         };
 
-        let response = update_user(axum::extract::Path(99999i64), State(state), Json(request)).await;
+        let response =
+            update_user(axum::extract::Path(99999i64), State(state), Json(request)).await;
 
         assert!(response.is_err()); // 数据库错误（找不到行）
     }
@@ -842,7 +903,8 @@ mod tests {
     #[tokio::test]
     async fn test_delete_user_success() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "todelete", "delete@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "todelete", "delete@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let response = delete_user(axum::extract::Path(user_id), State(state)).await;
@@ -889,7 +951,12 @@ mod tests {
         assert!(response.is_ok());
         let json = response.unwrap();
         assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
-        assert!(json.get("message").unwrap().as_str().unwrap().contains("管理员"));
+        assert!(json
+            .get("message")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("管理员"));
     }
 
     #[tokio::test]
@@ -904,7 +971,12 @@ mod tests {
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert!(json.get("message").unwrap().as_str().unwrap().contains("操作员"));
+        assert!(json
+            .get("message")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("操作员"));
     }
 
     #[tokio::test]
@@ -919,13 +991,19 @@ mod tests {
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert!(json.get("message").unwrap().as_str().unwrap().contains("查看者"));
+        assert!(json
+            .get("message")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("查看者"));
     }
 
     #[tokio::test]
     async fn test_update_role_invalid_value() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "invalidrole", "invalid@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "invalidrole", "invalid@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let request = UpdateRoleRequest { role: 99 }; // 无效的角色值
@@ -944,46 +1022,74 @@ mod tests {
     #[tokio::test]
     async fn test_update_status_to_active() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "statusactive", "status@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "statusactive", "status@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
-        let request = UpdateStatusRequest { status: "active".to_string() };
+        let request = UpdateStatusRequest {
+            status: "active".to_string(),
+        };
 
-        let response = update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
+        let response =
+            update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
         assert_eq!(json.get("success").and_then(|v| v.as_bool()), Some(true));
-        assert!(json.get("message").unwrap().as_str().unwrap().contains("启用"));
+        assert!(json
+            .get("message")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("启用"));
     }
 
     #[tokio::test]
     async fn test_update_status_to_disabled() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "statusdisable", "disable@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "statusdisable", "disable@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
-        let request = UpdateStatusRequest { status: "disabled".to_string() };
+        let request = UpdateStatusRequest {
+            status: "disabled".to_string(),
+        };
 
-        let response = update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
+        let response =
+            update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert!(json.get("message").unwrap().as_str().unwrap().contains("禁用"));
+        assert!(json
+            .get("message")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("禁用"));
     }
 
     #[tokio::test]
     async fn test_update_status_variants() {
         let pool = init_test_pool().await;
-        
+
         // 测试各种有效的状态值
         for status in &["enabled", "1", "true"] {
-            let user_id = create_test_user(&pool, &format!("status_{}", status), &format!("{}@test.com", status), "password123", 0).await;
+            let user_id = create_test_user(
+                &pool,
+                &format!("status_{}", status),
+                &format!("{}@test.com", status),
+                "password123",
+                0,
+            )
+            .await;
             let state = create_test_state(&pool).await;
 
-            let request = UpdateStatusRequest { status: status.to_string() };
-            let response = update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
-            
+            let request = UpdateStatusRequest {
+                status: status.to_string(),
+            };
+            let response =
+                update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
+
             assert!(response.is_ok(), "Status '{}' should be valid", status);
         }
     }
@@ -991,12 +1097,22 @@ mod tests {
     #[tokio::test]
     async fn test_update_status_invalid() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "statusinvalid", "invalidstatus@test.com", "password123", 0).await;
+        let user_id = create_test_user(
+            &pool,
+            "statusinvalid",
+            "invalidstatus@test.com",
+            "password123",
+            0,
+        )
+        .await;
         let state = create_test_state(&pool).await;
 
-        let request = UpdateStatusRequest { status: "invalid_status".to_string() };
+        let request = UpdateStatusRequest {
+            status: "invalid_status".to_string(),
+        };
 
-        let response = update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
+        let response =
+            update_status(axum::extract::Path(user_id), State(state), Json(request)).await;
 
         assert!(response.is_err());
         match response.err().unwrap() {
@@ -1010,12 +1126,14 @@ mod tests {
     #[tokio::test]
     async fn test_reset_password_auto_generate() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "resetauto", "resetauto@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "resetauto", "resetauto@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let request = ResetPasswordRequest { new_password: None }; // 自动生成临时密码
 
-        let response = reset_password(axum::extract::Path(user_id), State(state), Json(request)).await;
+        let response =
+            reset_password(axum::extract::Path(user_id), State(state), Json(request)).await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -1029,13 +1147,23 @@ mod tests {
     #[tokio::test]
     async fn test_reset_password_custom_password() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "resetcustom", "resetcustom@test.com", "password123", 0).await;
+        let user_id = create_test_user(
+            &pool,
+            "resetcustom",
+            "resetcustom@test.com",
+            "password123",
+            0,
+        )
+        .await;
         let state = create_test_state(&pool).await;
 
         let new_pass = "newsecurepassword";
-        let request = ResetPasswordRequest { new_password: Some(new_pass.to_string()) };
+        let request = ResetPasswordRequest {
+            new_password: Some(new_pass.to_string()),
+        };
 
-        let response = reset_password(axum::extract::Path(user_id), State(state), Json(request)).await;
+        let response =
+            reset_password(axum::extract::Path(user_id), State(state), Json(request)).await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -1046,12 +1174,16 @@ mod tests {
     #[tokio::test]
     async fn test_reset_password_short_custom_password() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "resetshort", "resetshort@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "resetshort", "resetshort@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
-        let request = ResetPasswordRequest { new_password: Some("12345".to_string()) }; // 太短
+        let request = ResetPasswordRequest {
+            new_password: Some("12345".to_string()),
+        }; // 太短
 
-        let response = reset_password(axum::extract::Path(user_id), State(state), Json(request)).await;
+        let response =
+            reset_password(axum::extract::Path(user_id), State(state), Json(request)).await;
 
         assert!(response.is_err());
         match response.err().unwrap() {
@@ -1065,7 +1197,14 @@ mod tests {
     #[tokio::test]
     async fn test_update_my_password_success() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "mypassword", "mypassword@test.com", "oldpassword123", 0).await;
+        let user_id = create_test_user(
+            &pool,
+            "mypassword",
+            "mypassword@test.com",
+            "oldpassword123",
+            0,
+        )
+        .await;
         let state = create_test_state(&pool).await;
 
         let claims = crate::auth::jwt::Claims {
@@ -1082,11 +1221,8 @@ mod tests {
             confirm_password: "newpassword123".to_string(),
         };
 
-        let response = update_my_password(
-            State(state),
-            axum::Extension(claims),
-            Json(request)
-        ).await;
+        let response =
+            update_my_password(State(state), axum::Extension(claims), Json(request)).await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -1096,7 +1232,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_my_password_wrong_old_password() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "wrongold", "wrongold@test.com", "correctpassword", 0).await;
+        let user_id =
+            create_test_user(&pool, "wrongold", "wrongold@test.com", "correctpassword", 0).await;
         let state = create_test_state(&pool).await;
 
         let claims = crate::auth::jwt::Claims {
@@ -1113,11 +1250,8 @@ mod tests {
             confirm_password: "newpassword123".to_string(),
         };
 
-        let response = update_my_password(
-            State(state),
-            axum::Extension(claims),
-            Json(request)
-        ).await;
+        let response =
+            update_my_password(State(state), axum::Extension(claims), Json(request)).await;
 
         assert!(response.is_err());
         match response.err().unwrap() {
@@ -1129,7 +1263,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_my_password_mismatch() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "mismatch", "mismatch@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "mismatch", "mismatch@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let claims = crate::auth::jwt::Claims {
@@ -1146,11 +1281,8 @@ mod tests {
             confirm_password: "newpass2".to_string(), // 不一致
         };
 
-        let response = update_my_password(
-            State(state),
-            axum::Extension(claims),
-            Json(request)
-        ).await;
+        let response =
+            update_my_password(State(state), axum::Extension(claims), Json(request)).await;
 
         assert!(response.is_err());
         match response.err().unwrap() {
@@ -1162,7 +1294,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_my_password_too_short() {
         let pool = init_test_pool().await;
-        let user_id = create_test_user(&pool, "tooshort", "tooshort@test.com", "password123", 0).await;
+        let user_id =
+            create_test_user(&pool, "tooshort", "tooshort@test.com", "password123", 0).await;
         let state = create_test_state(&pool).await;
 
         let claims = crate::auth::jwt::Claims {
@@ -1179,11 +1312,8 @@ mod tests {
             confirm_password: "12345".to_string(),
         };
 
-        let response = update_my_password(
-            State(state),
-            axum::Extension(claims),
-            Json(request)
-        ).await;
+        let response =
+            update_my_password(State(state), axum::Extension(claims), Json(request)).await;
 
         assert!(response.is_err());
         match response.err().unwrap() {

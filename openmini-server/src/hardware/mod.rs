@@ -27,8 +27,8 @@
 //! - 兆芯 (x86-64)
 
 pub mod cpu;
-pub mod device;
 pub mod detector;
+pub mod device;
 pub mod ess;
 pub mod gpu;
 pub mod hyperthreading;

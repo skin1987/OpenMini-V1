@@ -13,7 +13,7 @@
 //! - **healthy**: 所有组件正常
 //! - **degraded**: 部分组件异常，但服务仍可用
 //! - **unhealthy**: 关键组件故障，服务不可用
-//! 
+//!
 //! 使用 ts-rs 自动生成 TypeScript 类型定义，确保前后端类型一致性。
 
 use std::sync::Arc;
@@ -40,7 +40,7 @@ pub struct HealthStatus {
     /// 各组件状态
     pub components: Vec<ComponentHealth>,
     /// 响应时间戳 (ISO 8601 格式字符串)
-    /// 
+    ///
     /// **注意**: 在 Rust 中使用 DateTime<Utc>，
     /// 但在 TypeScript 中导出为 string 类型以保持兼容性。
     #[ts(type = "string")]
@@ -448,11 +448,7 @@ impl Default for HealthChecker {
 // 新增: Kubernetes 风格的探针端点
 // ============================================================================
 
-use axum::{
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde_json::json;
 
 /// 就绪探针 (Readiness Probe)
@@ -501,11 +497,10 @@ pub async fn readiness_check() -> impl IntoResponse {
 /// 始终返回 200（除非进程本身崩溃）。
 pub async fn liveness_check() -> impl IntoResponse {
     let uptime = {
-        
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs()  // 简化实现：实际应记录启动时间
+            .as_secs() // 简化实现：实际应记录启动时间
     };
 
     let response = json!({
@@ -531,19 +526,17 @@ pub async fn model_health_check() -> impl IntoResponse {
 
     let model_info = if !model_path.as_os_str().is_empty() && model_path.exists() {
         match std::fs::metadata(&model_path) {
-            Ok(meta) => {
-                Some(json!({
-                    "model_loaded": true,
-                    "model_name": model_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-                    "model_path": model_path.to_string_lossy(),
-                    "model_size_bytes": meta.len(),
-                    "model_size_mb": meta.len() / (1024 * 1024),
-                    "last_modified": meta.modified()
-                        .ok()
-                        .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
-                        .unwrap_or_else(|| "unknown".to_string())
-                }))
-            }
+            Ok(meta) => Some(json!({
+                "model_loaded": true,
+                "model_name": model_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                "model_path": model_path.to_string_lossy(),
+                "model_size_bytes": meta.len(),
+                "model_size_mb": meta.len() / (1024 * 1024),
+                "last_modified": meta.modified()
+                    .ok()
+                    .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
+                    .unwrap_or_else(|| "unknown".to_string())
+            })),
             Err(_) => None,
         }
     } else {
@@ -557,7 +550,7 @@ pub async fn model_health_check() -> impl IntoResponse {
             "model_name": null,
             "model_path": model_path.to_string_lossy(),
             "error": "Model not loaded or file not found"
-        })
+        }),
     };
 
     (StatusCode::OK, Json(response)).into_response()

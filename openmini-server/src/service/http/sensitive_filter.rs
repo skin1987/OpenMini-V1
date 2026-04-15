@@ -1,8 +1,4 @@
-use axum::{
-    middleware::Next,
-    response::Response,
-    extract::Request,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 use tracing::info;
 
 /// 敏感数据正则模式
@@ -15,10 +11,7 @@ const SENSITIVE_PATTERNS: &[&str] = &[
 /// 敏感信息脱敏中间件
 ///
 /// 自动过滤日志和响应中的 API Key、密码等敏感字段。
-pub async fn sensitive_data_filter_middleware(
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn sensitive_data_filter_middleware(req: Request, next: Next) -> Response {
     // 记录请求前脱敏处理
     if let Some(headers) = req.headers().get("authorization") {
         if let Ok(auth_str) = headers.to_str() {

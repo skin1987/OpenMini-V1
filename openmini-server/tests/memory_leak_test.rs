@@ -52,8 +52,7 @@ fn get_memory_test_duration() -> Duration {
 
 /// 是否在 CI 环境
 fn is_ci_env() -> bool {
-    std::env::var("CI").is_ok()
-        || std::env::var("GITHUB_ACTIONS").is_ok()
+    std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok()
 }
 
 /// 计算向量平均值
@@ -94,7 +93,7 @@ fn output_leak_report(test_name: &str, report: &serde_json::Value) {
 /// - 超过 50% 的持续增长视为潜在泄漏
 #[test]
 fn test_memory_stability_over_time() {
-    use sysinfo::{System, RefreshKind, MemoryRefreshKind};
+    use sysinfo::{MemoryRefreshKind, RefreshKind, System};
 
     let duration = get_memory_test_duration();
     let snapshot_interval = Duration::from_secs(5);
@@ -180,10 +179,19 @@ fn test_memory_stability_over_time() {
     let analysis_result = analyze_memory_trend(&memory_snapshots);
 
     eprintln!("\n  Trend Analysis:");
-    eprintln!("    First quarter avg: {:.1} MB", analysis_result.first_quarter_avg / 1024.0);
-    eprintln!("    Last quarter avg: {:.1} MB", analysis_result.last_quarter_avg / 1024.0);
+    eprintln!(
+        "    First quarter avg: {:.1} MB",
+        analysis_result.first_quarter_avg / 1024.0
+    );
+    eprintln!(
+        "    Last quarter avg: {:.1} MB",
+        analysis_result.last_quarter_avg / 1024.0
+    );
     eprintln!("    Growth ratio: {:.2}", analysis_result.growth_ratio);
-    eprintln!("    Peak memory: {} MB", analysis_result.peak_memory / 1024 / 1024);
+    eprintln!(
+        "    Peak memory: {} MB",
+        analysis_result.peak_memory / 1024 / 1024
+    );
     eprintln!("    Status: {}", analysis_result.status);
 
     // 输出 JSON 报告
@@ -238,9 +246,7 @@ fn test_memory_stability_over_time() {
 /// - 验证最终所有块都被正确回收
 #[test]
 fn test_kv_cache_memory_leak() {
-    use openmini_server::hardware::kv_cache::{
-        block_manager::BlockManager, block::KVCacheConfig,
-    };
+    use openmini_server::hardware::kv_cache::{block::KVCacheConfig, block_manager::BlockManager};
 
     let num_blocks = 512;
     let block_size = 16;
@@ -279,7 +285,9 @@ fn test_kv_cache_memory_leak() {
             // 空间不足时先释放一些再重试
             if !pending_ids.is_empty() {
                 let free_batch_size = (pending_ids.len() / 2).max(1);
-                let to_free: Vec<usize> = pending_ids.drain(..free_batch_size.min(pending_ids.len())).collect();
+                let to_free: Vec<usize> = pending_ids
+                    .drain(..free_batch_size.min(pending_ids.len()))
+                    .collect();
                 manager.free(&to_free);
             }
             continue;
@@ -291,7 +299,10 @@ fn test_kv_cache_memory_leak() {
 
         // 释放部分或全部
         let free_count = rng.gen_range(1..=ids.len());
-        let (to_keep, to_free): (Vec<_>, Vec<_>) = ids.into_iter().enumerate().partition(|&(i, _)| i >= free_count);
+        let (to_keep, to_free): (Vec<_>, Vec<_>) = ids
+            .into_iter()
+            .enumerate()
+            .partition(|&(i, _)| i >= free_count);
         let free_ids: Vec<usize> = to_free.into_iter().map(|(_, id)| id).collect();
         let keep_ids: Vec<usize> = to_keep.into_iter().map(|(_, id)| id).collect();
         manager.free(&free_ids);
@@ -301,7 +312,10 @@ fn test_kv_cache_memory_leak() {
         if cycle % (num_cycles / 10) == 0 {
             eprintln!(
                 "  Cycle {}/{}: Free={}, Allocated={}",
-                cycle, num_cycles, manager.available_blocks(), manager.allocated_blocks()
+                cycle,
+                num_cycles,
+                manager.available_blocks(),
+                manager.allocated_blocks()
             );
         }
     }
@@ -375,8 +389,10 @@ async fn test_connection_pool_leak_detection() {
     let pool = Arc::new(ConnectionPool::new(pool_size));
     let initial_stats = pool.stats().snapshot();
 
-    eprintln!("  Initial stats: created={}, active={}",
-        initial_stats.total_created, initial_stats.active_connections);
+    eprintln!(
+        "  Initial stats: created={}, active={}",
+        initial_stats.total_created, initial_stats.active_connections
+    );
 
     let mut handles = Vec::with_capacity(num_threads);
 
@@ -395,10 +411,7 @@ async fn test_connection_pool_leak_detection() {
                         pool.release(conn);
                     }
                     None => {
-                        eprintln!(
-                            "[leak] Thread {} op {}: Failed to acquire",
-                            thread_id, op
-                        );
+                        eprintln!("[leak] Thread {} op {}: Failed to acquire", thread_id, op);
                     }
                 }
             }
@@ -419,16 +432,23 @@ async fn test_connection_pool_leak_detection() {
 
     eprintln!("\n[leak] Connection Pool Results:");
     eprintln!("  Total operations: {}", num_threads * ops_per_thread);
-    eprintln!("  Final active connections: {}", final_stats.active_connections);
+    eprintln!(
+        "  Final active connections: {}",
+        final_stats.active_connections
+    );
     eprintln!("  Total created: {}", final_stats.total_created);
     eprintln!("  Total reused: {}", final_stats.total_reused);
     eprintln!(
         "  Acquire count: {}",
-        pool.stats().acquire_count.load(std::sync::atomic::Ordering::Relaxed)
+        pool.stats()
+            .acquire_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     );
     eprintln!(
         "  Release count: {}",
-        pool.stats().release_count.load(std::sync::atomic::Ordering::Relaxed)
+        pool.stats()
+            .release_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     );
 
     // 关键断言：活跃连接必须为 0
@@ -439,12 +459,19 @@ async fn test_connection_pool_leak_detection() {
     );
 
     // 获取/释放计数应匹配
-    let acquire_count =
-        pool.stats().acquire_count.load(std::sync::atomic::Ordering::Relaxed);
-    let release_count =
-        pool.stats().release_count.load(std::sync::atomic::Ordering::Relaxed);
+    let acquire_count = pool
+        .stats()
+        .acquire_count
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let release_count = pool
+        .stats()
+        .release_count
+        .load(std::sync::atomic::Ordering::Relaxed);
 
-    eprintln!("  Acquire/Release balance: acquire={}, release={}", acquire_count, release_count);
+    eprintln!(
+        "  Acquire/Release balance: acquire={}, release={}",
+        acquire_count, release_count
+    );
 
     // 允许少量差异（边界情况），但应基本平衡
     let diff = if acquire_count > release_count {
@@ -544,7 +571,11 @@ fn test_thread_pool_task_leak() {
         }),
     );
 
-    assert_eq!(done, total_tasks, "Task leak detected! {}/{} completed", done, total_tasks);
+    assert_eq!(
+        done, total_tasks,
+        "Task leak detected! {}/{} completed",
+        done, total_tasks
+    );
 }
 
 // ============================================================================
@@ -632,7 +663,10 @@ fn execute_typical_workload(iterations: &Arc<AtomicUsize>, errors: &Arc<AtomicUs
         let _sum: f64 = vec.iter().map(|&x| x.sin()).sum();
 
         // 2. 字符串处理
-        let s = format!("inference payload data {}", iterations.load(Ordering::Relaxed));
+        let s = format!(
+            "inference payload data {}",
+            iterations.load(Ordering::Relaxed)
+        );
         let _parsed: usize = s.parse().unwrap_or(0);
 
         // 3. HashMap 操作

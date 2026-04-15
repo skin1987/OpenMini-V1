@@ -111,7 +111,7 @@ impl PaginationParams {
     /// 获取分页参数，带默认值和上限限制
     pub fn normalized(&self) -> (i64, i64) {
         let page = self.page.unwrap_or(1).max(1) as i64;
-        let page_size = self.page_size.unwrap_or(20).min(100).max(1) as i64;
+        let page_size = self.page_size.unwrap_or(20).clamp(1, 100) as i64;
         (page, page_size)
     }
 
@@ -172,9 +172,20 @@ pub async fn list_active_sessions(
         where_clause
     );
 
-    let mut query = sqlx::query_as::<_, (String, Option<i64>, Option<String>, Option<String>, String, String, String, i64, i64)>(
-        &query_str
-    );
+    let mut query = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+            i64,
+        ),
+    >(&query_str);
 
     for value in &bind_values {
         query = query.bind(value);
@@ -200,10 +211,7 @@ pub async fn list_active_sessions(
         .collect();
 
     // 查询总数
-    let count_query = format!(
-        "SELECT COUNT(*) FROM sessions {}",
-        where_clause
-    );
+    let count_query = format!("SELECT COUNT(*) FROM sessions {}", where_clause);
 
     let mut count_query_builder = sqlx::query_as::<_, (i64,)>(&count_query);
     for value in &bind_values {
@@ -232,11 +240,24 @@ pub async fn get_session_detail(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, AppError> {
     // 查询会话基本信息
-    let session_row = sqlx::query_as::<_, (String, Option<i64>, Option<String>, Option<String>, String, String, String, i64, i64)>(
+    let session_row = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+            i64,
+        ),
+    >(
         "SELECT s.*, u.username \
          FROM sessions s \
          LEFT JOIN users u ON s.user_id = u.id \
-         WHERE s.session_id = ?"
+         WHERE s.session_id = ?",
     )
     .bind(&session_id)
     .fetch_optional(&*state.pool)
@@ -261,7 +282,7 @@ pub async fn get_session_detail(
          FROM session_messages \
          WHERE session_id = ? \
          ORDER BY created_at ASC \
-         LIMIT 100"
+         LIMIT 100",
     )
     .bind(&session_id)
     .fetch_all(&*state.pool)
@@ -309,8 +330,8 @@ pub async fn get_session_stats(
     Query(time_range): Query<serde_json::Value>,
 ) -> Result<Json<Value>, AppError> {
     // 解析时间范围，默认为 last 24 hours
-    let range: TimeRange = serde_json::from_value(time_range.clone())
-        .unwrap_or(TimeRange::Last24Hours);
+    let range: TimeRange =
+        serde_json::from_value(time_range.clone()).unwrap_or(TimeRange::Last24Hours);
 
     let time_condition = range.to_sql_condition();
     let range_label = match &range {
@@ -358,25 +379,18 @@ pub async fn get_session_stats(
         response_times_result,
     ) = tokio::try_join!(
         // 总会话数
-        sqlx::query_as::<_, (i64,)>(&total_sessions_sql)
-        .fetch_one(&*state.pool),
-
+        sqlx::query_as::<_, (i64,)>(&total_sessions_sql).fetch_one(&*state.pool),
         // 活跃会话数
-        sqlx::query_as::<_, (i64,)>(
-            "SELECT COUNT(*) FROM sessions WHERE status = 'active'"
-        )
-        .fetch_one(&*state.pool),
-
+        sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM sessions WHERE status = 'active'")
+            .fetch_one(&*state.pool),
         // 已完成会话数
-        sqlx::query_as::<_, (i64,)>(&completed_sessions_sql)
-        .fetch_one(&*state.pool),
-
+        sqlx::query_as::<_, (i64,)>(&completed_sessions_sql).fetch_one(&*state.pool),
         // Token 统计
-        sqlx::query_as::<_, (Option<i64>, Option<i64>)>(&tokens_sql)
-        .fetch_one(&*state.pool),
-
+        sqlx::query_as::<_, (Option<i64>, Option<i64>)>(&tokens_sql).fetch_one(&*state.pool),
         // 响应时间统计（从消息表获取）
-        sqlx::query_as::<_, (Option<f64>, Option<f64>, Option<f64>, Option<f64>)>(&response_times_sql)
+        sqlx::query_as::<_, (Option<f64>, Option<f64>, Option<f64>, Option<f64>)>(
+            &response_times_sql
+        )
         .fetch_one(&*state.pool),
     )?;
 
@@ -423,13 +437,11 @@ pub async fn terminate_session(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, AppError> {
     // 检查会话是否存在且为活跃状态
-    let current_status: Option<(String,)> = sqlx::query_as(
-        "SELECT status FROM sessions WHERE session_id = ?"
-    )
-    .bind(&session_id)
-    .fetch_optional(&*state.pool)
-    .await?
-    .map(|row| row);
+    let current_status: Option<(String,)> =
+        sqlx::query_as("SELECT status FROM sessions WHERE session_id = ?")
+            .bind(&session_id)
+            .fetch_optional(&*state.pool)
+            .await?;
 
     match current_status {
         Some((status,)) if status == "active" => {
@@ -471,10 +483,7 @@ pub async fn cleanup_expired_sessions(
     State(state): State<AppState>,
     Query(params): Query<serde_json::Value>,
 ) -> Result<Json<Value>, AppError> {
-    let days: i64 = params
-        .get("days")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(30);
+    let days: i64 = params.get("days").and_then(|v| v.as_i64()).unwrap_or(30);
 
     if days <= 0 {
         return Err(AppError::BadRequest("days 必须大于 0".to_string()));
@@ -483,7 +492,7 @@ pub async fn cleanup_expired_sessions(
     let result = sqlx::query(
         "DELETE FROM sessions \
          WHERE status IN ('completed', 'terminated', 'error') \
-         AND last_activity_at < datetime('now', '-' || ? || ' days')"
+         AND last_activity_at < datetime('now', '-' || ? || ' days')",
     )
     .bind(days)
     .execute(&*state.pool)

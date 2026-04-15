@@ -289,7 +289,7 @@ impl StreamingAttention {
         }
 
         let first_block = start / self.config.block_size;
-        let last_block = (start + actual_len - 1) / self.config.block_size;
+        let last_block = (start + actual_len - 1).div_ceil(self.config.block_size);
 
         // 预检查：确保所有需要的块都存在
         for block_idx in first_block..=last_block {

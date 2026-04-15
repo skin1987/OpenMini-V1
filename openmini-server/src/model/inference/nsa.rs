@@ -251,7 +251,8 @@ impl TokenCompressor {
                     let chunk = tokens.slice(ndarray::s![start..end, ..]);
 
                     // 混合池化：均值 + 最大值的加权组合
-                    let mean_pool: Array1<f32> = chunk.mean_axis(Axis(0)).unwrap_or(Array1::zeros(dim));
+                    let mean_pool: Array1<f32> =
+                        chunk.mean_axis(Axis(0)).unwrap_or(Array1::zeros(dim));
                     let max_pool: Array1<f32> = chunk
                         .axis_iter(Axis(0))
                         .fold(Array1::from_vec(vec![f32::NEG_INFINITY; dim]), |acc, x| {
@@ -348,13 +349,11 @@ impl TopKSelector {
             .enumerate()
             .for_each(|(i, mut row)| {
                 let q_vec = q.row(i);
-                row.iter_mut()
-                    .enumerate()
-                    .for_each(|(j, val)| {
-                        let k_vec = k.row(j);
-                        let dot: f32 = q_vec.iter().zip(k_vec.iter()).map(|(a, b)| a * b).sum();
-                        *val = dot;
-                    });
+                row.iter_mut().enumerate().for_each(|(j, val)| {
+                    let k_vec = k.row(j);
+                    let dot: f32 = q_vec.iter().zip(k_vec.iter()).map(|(a, b)| a * b).sum();
+                    *val = dot;
+                });
             });
 
         // 并行选择 top-k
@@ -493,7 +492,8 @@ impl SlidingWindowAttention {
 
                 // 收集窗口内的 K 和 V
                 let mut attn_scores: Vec<f32> = Vec::with_capacity(window_end - window_start);
-                let mut window_data: Vec<(Vec<f32>, Vec<f32>)> = Vec::with_capacity(window_end - window_start);
+                let mut window_data: Vec<(Vec<f32>, Vec<f32>)> =
+                    Vec::with_capacity(window_end - window_start);
 
                 for j in window_start..window_end {
                     let k_row = k.row(j);
@@ -501,10 +501,7 @@ impl SlidingWindowAttention {
 
                     let dot: f32 = q_vec.iter().zip(k_row.iter()).map(|(a, b)| a * b).sum();
                     attn_scores.push(dot);
-                    window_data.push((
-                        k_row.to_vec(),
-                        v_row.to_vec(),
-                    ));
+                    window_data.push((k_row.to_vec(), v_row.to_vec()));
                 }
 
                 // Softmax 归一化
@@ -514,10 +511,8 @@ impl SlidingWindowAttention {
                         .cloned()
                         .fold(f32::NEG_INFINITY, |a, b| a.max(b));
 
-                    let exp_scores: Vec<f32> = attn_scores
-                        .iter()
-                        .map(|&s| (s - max_score).exp())
-                        .collect();
+                    let exp_scores: Vec<f32> =
+                        attn_scores.iter().map(|&s| (s - max_score).exp()).collect();
 
                     let sum_exp: f32 = exp_scores.iter().sum();
 
@@ -591,10 +586,14 @@ impl NSAFusionLayer {
     pub fn from_unnormalized(raw_weights: [f32; 3]) -> Self {
         let sum: f32 = raw_weights.iter().sum();
         if sum.abs() < f32::EPSILON {
-            Self { weights: [1.0 / 3.0; 3] }
+            Self {
+                weights: [1.0 / 3.0; 3],
+            }
         } else {
             let normalized = raw_weights.map(|w| w / sum);
-            Self { weights: normalized }
+            Self {
+                weights: normalized,
+            }
         }
     }
 
@@ -638,17 +637,20 @@ impl NSAFusionLayer {
         let comp_weight = self.weights[0];
 
         if comp_weight > 0.0 && comp_len > 0 {
-            fused.axis_iter_mut(Axis(0)).enumerate().for_each(|(i, mut row)| {
-                // 使用循环方式访问 compressor（避免索引越界）
-                let comp_idx = (i as f32 * comp_len as f32 / seq_len as f32) as usize;
-                let safe_idx = comp_idx.min(comp_len - 1);
+            fused
+                .axis_iter_mut(Axis(0))
+                .enumerate()
+                .for_each(|(i, mut row)| {
+                    // 使用循环方式访问 compressor（避免索引越界）
+                    let comp_idx = (i as f32 * comp_len as f32 / seq_len as f32) as usize;
+                    let safe_idx = comp_idx.min(comp_len - 1);
 
-                for (d, val) in row.iter_mut().enumerate() {
-                    if d < comp_dim {
-                        *val += compressor_output[[safe_idx, d]] * comp_weight;
+                    for (d, val) in row.iter_mut().enumerate() {
+                        if d < comp_dim {
+                            *val += compressor_output[[safe_idx, d]] * comp_weight;
+                        }
                     }
-                }
-            });
+                });
         }
 
         // 融合 topk_output
@@ -656,22 +658,26 @@ impl NSAFusionLayer {
         if topk_weight > 0.0 {
             let (topk_len, topk_dim) = topk_output.dim();
 
-            fused.axis_iter_mut(Axis(0)).enumerate().for_each(|(i, mut row)| {
-                if i < topk_len {
-                    let topk_row = topk_output.row(i);
-                    for (d, val) in row.iter_mut().enumerate() {
-                        if d < topk_dim {
-                            *val += topk_row[d] * topk_weight;
+            fused
+                .axis_iter_mut(Axis(0))
+                .enumerate()
+                .for_each(|(i, mut row)| {
+                    if i < topk_len {
+                        let topk_row = topk_output.row(i);
+                        for (d, val) in row.iter_mut().enumerate() {
+                            if d < topk_dim {
+                                *val += topk_row[d] * topk_weight;
+                            }
                         }
                     }
-                }
-            });
+                });
         }
 
         // 融合 window_output
         let window_weight = self.weights[2];
         if window_weight > 0.0 {
-            fused.axis_iter_mut(Axis(0))
+            fused
+                .axis_iter_mut(Axis(0))
                 .zip(window_output.axis_iter(Axis(0)))
                 .for_each(|(mut fused_row, win_row)| {
                     for (d, val) in fused_row.iter_mut().enumerate() {
@@ -873,13 +879,16 @@ impl NativeSparseAttention {
         let window_output = self.sliding_window.forward(q, k, v)?;
 
         // Step 4: NSAFusionLayer - 三路融合
-        let output = self.fusion_layer.fuse(&compressor_output, &topk_output, &window_output)?;
+        let output = self
+            .fusion_layer
+            .fuse(&compressor_output, &topk_output, &window_output)?;
 
         // 更新性能统计
         if self.config.enable_stats {
             let elapsed_us = start_time.elapsed().as_micros() as u64;
             self.stats.total_time_us += elapsed_us;
-            self.stats.avg_latency_us = self.stats.total_time_us as f64 / self.stats.total_calls as f64;
+            self.stats.avg_latency_us =
+                self.stats.total_time_us as f64 / self.stats.total_calls as f64;
 
             // 估算内存节省（理论值）
             let original_memory = seq_len * seq_len * num_heads * head_dim;
@@ -932,9 +941,10 @@ impl NativeSparseAttention {
 
         if seq_len <= self.config.medium_seq_threshold {
             // 中序列：NSA 开始显示优势
-            let base_speedup = 1.2 + (seq_len - self.config.short_seq_threshold) as f64
-                / (self.config.medium_seq_threshold - self.config.short_seq_threshold) as f64
-                * 0.8;
+            let base_speedup = 1.2
+                + (seq_len - self.config.short_seq_threshold) as f64
+                    / (self.config.medium_seq_threshold - self.config.short_seq_threshold) as f64
+                    * 0.8;
             return base_speedup;
         }
 
@@ -1172,7 +1182,7 @@ mod tests {
         // 测试中间位置
         let (start, end) = sw.get_window_range(10, 32);
         assert_eq!(start, 3); // 10 - 8 + 1 = 3
-        assert_eq!(end, 11);   // 10 + 1 = 11
+        assert_eq!(end, 11); // 10 + 1 = 11
 
         // 测试起始位置
         let (start, end) = sw.get_window_range(0, 32);
@@ -1361,7 +1371,11 @@ mod tests {
 
         // 长序列：显著提升
         let speedup_long = nsa.estimated_speedup_vs_dsa(32768);
-        assert!(speedup_long >= 1.5, "Long sequence should have significant speedup, got {}", speedup_long);
+        assert!(
+            speedup_long >= 1.5,
+            "Long sequence should have significant speedup, got {}",
+            speedup_long
+        );
     }
 
     #[test]
@@ -1406,11 +1420,7 @@ mod tests {
 
         // 验证加速比 > 2x（理论值）
         let speedup = nsa.estimated_speedup_vs_dsa(32768);
-        assert!(
-            speedup > 2.0,
-            "Speedup should be > 2x, got {:.2}x",
-            speedup
-        );
+        assert!(speedup > 2.0, "Speedup should be > 2x, got {:.2}x", speedup);
     }
 
     // ===== 测试 9: 边界条件和错误处理 =====
@@ -1493,11 +1503,7 @@ mod tests {
             let (q, k, v) = create_test_tokens(seq_len, 128);
             let result = nsa.forward(&q, &k, &v, 4, 32);
 
-            assert!(
-                result.is_ok(),
-                "Failed for sequence length {}",
-                seq_len
-            );
+            assert!(result.is_ok(), "Failed for sequence length {}", seq_len);
 
             let output = result.unwrap();
             assert_eq!(
@@ -1538,11 +1544,7 @@ mod tests {
             let (q, k, v) = create_test_tokens(256, 64);
 
             let result = nsa.forward(&q, &k, &v, 2, 32);
-            assert!(
-                result.is_ok(),
-                "Failed with config: {}",
-                config
-            );
+            assert!(result.is_ok(), "Failed with config: {}", config);
         }
     }
 
@@ -1555,9 +1557,9 @@ mod tests {
 
         for i in 0..seq_len {
             for j in 0..dim {
-                q[[i, j]] = ((i as f32 * 0.1 + j as f32 * 0.01)).sin();
-                k[[i, j]] = ((i as f32 * 0.15 + j as f32 * 0.02)).cos();
-                v[[i, j]] = ((i as f32 * 0.05 + j as f32 * 0.03)).exp() / (1.0 + (i as f32 * 0.001));
+                q[[i, j]] = (i as f32 * 0.1 + j as f32 * 0.01).sin();
+                k[[i, j]] = (i as f32 * 0.15 + j as f32 * 0.02).cos();
+                v[[i, j]] = (i as f32 * 0.05 + j as f32 * 0.03).exp() / (1.0 + (i as f32 * 0.001));
             }
         }
 

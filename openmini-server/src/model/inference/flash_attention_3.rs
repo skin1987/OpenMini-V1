@@ -299,7 +299,10 @@ fn amla_rescale(
         }
 
         // 允许一定的误差（AMLA是近似方法）
-        println!("AMLA vs Standard 最大相对误差: {:.6}%", max_rel_error * 100.0);
+        println!(
+            "AMLA vs Standard 最大相对误差: {:.6}%",
+            max_rel_error * 100.0
+        );
         // 注意：这个阈值可能需要根据实际情况调整
         // AMLA使用整数近似，误差通常在可接受范围内
     }
@@ -389,11 +392,9 @@ fn amla_rescale(
             let start = Instant::now();
             for _ in 0..10000 {
                 let output_flat = output_amla.as_slice_mut().unwrap();
-                let mut arr = ndarray::Array1::from_shape_vec(
-                    output_flat.len(),
-                    output_flat.to_vec(),
-                )
-                .unwrap();
+                let mut arr =
+                    ndarray::Array1::from_shape_vec(output_flat.len(), output_flat.to_vec())
+                        .unwrap();
                 amla_rescale(&mut arr, old_max, new_max, 256.0);
                 output_flat.copy_from_slice(arr.as_slice().unwrap());
             }
@@ -448,7 +449,7 @@ unsafe fn amla_rescale_simd_avx2(
     }
 
     // 处理剩余元素
-    for (_idx, val) in output_block[i..].iter_mut().enumerate() {
+    for val in output_block[i..].iter_mut() {
         if val.is_finite() && *val != 0.0 {
             let bits = val.to_bits();
             let new_bits = bits.wrapping_add(scale_diff_int as u32);

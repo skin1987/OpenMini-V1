@@ -150,7 +150,12 @@ mod tests {
             } else {
                 deq.abs()
             };
-            assert!(rel_error < 0.15, "E4M3 roundtrip error too large: {} -> {}", orig, deq);
+            assert!(
+                rel_error < 0.15,
+                "E4M3 roundtrip error too large: {} -> {}",
+                orig,
+                deq
+            );
         }
     }
 
@@ -167,7 +172,12 @@ mod tests {
             } else {
                 deq.abs()
             };
-            assert!(rel_error < 0.25, "E5M2 roundtrip error too large: {} -> {}", orig, deq);
+            assert!(
+                rel_error < 0.25,
+                "E5M2 roundtrip error too large: {} -> {}",
+                orig,
+                deq
+            );
         }
     }
 

@@ -111,7 +111,10 @@ fn test_concurrent_inference_stress() {
     let latencies = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     eprintln!("\n[stress] Concurrent Inference Stress Test");
-    eprintln!("  Duration: {:?}, Concurrency: {}", duration, concurrent_requests);
+    eprintln!(
+        "  Duration: {:?}, Concurrency: {}",
+        duration, concurrent_requests
+    );
 
     let pool = Arc::new(create_default_pool());
     let start = Instant::now();
@@ -219,7 +222,10 @@ fn test_concurrent_inference_stress() {
 
     // 断言验证
     assert_eq!(total_errors, 0, "Should have no panics/errors");
-    assert!(total_completed > 0, "Should complete at least some requests");
+    assert!(
+        total_completed > 0,
+        "Should complete at least some requests"
+    );
 
     // P99 延迟阈值（CI 放宽要求）
     let p99_threshold = if is_ci_environment() { 2000 } else { 500 };
@@ -251,7 +257,7 @@ fn test_concurrent_inference_stress() {
 /// - 响应时间漂移
 #[test]
 fn test_long_running_stability() {
-    use sysinfo::{System, RefreshKind, MemoryRefreshKind};
+    use sysinfo::{MemoryRefreshKind, RefreshKind, System};
 
     let base_duration = if is_ci_environment() {
         Duration::from_secs(30)
@@ -358,12 +364,12 @@ fn test_long_running_stability() {
         let first_avg: u64 = snapshots[..first_quarter_len]
             .iter()
             .map(|(_, m)| m)
-            .sum::<u64>() as u64
+            .sum::<u64>()
             / first_quarter_len as u64;
         let last_avg: u64 = snapshots[last_quarter_start..]
             .iter()
             .map(|(_, m)| m)
-            .sum::<u64>() as u64
+            .sum::<u64>()
             / first_quarter_len as u64;
 
         eprintln!("  First quarter avg memory: {} MB", first_avg / 1024 / 1024);
@@ -423,15 +429,16 @@ fn test_long_running_stability() {
 /// - 边界条件正确处理
 #[test]
 fn test_kv_cache_under_load() {
-    use openmini_server::hardware::kv_cache::{
-        block_manager::BlockManager, block::KVCacheConfig,
-    };
+    use openmini_server::hardware::kv_cache::{block::KVCacheConfig, block_manager::BlockManager};
 
     let num_blocks = 256;
     let block_size = 16;
 
     eprintln!("\n[stress] KV Cache Under Load Test");
-    eprintln!("  Blocks: {}, Block size: {} tokens", num_blocks, block_size);
+    eprintln!(
+        "  Blocks: {}, Block size: {} tokens",
+        num_blocks, block_size
+    );
 
     let config = KVCacheConfig {
         max_blocks: num_blocks,
@@ -461,7 +468,9 @@ fn test_kv_cache_under_load() {
         if cycle % 100 == 0 {
             eprintln!(
                 "  Cycle {}: Free={}, Allocated={}",
-                cycle, manager.available_blocks(), manager.allocated_blocks()
+                cycle,
+                manager.available_blocks(),
+                manager.allocated_blocks()
             );
             assert_eq!(
                 manager.available_blocks(),
@@ -504,13 +513,22 @@ fn test_kv_cache_under_load() {
         all_ids.extend(allocated.unwrap());
     }
 
-    assert_eq!(all_ids.len(), expected_total, "Expected {} blocks allocated", expected_total);
+    assert_eq!(
+        all_ids.len(),
+        expected_total,
+        "Expected {} blocks allocated",
+        expected_total
+    );
 
     // 剩余的块应该可以分配
     let remaining = num_blocks - expected_total;
     if remaining > 0 {
         let extra = manager2.allocate(remaining, None);
-        assert!(extra.is_ok(), "Should be able to allocate remaining {} blocks", remaining);
+        assert!(
+            extra.is_ok(),
+            "Should be able to allocate remaining {} blocks",
+            remaining
+        );
         all_ids.extend(extra.unwrap());
     }
 
@@ -659,8 +677,7 @@ fn test_thread_pool_saturation() {
     assert_eq!(
         completed, total_tasks,
         "All tasks should complete (completed: {}, expected: {})",
-        completed,
-        total_tasks
+        completed, total_tasks
     );
 }
 
@@ -850,7 +867,7 @@ async fn test_connection_pool_high_concurrency() {
 fn test_dsa_stress() {
     use ndarray::Array2;
     use openmini_server::model::inference::dsa::{
-        DSATopKConfig, sparse_attention_forward, configure_rayon_pool,
+        configure_rayon_pool, sparse_attention_forward, DSATopKConfig,
     };
 
     // 初始化 rayon 线程池
@@ -891,18 +908,15 @@ fn test_dsa_stress() {
 
             for iter in 0..iterations {
                 // 创建测试输入
-                let q: Array2<f32> = Array2::from_shape_fn(
-                    (seq_len, head_dim),
-                    |(i, j)| ((i * head_dim + j) as f32 * 0.01).sin(),
-                );
-                let k: Array2<f32> = Array2::from_shape_fn(
-                    (seq_len, head_dim),
-                    |(i, j)| ((i * head_dim + j) as f32 * 0.01).cos(),
-                );
-                let v: Array2<f32> = Array2::from_shape_fn(
-                    (seq_len, head_dim),
-                    |(i, j)| ((i * head_dim + j) as f32 * 0.01).tan(),
-                );
+                let q: Array2<f32> = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| {
+                    ((i * head_dim + j) as f32 * 0.01).sin()
+                });
+                let k: Array2<f32> = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| {
+                    ((i * head_dim + j) as f32 * 0.01).cos()
+                });
+                let v: Array2<f32> = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| {
+                    ((i * head_dim + j) as f32 * 0.01).tan()
+                });
 
                 let start = Instant::now();
 
@@ -927,10 +941,7 @@ fn test_dsa_stress() {
                         durations.push(elapsed);
                     }
                     Ok(Err(e)) => {
-                        eprintln!(
-                            "    Iter {} failed: {}",
-                            iter, e
-                        );
+                        eprintln!("    Iter {} failed: {}", iter, e);
                     }
                     Err(e) => {
                         eprintln!("    Iter {} panicked: {:?}", iter, e);
@@ -945,7 +956,10 @@ fn test_dsa_stress() {
                 Duration::ZERO
             };
 
-            eprintln!("    Avg duration: {:.2}ms", avg_duration.as_secs_f64() * 1000.0);
+            eprintln!(
+                "    Avg duration: {:.2}ms",
+                avg_duration.as_secs_f64() * 1000.0
+            );
             eprintln!("    NaN detected: {}", has_nan);
             eprintln!("    Inf detected: {}", has_inf);
 
@@ -959,8 +973,16 @@ fn test_dsa_stress() {
             }));
 
             // 断言数值稳定性
-            assert!(!has_nan, "NaN values detected at seq_len={}, sparsity={}%", seq_len, sparsity_name);
-            assert!(!has_inf, "Inf values detected at seq_len={}, sparsity={}%", seq_len, sparsity_name);
+            assert!(
+                !has_nan,
+                "NaN values detected at seq_len={}, sparsity={}%",
+                seq_len, sparsity_name
+            );
+            assert!(
+                !has_inf,
+                "Inf values detected at seq_len={}, sparsity={}%",
+                seq_len, sparsity_name
+            );
         }
     }
 

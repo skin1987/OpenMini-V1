@@ -341,7 +341,7 @@ mod simulated_low_end_tests {
         }
 
         // 乘法一致性
-        let mul_result = sse_ops.mul(&test_data, &vec![2.0; 8]);
+        let mul_result = sse_ops.mul(&test_data, &[2.0; 8]);
         for i in 0..8 {
             assert!((mul_result[i] - (i as f32 + 1.0) * 2.0).abs() < f32::EPSILON);
         }

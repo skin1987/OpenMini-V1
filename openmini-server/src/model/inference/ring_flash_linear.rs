@@ -37,18 +37,20 @@ use ndarray::{Array1, Array2, Array3, Axis, Zip};
 // ============================================================================
 
 /// FP8 格式枚举
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Fp8Format {
     /// 4位指数3位尾数 (高精度，范围 ±448)
+    #[default]
     E4M3,
     /// 5位指数2位尾数 (大动态范围，范围 ±57344)
     E5M2,
 }
 
 /// 线性注意力核函数类型
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum LinearKernelType {
     /// 指数线性单元: φ(x) = elu(x) + 1
+    #[default]
     Elu,
     /// 整流线性单元: φ(x) = max(0, x)
     ReLU,
@@ -59,11 +61,12 @@ pub enum LinearKernelType {
 /// 混合注意力比例配置
 ///
 /// 控制三种注意力路径的使用比例
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum HybridAttnRatio {
     /// 75% Flash, 25% Ring/Linear
     ThreeToOne,
     /// 80% Flash, 20% Ring/Linear
+    #[default]
     FourToOne,
     /// 87.5% Flash, 12.5% Ring/Linear
     SevenToOne,
@@ -78,12 +81,6 @@ pub enum HybridAttnRatio {
         /// Linear Attention 比例 (0.0-1.0)
         linear: f32,
     },
-}
-
-impl Default for HybridAttnRatio {
-    fn default() -> Self {
-        HybridAttnRatio::FourToOne
-    }
 }
 
 /// 注意力路径枚举
@@ -124,6 +121,7 @@ pub struct RflConfig {
     pub elu_alpha: f32,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for RflConfig {
     fn default() -> Self {
         Self {
@@ -214,9 +212,7 @@ impl RflConfig {
             return Err(anyhow::anyhow!("flash_threshold must be > 0"));
         }
         if self.ring_threshold <= self.flash_threshold {
-            return Err(anyhow::anyhow!(
-                "ring_threshold must be > flash_threshold"
-            ));
+            return Err(anyhow::anyhow!("ring_threshold must be > flash_threshold"));
         }
         if self.ring_block_size == 0 {
             return Err(anyhow::anyhow!("ring_block_size must be > 0"));
@@ -445,7 +441,7 @@ impl Fp8KVCache {
 
         // 计算并存储缩放因子
         let shape = k.shape();
-        let num_blocks = (shape[0] + 31) / 32; // 每32个元素一个scale
+        let num_blocks = shape[0].div_ceil(32); // 每32个元素一个scale
         self.scales_k = Vec::with_capacity(num_blocks);
 
         for block_start in (0..shape[0]).step_by(32) {
@@ -471,7 +467,7 @@ impl Fp8KVCache {
 
         // 计算并存储缩放因子
         let shape = v.shape();
-        let num_blocks = (shape[0] + 31) / 32;
+        let num_blocks = shape[0].div_ceil(32);
         self.scales_v = Vec::with_capacity(num_blocks);
 
         for block_start in (0..shape[0]).step_by(32) {
@@ -591,7 +587,7 @@ impl RingAttentionEngine {
             return Err(anyhow::anyhow!("Sequence length must be > 0"));
         }
 
-        let num_blocks = (seq_len + self.block_size - 1) / self.block_size;
+        let num_blocks = seq_len.div_ceil(self.block_size);
         let d_model = num_heads * head_dim;
 
         let mut output = Array3::<f32>::zeros((batch_size, seq_len, d_model));
@@ -609,14 +605,7 @@ impl RingAttentionEngine {
 
                 // 计算当前block的attention（包含全局信息）
                 let block_output = self.compute_block_attention(
-                    &q_block,
-                    &k_block,
-                    &v_block,
-                    start,
-                    end,
-                    seq_len,
-                    num_heads,
-                    head_dim,
+                    &q_block, &k_block, &v_block, start, end, seq_len, num_heads, head_dim,
                 )?;
 
                 // 写入输出
@@ -687,8 +676,10 @@ impl RingAttentionEngine {
                 }
 
                 if !k_global_data.is_empty() {
-                    let k_global = Array2::from_shape_vec((global_positions.len(), head_dim), k_global_data)?;
-                    let v_global = Array2::from_shape_vec((global_positions.len(), head_dim), v_global_data)?;
+                    let k_global =
+                        Array2::from_shape_vec((global_positions.len(), head_dim), k_global_data)?;
+                    let v_global =
+                        Array2::from_shape_vec((global_positions.len(), head_dim), v_global_data)?;
 
                     let scores_global = self.compute_scores(&q_head, &k_global.view(), head_dim)?;
 
@@ -959,7 +950,7 @@ impl LinearAttentionEngine {
     /// 当有新token到达时，可以增量更新状态而无需重新计算
     pub fn update_state_incremental(
         &self,
-        state: &mut Array2<f32>, // [head_dim, head_dim]
+        state: &mut Array2<f32>,          // [head_dim, head_dim]
         k_new: &ndarray::ArrayView2<f32>, // [new_tokens, head_dim]
         v_new: &ndarray::ArrayView2<f32>, // [new_tokens, head_dim]
     ) -> Result<()> {
@@ -1040,16 +1031,17 @@ impl RingFlashLinearEngine {
         let ring_engine = RingAttentionEngine::new(config.ring_block_size);
 
         // 创建Linear Attention引擎
-        let linear_engine = LinearAttentionEngine::new(config.linear_feature_dim, config.linear_kernel.clone())
-            .with_elu_alpha(config.elu_alpha);
+        let linear_engine =
+            LinearAttentionEngine::new(config.linear_feature_dim, config.linear_kernel)
+                .with_elu_alpha(config.elu_alpha);
 
         // 创建FP8 KV Cache
         let fp8_kv_cache = if config.use_fp8_kv_cache {
             Some(Fp8KVCache::new(
                 config.fp8_format,
                 config.ring_threshold, // 使用ring_threshold作为最大缓存长度
-                8, // 默认num_heads，实际使用时会调整
-                64, // 默认head_dim，实际使用时会调整
+                8,                     // 默认num_heads，实际使用时会调整
+                64,                    // 默认head_dim，实际使用时会调整
             ))
         } else {
             None
@@ -1131,16 +1123,10 @@ impl RingFlashLinearEngine {
                 // 反量化（在实际部署中会直接使用量化数据）
                 let k_shape = k.shape();
                 let v_shape = v.shape();
-                let k_dequantized = kv_cache.dequantize(&k_quantized, [
-                    k_shape[0],
-                    k_shape[1],
-                    k_shape[2],
-                ])?;
-                let v_dequantized = kv_cache.dequantize(&v_quantized, [
-                    v_shape[0],
-                    v_shape[1],
-                    v_shape[2],
-                ])?;
+                let k_dequantized =
+                    kv_cache.dequantize(&k_quantized, [k_shape[0], k_shape[1], k_shape[2]])?;
+                let v_dequantized =
+                    kv_cache.dequantize(&v_quantized, [v_shape[0], v_shape[1], v_shape[2]])?;
 
                 (k_dequantized, v_dequantized)
             } else {
@@ -1159,9 +1145,7 @@ impl RingFlashLinearEngine {
 
                 let result = fa3.forward(&q_batch, &k_batch, &v_batch, num_heads, head_dim)?;
 
-                output
-                    .slice_mut(ndarray::s![b, .., ..])
-                    .assign(&result);
+                output.slice_mut(ndarray::s![b, .., ..]).assign(&result);
             }
         }
 
@@ -1221,7 +1205,11 @@ impl RingFlashLinearEngine {
                     (0.25, 0.25, 0.50)
                 }
             }
-            HybridAttnRatio::Custom { flash, ring, linear } => (*flash, *ring, *linear),
+            HybridAttnRatio::Custom {
+                flash,
+                ring,
+                linear,
+            } => (*flash, *ring, *linear),
         }
     }
 
@@ -1363,9 +1351,7 @@ mod tests {
         let quantized = cache.quantize(&original).unwrap();
         assert_eq!(quantized.len(), 16 * 2 * 8);
 
-        let dequantized = cache
-            .dequantize(&quantized, [16, 2, 8])
-            .unwrap();
+        let dequantized = cache.dequantize(&quantized, [16, 2, 8]).unwrap();
 
         // 验证精度损失 < 15%（FP8 E4M3的正常范围）
         let mut max_rel_error = 0.0f32;
@@ -1399,9 +1385,7 @@ mod tests {
         });
 
         let quantized = cache.quantize(&original).unwrap();
-        let dequantized = cache
-            .dequantize(&quantized, [16, 2, 8])
-            .unwrap();
+        let dequantized = cache.dequantize(&quantized, [16, 2, 8]).unwrap();
 
         // E5M2精度更低，允许更大误差
         let mut max_rel_error = 0.0f32;
@@ -1472,10 +1456,7 @@ mod tests {
                 val.is_finite(),
                 "Extreme values should not produce NaN or Inf"
             );
-            assert!(
-                val.abs() <= 500.0,
-                "Should clamp to representable range"
-            );
+            assert!(val.abs() <= 500.0, "Should clamp to representable range");
         }
 
         // 测试极小值
@@ -1610,7 +1591,11 @@ mod tests {
 
         // 验证所有输出都是有限值
         for val in output.iter() {
-            assert!(val.is_finite(), "Ring attention output contains non-finite value: {}", val);
+            assert!(
+                val.is_finite(),
+                "Ring attention output contains non-finite value: {}",
+                val
+            );
         }
     }
 
@@ -1623,7 +1608,9 @@ mod tests {
         let head_dim = 16;
 
         let q = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 + j as f32);
-        let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| (seq_len - i) as f32 + j as f32);
+        let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
+            (seq_len - i) as f32 + j as f32
+        });
         let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| i as f32 * 0.5);
 
         let result = engine.forward(&q, &k, &v, num_heads, head_dim);
@@ -1690,7 +1677,8 @@ mod tests {
         for val in output.iter() {
             assert!(
                 val.is_finite(),
-                "Linear attention output contains non-finite value: {}", val
+                "Linear attention output contains non-finite value: {}",
+                val
             );
         }
     }
@@ -1728,7 +1716,9 @@ mod tests {
         let head_dim = 8;
 
         let q = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 + j as f32);
-        let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| (seq_len - i) as f32 + j as f32);
+        let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
+            (seq_len - i) as f32 + j as f32
+        });
         let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| i as f32 * 0.5);
 
         // ELU kernel
@@ -1757,9 +1747,9 @@ mod tests {
     fn test_linear_attention_elu_feature_map() {
         let engine = LinearAttentionEngine::new(8, LinearKernelType::Elu);
 
-        let input = Array2::from_shape_vec((4, 8), vec![
-            1.0, 2.0, -1.0, -2.0, 0.0, 0.5, -0.5, 100.0,
-        ]).unwrap();
+        let input =
+            Array2::from_shape_vec((4, 8), vec![1.0, 2.0, -1.0, -2.0, 0.0, 0.5, -0.5, 100.0])
+                .unwrap();
 
         let features = engine.apply_feature_map(&input.view());
 
@@ -1784,9 +1774,7 @@ mod tests {
     fn test_linear_attention_relu_feature_map() {
         let engine = LinearAttentionEngine::new(8, LinearKernelType::ReLU);
 
-        let input = Array2::from_shape_vec((2, 4), vec![
-            1.0, -1.0, 0.0, -100.0,
-        ]).unwrap();
+        let input = Array2::from_shape_vec((2, 4), vec![1.0, -1.0, 0.0, -100.0]).unwrap();
 
         let features = engine.relu_feature_map(&input.view());
 
@@ -1849,7 +1837,9 @@ mod tests {
 
     #[test]
     fn test_rfl_forward_short_sequence() {
-        let config = RflConfig::new().with_flash_threshold(256).with_causal(false);
+        let config = RflConfig::new()
+            .with_flash_threshold(256)
+            .with_causal(false);
 
         let engine = RingFlashLinearEngine::new(config).unwrap();
 
@@ -2051,7 +2041,9 @@ mod tests {
         let head_dim = 8;
 
         let q = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| i as f32 + j as f32);
-        let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| (seq_len - i) as f32 + j as f32);
+        let k = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, j)| {
+            (seq_len - i) as f32 + j as f32
+        });
         let v = Array3::from_shape_fn((1, seq_len, head_dim), |(_, i, _j)| i as f32 * 0.5);
 
         let result = engine.forward(&q, &k, &v, num_heads, head_dim);
@@ -2247,9 +2239,7 @@ mod tests {
     #[test]
     fn test_various_head_dims() {
         for &head_dim in &[4usize, 8, 16, 32, 64] {
-            let config = RflConfig::new()
-                .with_flash_threshold(16)
-                .with_causal(false);
+            let config = RflConfig::new().with_flash_threshold(16).with_causal(false);
             let engine = RingFlashLinearEngine::new(config).unwrap();
 
             let seq_len = 8;
@@ -2266,11 +2256,7 @@ mod tests {
             });
 
             let result = engine.forward(&q, &k, &v, num_heads, head_dim);
-            assert!(
-                result.is_ok(),
-                "Failed with head_dim={}",
-                head_dim
-            );
+            assert!(result.is_ok(), "Failed with head_dim={}", head_dim);
 
             let output = result.unwrap();
             assert_eq!(output.shape(), &[1, seq_len, num_heads * head_dim]);

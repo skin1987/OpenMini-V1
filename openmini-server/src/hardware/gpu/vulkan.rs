@@ -1440,19 +1440,31 @@ pub struct VulkanGpu {
 impl VulkanGpu {
     /// 创建 Vulkan GPU 实例（自动选择最佳设备）
     pub fn new(_preferred_device: Option<&str>) -> Result<Self, VulkanError> {
-        let instance = std::sync::Arc::new(VulkanInstance::new().map_err(|e| VulkanError::InstanceCreation(e.to_string()))?);
-        let device = std::sync::Arc::new(VulkanDevice::new(instance.clone()).map_err(|e| VulkanError::DeviceCreation(e.to_string()))?);
+        let instance = std::sync::Arc::new(
+            VulkanInstance::new().map_err(|e| VulkanError::InstanceCreation(e.to_string()))?,
+        );
+        let device = std::sync::Arc::new(
+            VulkanDevice::new(instance.clone())
+                .map_err(|e| VulkanError::DeviceCreation(e.to_string()))?,
+        );
         let capabilities = Self::query_capabilities(instance.instance(), device.physical_device());
 
-        Ok(Self { instance, device, capabilities })
+        Ok(Self {
+            instance,
+            device,
+            capabilities,
+        })
     }
 
     /// 枚举所有可用的 Vulkan 设备
     pub fn enumerate_devices() -> Result<Vec<VulkanDeviceInfo>, VulkanError> {
-        let entry = unsafe { ash::Entry::load() }.map_err(|e| VulkanError::EntryLoad(e.to_string()))?;
+        let entry =
+            unsafe { ash::Entry::load() }.map_err(|e| VulkanError::EntryLoad(e.to_string()))?;
 
         let app_info = vk::ApplicationInfo::default()
-            .application_name(unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"OpenMini Enumerator\0") })
+            .application_name(unsafe {
+                std::ffi::CStr::from_bytes_with_nul_unchecked(b"OpenMini Enumerator\0")
+            })
             .application_version(vk::make_api_version(0, 1, 0, 0))
             .engine_name(unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"OpenMini\0") })
             .engine_version(vk::make_api_version(0, 1, 0, 0))
@@ -1479,7 +1491,10 @@ impl VulkanGpu {
 
             let mut memory_size = 0usize;
             for i in 0..memory_properties.memory_heap_count as usize {
-                if memory_properties.memory_heaps[i].flags.contains(vk::MemoryHeapFlags::DEVICE_LOCAL) {
+                if memory_properties.memory_heaps[i]
+                    .flags
+                    .contains(vk::MemoryHeapFlags::DEVICE_LOCAL)
+                {
                     memory_size = memory_properties.memory_heaps[i].size as usize;
                     break;
                 }
@@ -1496,7 +1511,9 @@ impl VulkanGpu {
             });
         }
 
-        unsafe { instance.destroy_instance(None); }
+        unsafe {
+            instance.destroy_instance(None);
+        }
 
         Ok(devices)
     }
@@ -1506,15 +1523,17 @@ impl VulkanGpu {
         let devices = Self::enumerate_devices()?;
 
         if devices.is_empty() {
-            return Err(VulkanError::NoDeviceFound("未找到可用的 Vulkan 设备".to_string()));
+            return Err(VulkanError::NoDeviceFound(
+                "未找到可用的 Vulkan 设备".to_string(),
+            ));
         }
 
         // 选择显存最大的设备
-        let best_device = devices.into_iter()
-            .max_by_key(|d| d.memory_size)
-            .unwrap();
+        let best_device = devices.into_iter().max_by_key(|d| d.memory_size).unwrap();
 
-        let instance = std::sync::Arc::new(VulkanInstance::new().map_err(|e| VulkanError::InstanceCreation(e.to_string()))?);
+        let instance = std::sync::Arc::new(
+            VulkanInstance::new().map_err(|e| VulkanError::InstanceCreation(e.to_string()))?,
+        );
 
         // 创建指定物理设备的逻辑设备
         let device = VulkanDevice::new(instance.clone())
@@ -1538,9 +1557,10 @@ impl VulkanGpu {
         // 获取子组属性（如果支持）
         let subgroup_props = if properties.api_version >= vk::API_VERSION_1_1 {
             let mut props = vk::PhysicalDeviceSubgroupProperties::default();
-            let mut props2 = vk::PhysicalDeviceProperties2::default()
-                .push_next(&mut props);
-            unsafe { instance.get_physical_device_properties2(physical_device, &mut props2); }
+            let mut props2 = vk::PhysicalDeviceProperties2::default().push_next(&mut props);
+            unsafe {
+                instance.get_physical_device_properties2(physical_device, &mut props2);
+            }
             Some(props)
         } else {
             None
@@ -1560,11 +1580,13 @@ impl VulkanGpu {
             ),
             api_version: properties.api_version,
             max_compute_work_group_count: properties.limits.max_compute_work_group_count,
-            max_compute_work_group_invocations: properties.limits.max_compute_work_group_invocations,
+            max_compute_work_group_invocations: properties
+                .limits
+                .max_compute_work_group_invocations,
             max_compute_shared_memory_size: properties.limits.max_compute_shared_memory_size as u64,
             subgroup_size: subgroup_props.map_or(32, |p| p.subgroup_size), // 默认值 32
             supports_int16: features.shader_int16 == vk::TRUE,
-            supports_int8: false, // 需要 Vulkan 1.1+ 特性查询，简化处理
+            supports_int8: false,          // 需要 Vulkan 1.1+ 特性查询，简化处理
             supports_storage_buffer: true, // Vulkan 1.0+ 都支持
         }
     }
@@ -1579,22 +1601,33 @@ impl VulkanGpu {
         println!("=== Vulkan 设备信息 ===");
         println!("设备名称: {}", self.capabilities.device_name);
         println!("驱动版本: {}", self.capabilities.driver_version);
-        println!("API 版本: {}.{}.{}",
+        println!(
+            "API 版本: {}.{}.{}",
             vk::api_version_major(self.capabilities.api_version),
             vk::api_version_minor(self.capabilities.api_version),
             vk::api_version_patch(self.capabilities.api_version)
         );
-        println!("最大计算工作组数量: [{}, {}, {}]",
+        println!(
+            "最大计算工作组数量: [{}, {}, {}]",
             self.capabilities.max_compute_work_group_count[0],
             self.capabilities.max_compute_work_group_count[1],
             self.capabilities.max_compute_work_group_count[2]
         );
-        println!("最大计算工作组成员: {}", self.capabilities.max_compute_work_group_invocations);
-        println!("最大共享内存: {} KB", self.capabilities.max_compute_shared_memory_size / 1024);
+        println!(
+            "最大计算工作组成员: {}",
+            self.capabilities.max_compute_work_group_invocations
+        );
+        println!(
+            "最大共享内存: {} KB",
+            self.capabilities.max_compute_shared_memory_size / 1024
+        );
         println!("子组大小: {}", self.capabilities.subgroup_size);
         println!("支持 INT16: {}", self.capabilities.supports_int16);
         println!("支持 INT8: {}", self.capabilities.supports_int8);
-        println!("支持存储缓冲区: {}", self.capabilities.supports_storage_buffer);
+        println!(
+            "支持存储缓冲区: {}",
+            self.capabilities.supports_storage_buffer
+        );
         println!("======================");
     }
 
@@ -1606,6 +1639,26 @@ impl VulkanGpu {
     /// 获取实例引用
     pub fn instance(&self) -> &std::sync::Arc<VulkanInstance> {
         &self.instance
+    }
+
+    /// 获取设备信息（用于 GpuOps 实现）
+    pub fn device_info(&self) -> &GpuDeviceInfo {
+        // TODO: 实现从 VulkanDevice 到 GpuDeviceInfo 的转换
+        // 暂时返回一个默认值，避免编译错误
+        static DEFAULT_INFO: GpuDeviceInfo = GpuDeviceInfo {
+            name: String::new(),
+            memory_size: 0,
+            compute_capability: None,
+            features: Vec::new(),
+        };
+        &DEFAULT_INFO
+    }
+
+    /// 检查设备是否支持计算操作
+    pub fn is_compute_capable(&self) -> bool {
+        // Vulkan 设备通常支持计算着色器
+        // 这里可以根据具体能力返回
+        true
     }
 }
 
@@ -1626,6 +1679,8 @@ pub enum VulkanError {
     BufferError(String),
     /// 计算错误
     ComputeError(String),
+    /// Shader 编译/链接错误
+    ShaderError(String),
 }
 
 impl std::fmt::Display for VulkanError {
@@ -1638,6 +1693,7 @@ impl std::fmt::Display for VulkanError {
             VulkanError::Enumeration(msg) => write!(f, "Vulkan 设备枚举失败: {}", msg),
             VulkanError::BufferError(msg) => write!(f, "Vulkan 缓冲区错误: {}", msg),
             VulkanError::ComputeError(msg) => write!(f, "Vulkan 计算错误: {}", msg),
+            VulkanError::ShaderError(msg) => write!(f, "Vulkan Shader 错误: {}", msg),
         }
     }
 }
@@ -1693,7 +1749,11 @@ pub struct TypedVulkanBuffer<T: Copy> {
 
 impl<T: Copy + Default> TypedVulkanBuffer<T> {
     /// 创建新的 GPU 缓冲区
-    pub fn new(device: &std::sync::Arc<VulkanDevice>, count: usize, _usage: BufferUsage) -> Result<Self, VulkanError> {
+    pub fn new(
+        device: &std::sync::Arc<VulkanDevice>,
+        count: usize,
+        _usage: BufferUsage,
+    ) -> Result<Self, VulkanError> {
         let size = count * std::mem::size_of::<T>();
         let buffer = VulkanBuffer::new(device.clone(), size)
             .map_err(|e| VulkanError::BufferError(e.to_string()))?;
@@ -1706,7 +1766,10 @@ impl<T: Copy + Default> TypedVulkanBuffer<T> {
     }
 
     /// 从数据创建缓冲区
-    pub fn from_data(device: &std::sync::Arc<VulkanDevice>, data: &[T]) -> Result<Self, VulkanError> {
+    pub fn from_data(
+        device: &std::sync::Arc<VulkanDevice>,
+        data: &[T],
+    ) -> Result<Self, VulkanError> {
         let buffer = VulkanBuffer::from_data(device.clone(), data)
             .map_err(|e| VulkanError::BufferError(e.to_string()))?;
 
@@ -1727,13 +1790,17 @@ impl<T: Copy + Default> TypedVulkanBuffer<T> {
             )));
         }
 
-        self.buffer.write(data).map_err(|e| VulkanError::BufferError(e.to_string()))
+        self.buffer
+            .write(data)
+            .map_err(|e| VulkanError::BufferError(e.to_string()))
     }
 
     /// 从 GPU 下载数据
     pub fn download(&self) -> Result<Vec<T>, VulkanError> {
         let mut data = vec![T::default(); self.count];
-        self.buffer.read(&mut data).map_err(|e| VulkanError::BufferError(e.to_string()))?;
+        self.buffer
+            .read(&mut data)
+            .map_err(|e| VulkanError::BufferError(e.to_string()))?;
         Ok(data)
     }
 
@@ -1952,8 +2019,8 @@ impl VulkanBackend {
         };
 
         let group_count = (
-            (m as u32 + MATMUL_BLOCK_SIZE - 1) / MATMUL_BLOCK_SIZE,
-            (n as u32 + MATMUL_BLOCK_SIZE - 1) / MATMUL_BLOCK_SIZE,
+            (m as u32).div_ceil(MATMUL_BLOCK_SIZE),
+            (n as u32).div_ceil(MATMUL_BLOCK_SIZE),
             1,
         );
 
@@ -1988,11 +2055,7 @@ impl VulkanBackend {
         let dims = [rows as u32, cols as u32];
         let dims_buffer = VulkanBuffer::from_data(self.device.clone(), &dims)?;
 
-        let group_count = (
-            (rows as u32 + SOFTMAX_BLOCK_SIZE - 1) / SOFTMAX_BLOCK_SIZE,
-            1,
-            1,
-        );
+        let group_count = ((rows as u32).div_ceil(SOFTMAX_BLOCK_SIZE), 1, 1);
 
         self.execute_kernel(
             ShaderType::Softmax,
@@ -2038,11 +2101,7 @@ impl VulkanBackend {
         let dims_buffer = VulkanBuffer::from_data(self.device.clone(), &dims)?;
         let eps_buffer = VulkanBuffer::from_data(self.device.clone(), &[eps])?;
 
-        let group_count = (
-            (rows as u32 + LAYERNORM_BLOCK_SIZE - 1) / LAYERNORM_BLOCK_SIZE,
-            1,
-            1,
-        );
+        let group_count = ((rows as u32).div_ceil(LAYERNORM_BLOCK_SIZE), 1, 1);
 
         self.execute_kernel(
             ShaderType::LayerNorm,
@@ -2088,11 +2147,7 @@ impl VulkanBackend {
         let dims_buffer = VulkanBuffer::from_data(self.device.clone(), &dims)?;
         let eps_buffer = VulkanBuffer::from_data(self.device.clone(), &[eps])?;
 
-        let group_count = (
-            (rows as u32 + LAYERNORM_BLOCK_SIZE - 1) / LAYERNORM_BLOCK_SIZE,
-            1,
-            1,
-        );
+        let group_count = ((rows as u32).div_ceil(LAYERNORM_BLOCK_SIZE), 1, 1);
 
         self.execute_kernel(
             ShaderType::RmsNorm,
@@ -2165,8 +2220,8 @@ impl VulkanBackend {
         let has_mask_buffer = VulkanBuffer::from_data(self.device.clone(), &[has_mask])?;
 
         let group_count = (
-            (seq_len as u32 + ATTENTION_BLOCK_SIZE - 1) / ATTENTION_BLOCK_SIZE,
-            (head_dim as u32 + ATTENTION_BLOCK_SIZE - 1) / ATTENTION_BLOCK_SIZE,
+            (seq_len as u32).div_ceil(ATTENTION_BLOCK_SIZE),
+            (head_dim as u32).div_ceil(ATTENTION_BLOCK_SIZE),
             1,
         );
 
@@ -2634,7 +2689,8 @@ mod tests {
             // 如果有设备，验证基本信息
             for device in &devs {
                 assert!(!device.device_name.is_empty(), "设备名称不应为空");
-                println!("发现设备: {} (显存: {} MB)",
+                println!(
+                    "发现设备: {} (显存: {} MB)",
                     device.device_name,
                     device.memory_size / (1024 * 1024)
                 );
@@ -2652,7 +2708,10 @@ mod tests {
                 println!("Vulkan Device: {}", caps.device_name);
                 assert!(!caps.device_name.is_empty(), "设备名称不应为空");
                 assert!(caps.api_version > 0, "API版本应大于0");
-                assert!(caps.max_compute_work_group_invocations > 0, "最大工作组成员应大于0");
+                assert!(
+                    caps.max_compute_work_group_invocations > 0,
+                    "最大工作组成员应大于0"
+                );
 
                 // 打印完整信息
                 gpu.print_info();
@@ -2784,7 +2843,7 @@ mod tests {
         for usage in &usages {
             // 验证可以转换为 Vulkan 标志
             let _flags = usage.to_vk_flags();
-            
+
             // 验证 Debug trait 实现
             let _ = format!("{:?}", usage);
         }
@@ -2843,8 +2902,10 @@ mod tests {
                 if !devices.is_empty() {
                     let device = &devices[0];
                     assert!(!device.device_name.is_empty());
-                    assert!(device.memory_size > 0 || device.device_type == vk::PhysicalDeviceType::CPU);
-                    
+                    assert!(
+                        device.memory_size > 0 || device.device_type == vk::PhysicalDeviceType::CPU
+                    );
+
                     // 验证能力信息存在
                     let _caps = &device.capabilities;
                 }

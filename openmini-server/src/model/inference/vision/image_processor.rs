@@ -52,7 +52,8 @@ impl GemmaImageProcessor {
             )));
         }
 
-        let resized = if self.config.do_resize && (h != self.config.image_size || w != self.config.image_size)
+        let resized = if self.config.do_resize
+            && (h != self.config.image_size || w != self.config.image_size)
         {
             self.resize(image)?
         } else {

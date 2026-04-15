@@ -345,7 +345,8 @@ impl InferenceEngine {
             .map_err(|e| InferenceError::image_preprocess(e.to_string()))?;
 
         // 将 f32 图像转换回 u8 格式（SigLIP encode 需要 u8 输入）
-        let image_u8: ndarray::Array3<u8> = processed.mapv(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8);
+        let image_u8: ndarray::Array3<u8> =
+            processed.mapv(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8);
 
         // 步骤2: 调用 SigLIPEncoder::encode() 提取视觉特征
         let visual_features = if let Some(ref encoder) = self.siglip_encoder {
@@ -384,7 +385,9 @@ impl InferenceEngine {
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         // 计算图像 token 数量 (基于 patch 数量)
-        let num_image_tokens = self.gemma_processor.num_image_tokens(image.shape()[0], image.shape()[1]);
+        let num_image_tokens = self
+            .gemma_processor
+            .num_image_tokens(image.shape()[0], image.shape()[1]);
 
         // 转换为 usize 类型以匹配 build_multimodal_prompt 签名
         let text_tokens_usize: Vec<usize> = text_tokens.iter().map(|&t| t as usize).collect();
@@ -583,12 +586,10 @@ impl InferenceEngine {
         let prompt = prompt.to_string();
         let params_clone = params.clone();
 
-        tokio::task::spawn_blocking(move || {
-            engine.generate(&prompt, &params_clone)
-        })
-        .await
-        .map_err(|e| format!("Inference task join error: {}", e))?
-        .map_err(|e| format!("Inference error: {}", e))
+        tokio::task::spawn_blocking(move || engine.generate(&prompt, &params_clone))
+            .await
+            .map_err(|e| format!("Inference task join error: {}", e))?
+            .map_err(|e| format!("Inference error: {}", e))
     }
 }
 

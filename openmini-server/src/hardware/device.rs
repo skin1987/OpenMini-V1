@@ -48,7 +48,13 @@ impl DeviceProfile {
         let (total_memory_gb, available_memory_gb) = Self::detect_memory();
         let (cpu_cores, cpu_physical_cores) = Self::detect_cpu();
         let gpu_info = Self::detect_gpu();
-        let device_type = Self::classify_device(&arch, &os_name, total_memory_gb, cpu_physical_cores, &gpu_info);
+        let device_type = Self::classify_device(
+            &arch,
+            &os_name,
+            total_memory_gb,
+            cpu_physical_cores,
+            &gpu_info,
+        );
 
         DeviceProfile {
             device_type,
@@ -116,7 +122,10 @@ impl DeviceProfile {
             return DeviceType::MobileDevice;
         }
 
-        if physical_cores >= 8 && total_memory_gb >= 16 && gpu.as_ref().map(|g| g.is_dedicated).unwrap_or(false) {
+        if physical_cores >= 8
+            && total_memory_gb >= 16
+            && gpu.as_ref().map(|g| g.is_dedicated).unwrap_or(false)
+        {
             return DeviceType::DesktopHighEnd;
         }
 
@@ -184,7 +193,12 @@ impl RuntimeConfig {
                 }
             }
             DeviceType::DesktopHighEnd => {
-                if profile.gpu_info.as_ref().map(|g| g.is_dedicated).unwrap_or(false) {
+                if profile
+                    .gpu_info
+                    .as_ref()
+                    .map(|g| g.is_dedicated)
+                    .unwrap_or(false)
+                {
                     RuntimeConfig {
                         gemm_backend: "cuda".to_string(),
                         enable_arena: true,
@@ -325,7 +339,10 @@ mod tests {
 
     #[test]
     fn test_device_type_display() {
-        assert_eq!(format!("{}", DeviceType::DesktopHighEnd), "Desktop (High-End)");
+        assert_eq!(
+            format!("{}", DeviceType::DesktopHighEnd),
+            "Desktop (High-End)"
+        );
         assert_eq!(format!("{}", DeviceType::Laptop), "Laptop");
         assert_eq!(format!("{}", DeviceType::AppleSilicon), "Apple Silicon");
         assert_eq!(format!("{}", DeviceType::MobileDevice), "Mobile Device");

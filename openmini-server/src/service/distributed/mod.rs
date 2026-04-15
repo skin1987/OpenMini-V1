@@ -20,12 +20,12 @@
 //! └──────┘  └──────┘  └──────┘
 //! ```
 
-pub mod mesh;
 pub mod coordinator;
-pub mod worker;
+pub mod mesh;
 pub mod protocol;
+pub mod worker;
 
-pub use mesh::MeshNode;
 pub use coordinator::Coordinator;
-pub use worker::WorkerNode;
+pub use mesh::MeshNode;
 pub use protocol::*;
+pub use worker::WorkerNode;

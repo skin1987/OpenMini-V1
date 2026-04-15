@@ -6,7 +6,9 @@ use tracing::info;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()).as_str(),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "info".into())
+                .as_str(),
         )
         .init();
 
@@ -24,7 +26,11 @@ async fn main() -> anyhow::Result<()> {
         config.upstream.timeout_secs,
     ));
 
-    let state = openmini_admin::AppState { pool, proxy, config: config.clone() };
+    let state = openmini_admin::AppState {
+        pool,
+        proxy,
+        config: config.clone(),
+    };
 
     let app = openmini_admin::create_app(state);
 

@@ -1017,6 +1017,93 @@ impl Tokenizer {
 
         Ok(results)
     }
+
+    /// 训练模式编码：返回 DataLoader 所需的 (input_ids, labels, attention_mask)
+    ///
+    /// 与 `encode_with_options` 的区别：
+    /// - 返回 `Vec<usize>` 格式（训练框架兼容）
+    /// - 自动生成 labels（右移一位，padding 位置设为 usize::MAX / ignore_index）
+    /// - attention_mask 使用 u8 类型
+    ///
+    /// # Parameters
+    /// - `text`: 输入文本
+    /// - `max_length`: 最大序列长度
+    ///
+    /// # Returns
+    /// TrainingEncoding { input_ids, labels, attention_mask }
+    pub fn encode_for_training(&self, text: &str, max_length: usize) -> Result<TrainingEncoding> {
+        let mut input_ids = Vec::new();
+
+        input_ids.push(self.bos_token_id);
+
+        let mut tokens = self.encode(text)?;
+        input_ids.append(&mut tokens);
+
+        input_ids.push(self.eos_token_id);
+
+        if input_ids.len() > max_length {
+            input_ids.truncate(max_length);
+            if !input_ids.is_empty() {
+                *input_ids.last_mut().unwrap() = self.eos_token_id;
+            }
+        }
+
+        let mut attention_mask: Vec<u8> = input_ids
+            .iter()
+            .map(|&id| if id == self.pad_token_id { 0 } else { 1 })
+            .collect();
+
+        let mut labels: Vec<usize> = input_ids.iter().map(|&x| x as usize).collect();
+        labels.rotate_left(1);
+        if !labels.is_empty() {
+            *labels.last_mut().unwrap() = self.pad_token_id as usize;
+            for label in labels.iter_mut() {
+                if *label == self.pad_token_id as usize {
+                    *label = usize::MAX;
+                }
+            }
+        }
+
+        while input_ids.len() < max_length {
+            input_ids.push(self.pad_token_id);
+        }
+        while attention_mask.len() < max_length {
+            attention_mask.push(0);
+        }
+        while labels.len() < max_length {
+            labels.push(usize::MAX);
+        }
+
+        Ok(TrainingEncoding {
+            input_ids: input_ids.iter().map(|&x| x as usize).collect(),
+            labels,
+            attention_mask,
+        })
+    }
+
+    /// 为 DataLoader 提供的简单分词接口（兼容旧接口）
+    ///
+    /// 返回 Vec<usize> 格式的 token IDs，编码失败时回退到字符级映射
+    pub fn tokenize_for_dataloader(&self, text: &str) -> Vec<usize> {
+        match self.encode(text) {
+            Ok(ids) => ids.iter().map(|&id| id as usize).collect(),
+            Err(_) => text.chars().map(|c| c as usize).collect(),
+        }
+    }
+}
+
+/// 训练编码结果（Dataloader 兼容格式）
+#[derive(Debug, Clone)]
+pub struct TrainingEncoding {
+    pub input_ids: Vec<usize>,
+    pub labels: Vec<usize>,
+    pub attention_mask: Vec<u8>,
+}
+
+impl TrainingEncoding {
+    pub fn seq_len(&self) -> usize {
+        self.input_ids.len()
+    }
 }
 
 // ============================================================================

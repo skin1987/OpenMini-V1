@@ -490,10 +490,8 @@ impl SafeTensorsWriter {
     /// **重要**: 调用此方法后，writer 将被消费，不能再使用
     pub fn finish(mut self) -> Result<(), SafeTensorsError> {
         // 构建 header JSON（使用紧凑格式以减小文件大小）
-        let header_json =
-            serde_json::to_string(&self.metadata).map_err(|e| {
-                SafeTensorsError::InvalidJson(format!("Serialization error: {}", e))
-            })?;
+        let header_json = serde_json::to_string(&self.metadata)
+            .map_err(|e| SafeTensorsError::InvalidJson(format!("Serialization error: {}", e)))?;
 
         let header_bytes = header_json.as_bytes();
         let header_len = header_bytes.len() as u64;
@@ -602,16 +600,14 @@ mod tests {
         // 创建文件
         let mut writer = SafeTensorsWriter::new(&path).unwrap();
 
-        let embedding =
-            ndarray::Array::from_vec(vec![1.0f32, 2.0, 3.0, 4.0])
-                .into_shape_with_order([2, 2])
-                .unwrap()
-                .into_dyn();
-        let linear =
-            ndarray::Array::from_vec(vec![0.5f32, 0.25, 0.125, 0.0625])
-                .into_shape_with_order([2, 2])
-                .unwrap()
-                .into_dyn();
+        let embedding = ndarray::Array::from_vec(vec![1.0f32, 2.0, 3.0, 4.0])
+            .into_shape_with_order([2, 2])
+            .unwrap()
+            .into_dyn();
+        let linear = ndarray::Array::from_vec(vec![0.5f32, 0.25, 0.125, 0.0625])
+            .into_shape_with_order([2, 2])
+            .unwrap()
+            .into_dyn();
 
         writer.add_tensor("embedding.weight", &embedding).unwrap();
         writer.add_tensor("linear.weight", &linear).unwrap();
@@ -772,11 +768,11 @@ mod tests {
     #[test]
     fn test_f16_conversion_special_values() {
         // 测试 FP16 特殊值的转换
-        assert_eq!(f16_to_f32(0x0000), 0.0);           // 正零
-        assert_eq!(f16_to_f32(0x8000), -0.0);          // 负零
-        assert_eq!(f16_to_f32(0x7C00), f32::INFINITY);  // 正无穷
+        assert_eq!(f16_to_f32(0x0000), 0.0); // 正零
+        assert_eq!(f16_to_f32(0x8000), -0.0); // 负零
+        assert_eq!(f16_to_f32(0x7C00), f32::INFINITY); // 正无穷
         assert_eq!(f16_to_f32(0xFC00), f32::NEG_INFINITY); // 负无穷
-        assert!(f16_to_f32(0x7C01).is_nan());          // NaN
+        assert!(f16_to_f32(0x7C01).is_nan()); // NaN
     }
 
     #[test]

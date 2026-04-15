@@ -53,7 +53,7 @@ pub const DEFAULT_NUM_HIDDEN_LAYERS: usize = 28;
 pub const DEFAULT_NUM_ATTENTION_HEADS: usize = 28;
 /// 默认中间层大小
 pub const DEFAULT_INTERMEDIATE_SIZE: usize = 18944;
-/// 默认词表大小
+/// 默认词表大小（与 tokenizer::VOCAB_SIZE 保持一致）
 pub const DEFAULT_VOCAB_SIZE: usize = 152064;
 /// 默认最大位置编码长度
 pub const DEFAULT_MAX_POSITION_EMBEDDINGS: usize = 131072;
@@ -593,7 +593,11 @@ impl From<ModelConfig> for super::model::ModelConfig {
             moe_num_experts: if config.is_moe { config.num_experts } else { 0 },
             moe_top_k: if config.is_moe { config.top_k } else { 2 },
             use_mla: config.use_mla,
-            mla_latent_dim: if config.use_mla { config.mla_latent_dim } else { 512 },
+            mla_latent_dim: if config.use_mla {
+                config.mla_latent_dim
+            } else {
+                512
+            },
             ..Default::default()
         }
     }
@@ -840,7 +844,7 @@ impl Architecture {
             "baichuan" => Self::Baichuan,
             "falcon" | "falcon-40b" | "falcon-180b" => Self::Falcon,
             "stablelm" => Self::StableLM,
-            "llama" | _ => Self::Llama, // 默认回退到 Llama
+            _ => Self::Llama, // 默认回退到 Llama
         }
     }
 
@@ -885,10 +889,10 @@ impl Architecture {
     /// 不同架构有不同的最优 RoPE 基础频率
     pub fn default_rope_theta(&self) -> f32 {
         match self {
-            Self::Yi => 5000000.0, // Yi 使用大 theta 值
-            Self::Baichuan => 0.0,  // Baichuan 使用 ALiBi，不使用 RoPE
+            Self::Yi => 5000000.0,    // Yi 使用大 theta 值
+            Self::Baichuan => 0.0,    // Baichuan 使用 ALiBi，不使用 RoPE
             Self::ChatGLM => 10000.0, // ChatGLM 的 2D-RoPE
-            _ => DEFAULT_ROPE_THETA, // 其他架构使用默认值
+            _ => DEFAULT_ROPE_THETA,  // 其他架构使用默认值
         }
     }
 
@@ -941,6 +945,7 @@ impl std::fmt::Display for Architecture {
 ///
 /// 用于标识 Transformer 层是标准 FFN 还是 MoE 专家层
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum LayerType {
     /// 标准前馈网络层
     FFN,
@@ -998,12 +1003,10 @@ impl MoEStrategy {
                     LayerType::MoE
                 }
             }
-            Self::Hybrid { layer_types } => {
-                layer_types
-                    .get(layer_idx)
-                    .copied()
-                    .unwrap_or(LayerType::FFN)
-            }
+            Self::Hybrid { layer_types } => layer_types
+                .get(layer_idx)
+                .copied()
+                .unwrap_or(LayerType::FFN),
         }
     }
 
@@ -1011,7 +1014,10 @@ impl MoEStrategy {
     ///
     /// DeepSeek-V3 通常每 1 层为 1 个周期，偏移量为 0
     pub fn deepseek_v3_default() -> Self {
-        Self::Cyclic { period: 1, offset: 0 }
+        Self::Cyclic {
+            period: 1,
+            offset: 0,
+        }
     }
 }
 
@@ -1129,24 +1135,23 @@ impl MoEWeightsV2 {
         let routing_logits = input_2d.dot(&self.routing_router);
         let (topk_indices, topk_weights) = self.topk_routing(&routing_logits)?;
 
-        let mut shared_output =
-            ndarray::Array2::<f32>::zeros((num_tokens, hidden_size));
+        let mut shared_output = ndarray::Array2::<f32>::zeros((num_tokens, hidden_size));
         for expert in &self.shared_experts {
             let expert_out = self
                 .swiglu_ffn(&input_2d, expert, hidden_size)?
                 .into_owned();
-            shared_output = shared_output + &expert_out;
+            shared_output += &expert_out;
         }
 
-        let mut routing_output =
-            ndarray::Array2::<f32>::zeros((num_tokens, hidden_size));
+        let mut routing_output = ndarray::Array2::<f32>::zeros((num_tokens, hidden_size));
         for k in 0..self.top_k {
             for i in 0..num_tokens {
                 let expert_idx = topk_indices[[i, k]];
                 let weight = topk_weights[[i, k]];
                 let expert = &self.routing_experts[expert_idx];
                 let input_row = input_2d.row(i);
-                let expert_out = self.swiglu_ffn_single(&input_row.to_vec(), expert, hidden_size)?;
+                let expert_out =
+                    self.swiglu_ffn_single(&input_row.to_vec(), expert, hidden_size)?;
                 for j in 0..hidden_size {
                     routing_output[[i, j]] += weight * expert_out[j];
                 }
@@ -1198,6 +1203,7 @@ impl MoEWeightsV2 {
         Ok(output)
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn swiglu_ffn_single(
         &self,
         input: &[f32],
@@ -1248,9 +1254,9 @@ impl MoEWeightsV2 {
             let row = routing_logits.row(i).to_vec();
 
             // 创建 (expert_index, logit) 对并排序
-            let mut expert_logits: Vec<(usize, f32)> =
-                row.into_iter().enumerate().collect();
-            expert_logits.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let mut expert_logits: Vec<(usize, f32)> = row.into_iter().enumerate().collect();
+            expert_logits
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
             // 选择 top-k
             for k in 0..self.top_k.min(num_experts) {
@@ -2066,11 +2072,9 @@ impl GgufFile {
         match tensor.tensor_type {
             GgufTensorType::F32 => {
                 // 检查对齐：f32 需要 4 字节对齐
-                debug_assert_eq!(
-                    data.as_ptr() as usize % std::mem::align_of::<f32>(),
-                    0,
-                    "F32 data is not properly aligned"
-                );
+                if data.as_ptr() as usize % std::mem::align_of::<f32>() != 0 {
+                    return Err(anyhow!("F32 data is not properly aligned"));
+                }
                 let f32_slice: &[f32] = cast_slice(data);
                 if f32_slice.len() != num_elements {
                     return Err(anyhow!(
@@ -2083,11 +2087,9 @@ impl GgufFile {
             }
             GgufTensorType::F16 => {
                 // 检查对齐：f16 需要 2 字节对齐
-                debug_assert_eq!(
-                    data.as_ptr() as usize % std::mem::align_of::<half::f16>(),
-                    0,
-                    "F16 data is not properly aligned"
-                );
+                if data.as_ptr() as usize % std::mem::align_of::<half::f16>() != 0 {
+                    return Err(anyhow!("F16 data is not properly aligned"));
+                }
                 let f16_slice: &[half::f16] = cast_slice(data);
                 if f16_slice.len() != num_elements {
                     return Err(anyhow!(
@@ -2147,8 +2149,9 @@ impl GgufFile {
             }
             for &fallback_prefix in &fallback_prefixes {
                 if fallback_prefix != prefix {
-                    if let Some(val) =
-                        self.metadata.get_u32(&format!("{}.{}", fallback_prefix, key_suffix))
+                    if let Some(val) = self
+                        .metadata
+                        .get_u32(&format!("{}.{}", fallback_prefix, key_suffix))
                     {
                         return Some(val);
                     }
@@ -2163,8 +2166,9 @@ impl GgufFile {
             }
             for &fallback_prefix in &fallback_prefixes {
                 if fallback_prefix != prefix {
-                    if let Some(val) =
-                        self.metadata.get_f32(&format!("{}.{}", fallback_prefix, key_suffix))
+                    if let Some(val) = self
+                        .metadata
+                        .get_f32(&format!("{}.{}", fallback_prefix, key_suffix))
                     {
                         return Some(val);
                     }
@@ -2173,23 +2177,25 @@ impl GgufFile {
             None
         };
 
-        let hidden_size = get_param_u32("embedding_length").unwrap_or(DEFAULT_HIDDEN_SIZE as u32) as usize;
+        let hidden_size =
+            get_param_u32("embedding_length").unwrap_or(DEFAULT_HIDDEN_SIZE as u32) as usize;
 
-        let intermediate_size =
-            get_param_u32("feed_forward_length").unwrap_or(DEFAULT_INTERMEDIATE_SIZE as u32) as usize;
+        let intermediate_size = get_param_u32("feed_forward_length")
+            .unwrap_or(DEFAULT_INTERMEDIATE_SIZE as u32) as usize;
 
         let num_hidden_layers =
             get_param_u32("block_count").unwrap_or(DEFAULT_NUM_HIDDEN_LAYERS as u32) as usize;
 
-        let num_attention_heads =
-            get_param_u32("attention.head_count").unwrap_or(DEFAULT_NUM_ATTENTION_HEADS as u32) as usize;
-
-        let num_key_value_heads = get_param_u32("attention.head_count_kv")
-            .unwrap_or(num_attention_heads as u32)
+        let num_attention_heads = get_param_u32("attention.head_count")
+            .unwrap_or(DEFAULT_NUM_ATTENTION_HEADS as u32)
             as usize;
 
-        let max_position_embeddings =
-            get_param_u32("context_length").unwrap_or(DEFAULT_MAX_POSITION_EMBEDDINGS as u32) as usize;
+        let num_key_value_heads =
+            get_param_u32("attention.head_count_kv").unwrap_or(num_attention_heads as u32) as usize;
+
+        let max_position_embeddings = get_param_u32("context_length")
+            .unwrap_or(DEFAULT_MAX_POSITION_EMBEDDINGS as u32)
+            as usize;
 
         let rms_norm_eps =
             get_param_f32("attention.layer_norm_rms_epsilon").unwrap_or(DEFAULT_RMS_NORM_EPS);
@@ -2207,8 +2213,7 @@ impl GgufFile {
                 let tk = get_param_u32("top_k")
                     .or_else(|| get_param_u32("moe.top_k"))
                     .unwrap_or(6) as usize;
-                let latent = get_param_u32("mla.latent_dim")
-                    .unwrap_or(512) as usize;
+                let latent = get_param_u32("mla.latent_dim").unwrap_or(512) as usize;
                 (experts, tk, latent)
             }
             Architecture::Mixtral => {
@@ -2310,7 +2315,11 @@ impl GgufFile {
         layer_idx: usize,
         config: &ModelConfig,
     ) -> Option<MoEWeightsV2> {
-        let prefix = format!("{}.model.layers.{}", config.architecture.parameter_prefix(), layer_idx);
+        let prefix = format!(
+            "{}.model.layers.{}",
+            config.architecture.parameter_prefix(),
+            layer_idx
+        );
 
         let shared_experts = self.load_shared_experts(&prefix, config)?;
         let routing_experts = self.load_routing_experts(&prefix, config)?;
@@ -2336,11 +2345,7 @@ impl GgufFile {
         Some(moe_v2)
     }
 
-    fn load_shared_experts(
-        &self,
-        prefix: &str,
-        _config: &ModelConfig,
-    ) -> Option<Vec<FFNWeights>> {
+    fn load_shared_experts(&self, prefix: &str, _config: &ModelConfig) -> Option<Vec<FFNWeights>> {
         let mut experts = Vec::new();
         let mut i = 0;
         loop {
@@ -2365,14 +2370,14 @@ impl GgufFile {
             }
         }
 
-        if experts.is_empty() { None } else { Some(experts) }
+        if experts.is_empty() {
+            None
+        } else {
+            Some(experts)
+        }
     }
 
-    fn load_routing_experts(
-        &self,
-        prefix: &str,
-        config: &ModelConfig,
-    ) -> Option<Vec<FFNWeights>> {
+    fn load_routing_experts(&self, prefix: &str, config: &ModelConfig) -> Option<Vec<FFNWeights>> {
         let mut experts = Vec::new();
         let num_experts = config.num_experts;
 
@@ -2397,7 +2402,11 @@ impl GgufFile {
             }
         }
 
-        if experts.is_empty() { None } else { Some(experts) }
+        if experts.is_empty() {
+            None
+        } else {
+            Some(experts)
+        }
     }
 }
 
@@ -3189,8 +3198,14 @@ mod integration_tests {
         assert_eq!(Architecture::from_str("phi-1.5"), Architecture::Phi);
 
         // Mixtral 变体
-        assert_eq!(Architecture::from_str("mixtral-8x7b"), Architecture::Mixtral);
-        assert_eq!(Architecture::from_str("mixtral-8x22b"), Architecture::Mixtral);
+        assert_eq!(
+            Architecture::from_str("mixtral-8x7b"),
+            Architecture::Mixtral
+        );
+        assert_eq!(
+            Architecture::from_str("mixtral-8x22b"),
+            Architecture::Mixtral
+        );
 
         // ChatGLM 变体
         assert_eq!(Architecture::from_str("glm"), Architecture::ChatGLM);
@@ -3211,7 +3226,10 @@ mod integration_tests {
         assert_eq!(Architecture::from_str("unknown"), Architecture::Llama);
         assert_eq!(Architecture::from_str(""), Architecture::Llama);
         assert_eq!(Architecture::from_str("gpt4"), Architecture::Llama);
-        assert_eq!(Architecture::from_str("some_random_model"), Architecture::Llama);
+        assert_eq!(
+            Architecture::from_str("some_random_model"),
+            Architecture::Llama
+        );
     }
 
     #[test]
@@ -3257,7 +3275,10 @@ mod integration_tests {
         assert_eq!(Architecture::Yi.default_rope_theta(), 5000000.0); // Yi 特殊值
         assert_eq!(Architecture::Baichuan.default_rope_theta(), 0.0); // Baichuan 不使用 RoPE
         assert_eq!(Architecture::ChatGLM.default_rope_theta(), 10000.0); // ChatGLM 的 2D-RoPE
-        assert_eq!(Architecture::Mistral.default_rope_theta(), DEFAULT_ROPE_THETA);
+        assert_eq!(
+            Architecture::Mistral.default_rope_theta(),
+            DEFAULT_ROPE_THETA
+        );
         assert_eq!(Architecture::Qwen2.default_rope_theta(), DEFAULT_ROPE_THETA);
     }
 
@@ -3309,7 +3330,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf_with_arch("mistral");
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -3330,7 +3353,9 @@ mod integration_tests {
         let gguf_bytes = build_gguf_with_phi_params();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -3344,9 +3369,15 @@ mod integration_tests {
         let config = gguf.get_model_config().expect("Failed to get model config");
 
         // 验证使用了 phi.* 参数（3072），而不是回退到 llama.*
-        assert_eq!(config.hidden_size, 3072, "Phi 应该使用 phi.embedding_length");
+        assert_eq!(
+            config.hidden_size, 3072,
+            "Phi 应该使用 phi.embedding_length"
+        );
         assert_eq!(config.num_hidden_layers, 32, "Phi 应该使用 phi.block_count");
-        assert_eq!(config.num_attention_heads, 32, "Phi 应该使用 phi.attention.head_count");
+        assert_eq!(
+            config.num_attention_heads, 32,
+            "Phi 应该使用 phi.attention.head_count"
+        );
     }
 
     #[test]
@@ -3355,14 +3386,19 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf_with_arch("yi");
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
         let config = gguf.get_model_config().expect("Failed to get model config");
 
         // Yi 应该使用特殊的 rope_theta 默认值 5000000.0
-        assert_eq!(config.rope_theta, 5000000.0, "Yi 应该使用 rope_theta=5000000.0");
+        assert_eq!(
+            config.rope_theta, 5000000.0,
+            "Yi 应该使用 rope_theta=5000000.0"
+        );
     }
 
     #[test]
@@ -3371,14 +3407,19 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf_with_arch("baichuan");
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
         let config = gguf.get_model_config().expect("Failed to get model config");
 
         // Baichuan 应该禁用 RoPE（rope_theta=0.0）
-        assert_eq!(config.rope_theta, 0.0, "Baichuan 应该禁用 RoPE（使用 ALiBi）");
+        assert_eq!(
+            config.rope_theta, 0.0,
+            "Baichuan 应该禁用 RoPE（使用 ALiBi）"
+        );
     }
 
     #[test]
@@ -3387,7 +3428,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf_with_arch("mixtral");
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -3406,14 +3449,19 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf_with_arch("chatglm");
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
         let config = gguf.get_model_config().expect("Failed to get model config");
 
         // ChatGLM 应该使用 rope_theta=10000.0
-        assert_eq!(config.rope_theta, 10000.0, "ChatGLM 应该使用 2D-RoPE (theta=10000)");
+        assert_eq!(
+            config.rope_theta, 10000.0,
+            "ChatGLM 应该使用 2D-RoPE (theta=10000)"
+        );
     }
 
     #[test]
@@ -3422,7 +3470,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf(); // 默认是 LLaMA 架构
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -3441,7 +3491,9 @@ mod integration_tests {
         let gguf_bytes = build_minimal_gguf_with_arch("qwen2");
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
@@ -3460,14 +3512,19 @@ mod integration_tests {
         let gguf_bytes = build_gguf_with_fallback_test();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+        temp_file
+            .write_all(&gguf_bytes)
+            .expect("Failed to write temp file");
         temp_file.flush().expect("Failed to flush");
 
         let gguf = GgufFile::open(temp_file.path()).expect("Failed to parse GGUF file");
         let config = gguf.get_model_config().expect("Failed to get model config");
 
         // 应该回退到 llama.* 参数（因为 mistral.* 不存在）
-        assert_eq!(config.hidden_size, 4096, "应该回退到 llama.embedding_length");
+        assert_eq!(
+            config.hidden_size, 4096,
+            "应该回退到 llama.embedding_length"
+        );
     }
 
     #[test]
@@ -3478,7 +3535,10 @@ mod integration_tests {
             ("mixtral.blk.0.ffn_gate_exps.weight", true),
             ("yi.blk.0.attn_q.weight", true),
             ("chatglm.encoder.layers.0.self_attention.query.weight", true),
-            ("baichuan.model.layers.0.self_attention.query_key_value.weight", true),
+            (
+                "baichuan.model.layers.0.self_attention.query_key_value.weight",
+                true,
+            ),
             ("falcon.h.self_attention.query.weight", true),
             ("unknown_arch.tensor", false), // 未知前缀
         ];
@@ -3505,17 +3565,17 @@ mod integration_tests {
     fn test_architecture_comprehensive_coverage() {
         // 全面覆盖测试：确保所有架构都能正常工作
         let architectures = vec![
-            "llama", "qwen2", "minicpm", "gemma", "phi",
-            "mistral", "mixtral", "yi", "chatglm", "baichuan",
-            "falcon", "stablelm"
+            "llama", "qwen2", "minicpm", "gemma", "phi", "mistral", "mixtral", "yi", "chatglm",
+            "baichuan", "falcon", "stablelm",
         ];
 
         for arch_name in &architectures {
             let gguf_bytes = build_minimal_gguf_with_arch(arch_name);
 
-            let mut temp_file =
-                NamedTempFile::new().expect("Failed to create temp file");
-            temp_file.write_all(&gguf_bytes).expect("Failed to write temp file");
+            let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+            temp_file
+                .write_all(&gguf_bytes)
+                .expect("Failed to write temp file");
             temp_file.flush().expect("Failed to flush");
 
             let result = GgufFile::open(temp_file.path());
@@ -3535,9 +3595,21 @@ mod integration_tests {
 
             let config = config_result.unwrap();
             // 所有架构都应该能提取到有效的配置
-            assert!(config.hidden_size > 0, "{}: hidden_size 应该 > 0", arch_name);
-            assert!(config.num_hidden_layers > 0, "{}: num_hidden_layers 应该 > 0", arch_name);
-            assert!(config.num_attention_heads > 0, "{}: num_attention_heads 应该 > 0", arch_name);
+            assert!(
+                config.hidden_size > 0,
+                "{}: hidden_size 应该 > 0",
+                arch_name
+            );
+            assert!(
+                config.num_hidden_layers > 0,
+                "{}: num_hidden_layers 应该 > 0",
+                arch_name
+            );
+            assert!(
+                config.num_attention_heads > 0,
+                "{}: num_attention_heads 应该 > 0",
+                arch_name
+            );
         }
     }
 
@@ -3680,7 +3752,12 @@ mod integration_tests {
     }
 
     /// 写入张量信息
-    fn write_tensor_info(buf: &mut Vec<u8>, name: &[u8], dims: Vec<u64>, tensor_type: GgufTensorType) {
+    fn write_tensor_info(
+        buf: &mut Vec<u8>,
+        name: &[u8],
+        dims: Vec<u64>,
+        tensor_type: GgufTensorType,
+    ) {
         // 张量名称
         buf.extend_from_slice(&(name.len() as u64).to_le_bytes());
         buf.extend_from_slice(name);

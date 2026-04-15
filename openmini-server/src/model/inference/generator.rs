@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn test_stream_phase_all_variants() {
         // 测试所有 StreamPhase 变体的比较
-        let phases = vec![
+        let phases = [
             StreamPhase::Encoding,
             StreamPhase::Generating,
             StreamPhase::Completed,

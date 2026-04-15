@@ -141,9 +141,11 @@ impl fmt::Display for AHNConfig {
 }
 
 /// RNN 类型枚举
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum RnnType {
     /// Mamba2: 选择性状态空间模型
+    #[default]
     Mamba2,
     /// DeltaNext: 增量预测网络
     DeltaNext,
@@ -158,12 +160,6 @@ impl fmt::Display for RnnType {
             Self::DeltaNext => write!(f, "DeltaNext"),
             Self::GDN => write!(f, "GDN"),
         }
-    }
-}
-
-impl Default for RnnType {
-    fn default() -> Self {
-        RnnType::Mamba2
     }
 }
 
@@ -258,7 +254,8 @@ pub trait RnnBlock: fmt::Debug + Send + Sync {
 }
 
 /// RNN 内部状态表示
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum RnnState {
     /// Mamba2 状态 (隐藏状态 + 卷积状态)
     Mamba2 {
@@ -276,13 +273,8 @@ pub enum RnnState {
         noise_estimate: Array1<f32>,
     },
     /// 未初始化状态
+    #[default]
     Uninitialized,
-}
-
-impl Default for RnnState {
-    fn default() -> Self {
-        RnnState::Uninitialized
-    }
 }
 
 // ============================================================================
@@ -380,7 +372,7 @@ impl Mamba2Block {
         // 简化的选择性参数计算（实际实现中应使用线性投影）
         let a_param = x.mapv(|v| (-v.exp()).clamp(-4.0, 0.0)); // A 参数（负值保证稳定）
         let b_param = x.mapv(|v| v.tanh()); // B 参数（软饱和）
-        let c_param = x.mapv(|v| sigmoid(v)); // C 参数（门控）
+        let c_param = x.mapv(sigmoid); // C 参数（门控）
         let d_param = 1.0_f32; // D 参数（跳跃连接权重）
 
         (a_param, b_param, c_param, d_param)
@@ -427,7 +419,7 @@ impl Mamba2Block {
 
         // Mamba2 的压缩率基于状态维度和序列长度
         let effective_compression = self.d_state as f32 / seq_len as f32;
-        effective_compression.max(0.01).min(1.0)
+        effective_compression.clamp(0.01, 1.0)
     }
 }
 
@@ -627,7 +619,7 @@ impl DeltaNextBlock {
 
         // DeltaNext 的压缩率基于增量稀疏性
         let theoretical_ratio = 1.0 / self.num_delta_layers as f32;
-        theoretical_ratio.max(0.05).min(1.0)
+        theoretical_ratio.clamp(0.05, 1.0)
     }
 }
 
@@ -782,7 +774,10 @@ impl GDNBlock {
     /// - `denoise_iterations`: 去噪迭代次数
     pub fn new(hidden_dim: usize, denoise_iterations: usize) -> Self {
         assert!(hidden_dim > 0, "Hidden dimension must be positive");
-        assert!(denoise_iterations > 0, "Denoise iterations must be positive");
+        assert!(
+            denoise_iterations > 0,
+            "Denoise iterations must be positive"
+        );
 
         Self {
             hidden_dim,
@@ -834,12 +829,11 @@ impl GDNBlock {
 
         // 温度缩放的 sigmoid
         let gate_logit = snr.mapv(|s| s / self.gate_temperature);
-        let new_gate = gate_logit.mapv(|g| sigmoid(g));
+        let new_gate = gate_logit.mapv(sigmoid);
 
         // 与前一时刻的门控平滑结合
-        let smoothed_gate = prev_gate.mapv(|p| p * 0.7) + &new_gate.mapv(|n| n * 0.3);
 
-        smoothed_gate
+        prev_gate.mapv(|p| p * 0.7) + &new_gate.mapv(|n| n * 0.3)
     }
 
     /// 应用门控去噪
@@ -866,7 +860,7 @@ impl GDNBlock {
 
         // GDN 的压缩率基于去噪效果
         let base_ratio = 1.0 / (1.0 + self.denoise_iterations as f32 * 0.5);
-        base_ratio.max(0.05).min(1.0)
+        base_ratio.clamp(0.05, 1.0)
     }
 }
 
@@ -911,7 +905,7 @@ impl RnnBlock for GDNBlock {
                     // 计算门控（内联）
                     let snr = current_signal.mapv(|s| s.abs()) / noise.mapv(|n| n.max(0.001));
                     let gate_logit = snr.mapv(|s| s / self.gate_temperature);
-                    let new_gate = gate_logit.mapv(|g| sigmoid(g));
+                    let new_gate = gate_logit.mapv(sigmoid);
                     let gate_snap = gate.clone();
                     let smoothed_gate = gate_snap.mapv(|p| p * 0.7) + &new_gate.mapv(|_n| 0.3);
 
@@ -1027,7 +1021,10 @@ impl LocalStandardAttention {
         assert!(window_size > 0, "Window size must be positive");
         assert!(num_heads > 0, "Number of heads must be positive");
         assert!(head_dim > 0, "Head dimension must be positive");
-        assert!(head_dim % num_heads == 0, "Head dimension must be divisible by num_heads");
+        assert!(
+            head_dim % num_heads == 0,
+            "Head dimension must be divisible by num_heads"
+        );
 
         let scale = 1.0 / (head_dim as f32).sqrt();
 
@@ -1115,7 +1112,8 @@ impl LocalStandardAttention {
 
                     // 提取当前 query 头
                     let q_row = q.row(i);
-                    let q_head: Vec<f32> = q_row.iter()
+                    let q_head: Vec<f32> = q_row
+                        .iter()
                         .skip(head_offset)
                         .take(self.head_dim)
                         .copied()
@@ -1123,7 +1121,8 @@ impl LocalStandardAttention {
 
                     // 收集窗口内的 key 和 value 头
                     let mut attn_scores: Vec<f32> = Vec::with_capacity(window_end - window_start);
-                    let mut window_values: Vec<Vec<f32>> = Vec::with_capacity(window_end - window_start);
+                    let mut window_values: Vec<Vec<f32>> =
+                        Vec::with_capacity(window_end - window_start);
 
                     for j in window_start..window_end {
                         // 因果掩码检查
@@ -1132,14 +1131,16 @@ impl LocalStandardAttention {
                         }
 
                         let k_row = k.row(j);
-                        let k_head: Vec<f32> = k_row.iter()
+                        let k_head: Vec<f32> = k_row
+                            .iter()
                             .skip(head_offset)
                             .take(self.head_dim)
                             .copied()
                             .collect();
 
                         let v_row = v.row(j);
-                        let v_head: Vec<f32> = v_row.iter()
+                        let v_head: Vec<f32> = v_row
+                            .iter()
                             .skip(head_offset)
                             .take(self.head_dim)
                             .copied()
@@ -1219,7 +1220,8 @@ impl LocalStandardAttention {
     ///
     /// 返回 (时间复杂度, 空间复杂度) 的元组
     pub fn complexity_analysis(&self, seq_len: usize) -> (usize, usize) {
-        let time_complexity = seq_len * self.window_size.min(seq_len) * self.num_heads * self.head_dim;
+        let time_complexity =
+            seq_len * self.window_size.min(seq_len) * self.num_heads * self.head_dim;
         let space_complexity = seq_len * self.num_heads * self.head_dim; // 只需存储 Q,K,V
 
         (time_complexity, space_complexity)
@@ -1333,20 +1335,15 @@ impl TransitionLayer {
         let mut fused = Array2::<f32>::zeros((seq_len, target_dim));
 
         // 逐位置计算门控融合
-        fused.axis_iter_mut(Axis(0))
+        fused
+            .axis_iter_mut(Axis(0))
             .enumerate()
             .for_each(|(i, mut row)| {
                 let rnn_row = rnn_output.row(i);
-                let rnn_vec: Vec<f32> = rnn_row.iter()
-                    .take(target_dim)
-                    .copied()
-                    .collect();
+                let rnn_vec: Vec<f32> = rnn_row.iter().take(target_dim).copied().collect();
 
                 let attn_row = attn_output.row(i);
-                let attn_vec: Vec<f32> = attn_row.iter()
-                    .take(target_dim)
-                    .copied()
-                    .collect();
+                let attn_vec: Vec<f32> = attn_row.iter().take(target_dim).copied().collect();
 
                 // 简化的门控计算（基于能量差异）
                 let rnn_energy: f32 = rnn_vec.iter().map(|x| x * x).sum();
@@ -1355,8 +1352,7 @@ impl TransitionLayer {
                 let energy_diff = (rnn_energy - attn_energy).sqrt().max(0.0);
 
                 // Sigmoid 门控
-                let gate_value =
-                    sigmoid((energy_diff / self.gate_temperature + self.gate_bias) as f32);
+                let gate_value = sigmoid(energy_diff / self.gate_temperature + self.gate_bias);
 
                 // 门控融合
                 for (d, val) in row.iter_mut().enumerate() {
@@ -1369,7 +1365,8 @@ impl TransitionLayer {
 
                         // 残差连接（使用均值作为恒等映射近似）
                         let mean_val = (rnn_val + attn_val) / 2.0;
-                        *val = main_fused * (1.0 - self.residual_weight) + mean_val * self.residual_weight;
+                        *val = main_fused * (1.0 - self.residual_weight)
+                            + mean_val * self.residual_weight;
                     }
                 }
             });
@@ -1388,7 +1385,7 @@ impl TransitionLayer {
         let mut normalized = Array2::<f32>::zeros((seq_len, dim));
 
         normalized.axis_iter_mut(Axis(0)).for_each(|mut row| {
-            let mean: f32 = row.iter().map(|&x| x).sum::<f32>() / dim as f32;
+            let mean: f32 = row.iter().copied().sum::<f32>() / dim as f32;
             let var: f32 = row.iter().map(|&x| (x - mean) * (x - mean)).sum::<f32>() / dim as f32;
             let std = var.sqrt().max(1e-5);
 
@@ -1413,21 +1410,15 @@ impl TransitionLayer {
 
         for i in 0..seq_len {
             let rnn_row = rnn_output.row(i);
-            let rnn_vec: Vec<f32> = rnn_row.iter()
-                .take(dim)
-                .copied()
-                .collect();
+            let rnn_vec: Vec<f32> = rnn_row.iter().take(dim).copied().collect();
 
             let attn_row = attn_output.row(i);
-            let attn_vec: Vec<f32> = attn_row.iter()
-                .take(dim)
-                .copied()
-                .collect();
+            let attn_vec: Vec<f32> = attn_row.iter().take(dim).copied().collect();
 
             let rnn_energy: f32 = rnn_vec.iter().map(|x| x * x).sum();
             let attn_energy: f32 = attn_vec.iter().map(|x| x * x).sum();
             let energy_diff = (rnn_energy - attn_energy).sqrt().max(0.0);
-            let gate_value = sigmoid((energy_diff / self.gate_temperature + self.gate_bias) as f32);
+            let gate_value = sigmoid(energy_diff / self.gate_temperature + self.gate_bias);
 
             gates.push(gate_value);
             rnn_weights_sum += gate_value as f64;
@@ -1473,8 +1464,7 @@ impl fmt::Display for GateDistributionStats {
             f,
             "GateDistribution {{ mean={:.3}, range=[{:.3}, {:.3}], \
              rnn_weight={:.3}, attn_weight={:.3} }}",
-            self.mean_gate, self.min_gate, self.max_gate,
-            self.rnn_weight_avg, self.attn_weight_avg
+            self.mean_gate, self.min_gate, self.max_gate, self.rnn_weight_avg, self.attn_weight_avg
         )
     }
 }
@@ -1563,7 +1553,9 @@ impl AttentionHybridNetwork {
             return Err(InferenceError::config("Hidden dimension must be positive"));
         }
         if config.num_rnn_layers == 0 {
-            return Err(InferenceError::config("Number of RNN layers must be positive"));
+            return Err(InferenceError::config(
+                "Number of RNN layers must be positive",
+            ));
         }
         if config.local_window_size == 0 {
             return Err(InferenceError::config("Local window size must be positive"));
@@ -1582,14 +1574,8 @@ impl AttentionHybridNetwork {
                     (config.hidden_dim / config.compression_ratio as usize).max(16),
                     4,
                 )),
-                RnnType::DeltaNext => Box::new(DeltaNextBlock::new(
-                    config.hidden_dim,
-                    2,
-                )),
-                RnnType::GDN => Box::new(GDNBlock::new(
-                    config.hidden_dim,
-                    3,
-                )),
+                RnnType::DeltaNext => Box::new(DeltaNextBlock::new(config.hidden_dim, 2)),
+                RnnType::GDN => Box::new(GDNBlock::new(config.hidden_dim, 3)),
             };
             rnn_modules.push(rnn_block);
         }
@@ -1718,11 +1704,13 @@ impl AttentionHybridNetwork {
             self.stats.rnn_total_time_us += rnn_elapsed;
             self.stats.attn_total_time_us += attn_elapsed;
             self.stats.fusion_total_time_us += fusion_elapsed;
-            self.stats.avg_latency_us = self.stats.total_time_us as f64 / self.stats.total_calls as f64;
+            self.stats.avg_latency_us =
+                self.stats.total_time_us as f64 / self.stats.total_calls as f64;
 
             // 估算峰值内存
             let rnn_memory = seq_len * self.config.hidden_dim * self.config.num_rnn_layers;
-            let attn_memory = seq_len * self.local_attn.window_size().min(seq_len)
+            let attn_memory = seq_len
+                * self.local_attn.window_size().min(seq_len)
                 * self.config.num_attention_heads
                 * self.config.attention_head_dim;
             let fusion_memory = seq_len * self.config.hidden_dim * 2;
@@ -1731,7 +1719,9 @@ impl AttentionHybridNetwork {
 
             // 记录实际压缩率
             if let Some(first_module) = self.rnn_modules.first() {
-                self.stats.actual_compression_ratios.push(first_module.compression_ratio());
+                self.stats
+                    .actual_compression_ratios
+                    .push(first_module.compression_ratio());
             }
         }
 
@@ -1881,8 +1871,7 @@ impl fmt::Display for MemoryBreakdown {
             f,
             "MemoryBreakdown {{ RNN={:.1}MB, Attn={:.1}MB, Fusion={:.1}MB, \
              Activations={:.1}MB, Total={:.1}MB }}",
-            self.rnn_mb, self.attention_mb, self.fusion_mb,
-            self.activations_mb, self.total_mb
+            self.rnn_mb, self.attention_mb, self.fusion_mb, self.activations_mb, self.total_mb
         )
     }
 }
@@ -1925,7 +1914,7 @@ mod tests {
 
     fn create_test_input(seq_len: usize, dim: usize) -> Array2<f32> {
         Array2::from_shape_fn((seq_len, dim), |(i, j)| {
-            ((i as f32 * 0.1 + j as f32 * 0.01)).sin()
+            (i as f32 * 0.1 + j as f32 * 0.01).sin()
         })
     }
 
@@ -2189,7 +2178,7 @@ mod tests {
         // 测试中间位置
         let (start, end) = attn.get_window_range(10, 32);
         assert_eq!(start, 3); // 10 - 8 + 1 = 3
-        assert_eq!(end, 11);   // 10 + 1 = 11
+        assert_eq!(end, 11); // 10 + 1 = 11
 
         // 测试起始位置
         let (start, end) = attn.get_window_range(0, 32);
@@ -2274,7 +2263,11 @@ mod tests {
         // 层归一化后，每行的均值应接近 0，标准差接近 1
         for row in output.axis_iter(Axis(0)) {
             let mean: f32 = row.iter().map(|&x| x).sum::<f32>() / row.len() as f32;
-            assert!(mean.abs() < 1.0, "Mean should be near 0 after layer norm, got {}", mean);
+            assert!(
+                mean.abs() < 1.0,
+                "Mean should be near 0 after layer norm, got {}",
+                mean
+            );
         }
     }
 
@@ -2468,7 +2461,11 @@ mod tests {
 
         // 长序列：显著加速
         let speedup = ahn.estimated_speedup_vs_full_attention(8192);
-        assert!(speedup >= 1.5, "Long sequence should have significant speedup, got {}", speedup);
+        assert!(
+            speedup >= 1.5,
+            "Long sequence should have significant speedup, got {}",
+            speedup
+        );
     }
 
     #[test]
@@ -2483,7 +2480,13 @@ mod tests {
         assert!(breakdown.fusion_mb > 0.0);
         assert!(breakdown.total_mb > 0.0);
         assert!(
-            (breakdown.total_mb - (breakdown.rnn_mb + breakdown.attention_mb + breakdown.fusion_mb + breakdown.activations_mb)).abs() < 0.01
+            (breakdown.total_mb
+                - (breakdown.rnn_mb
+                    + breakdown.attention_mb
+                    + breakdown.fusion_mb
+                    + breakdown.activations_mb))
+                .abs()
+                < 0.01
         );
     }
 
@@ -2555,11 +2558,7 @@ mod tests {
             let input = create_test_input(seq_len, 128);
             let result = ahn.forward(&input, 4, 32);
 
-            assert!(
-                result.is_ok(),
-                "Failed for sequence length {}",
-                seq_len
-            );
+            assert!(result.is_ok(), "Failed for sequence length {}", seq_len);
 
             let output = result.unwrap();
             assert_eq!(
@@ -2599,11 +2598,7 @@ mod tests {
             let input = create_test_input(32, 128);
             let result = ahn.forward(&input, 4, 32);
 
-            assert!(
-                result.is_ok(),
-                "Forward call {} failed",
-                i
-            );
+            assert!(result.is_ok(), "Forward call {} failed", i);
         }
 
         // 统计应该记录了 10 次调用
@@ -2632,11 +2627,7 @@ mod tests {
             let input = create_test_input(seq_len, 256);
             let result = ahn.forward(&input, 8, 32);
 
-            assert!(
-                result.is_ok(),
-                "Failed for sequence length {}",
-                seq_len
-            );
+            assert!(result.is_ok(), "Failed for sequence length {}", seq_len);
 
             let output = result.unwrap();
             assert_eq!(
@@ -2709,11 +2700,7 @@ mod tests {
             };
 
             let result = AttentionHybridNetwork::new(config);
-            assert!(
-                result.is_ok(),
-                "Failed to create AHN with {}",
-                description
-            );
+            assert!(result.is_ok(), "Failed to create AHN with {}", description);
 
             let mut ahn = result.unwrap();
             let input = create_test_input(64, 128);

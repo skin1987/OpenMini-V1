@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use thiserror::Error;
-use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {

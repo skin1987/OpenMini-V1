@@ -11,18 +11,13 @@ use anyhow::{anyhow, Result};
 use ndarray::{Array3, Array4};
 
 /// 图像预处理器类型
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ProcessorType {
     /// 标准预处理器 (224×224, ImageNet)
+    #[default]
     Standard,
     /// Gemma3 预处理器 (896×896, SigLIP)
     Gemma3,
-}
-
-impl Default for ProcessorType {
-    fn default() -> Self {
-        ProcessorType::Standard
-    }
 }
 
 /// 图像预处理器配置

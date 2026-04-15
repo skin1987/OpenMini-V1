@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 // User 结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +24,9 @@ pub enum UserRole {
 }
 
 impl Default for UserRole {
-    fn default() -> Self { Self::Admin }
+    fn default() -> Self {
+        Self::Admin
+    }
 }
 
 impl From<i32> for UserRole {
@@ -100,7 +102,9 @@ pub enum AlertSeverity {
 }
 
 impl Default for AlertSeverity {
-    fn default() -> Self { Self::Warning }
+    fn default() -> Self {
+        Self::Warning
+    }
 }
 
 impl From<i32> for AlertSeverity {
@@ -146,7 +150,9 @@ pub enum AlertStatus {
 }
 
 impl Default for AlertStatus {
-    fn default() -> Self { Self::Firing }
+    fn default() -> Self {
+        Self::Firing
+    }
 }
 
 impl From<i32> for AlertStatus {
@@ -257,7 +263,7 @@ mod tests {
         assert_eq!(UserRole::from(0), UserRole::Admin);
         assert_eq!(UserRole::from(1), UserRole::Operator);
         assert_eq!(UserRole::from(2), UserRole::Viewer);
-        
+
         // 无效值应该默认为 Admin
         assert_eq!(UserRole::from(99), UserRole::Admin);
         assert_eq!(UserRole::from(-1), UserRole::Admin);
@@ -296,7 +302,8 @@ mod tests {
         let apikey = ApiKey {
             id: 1,
             key_prefix: "om-sk_abc12345".to_string(),
-            key_hash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
+            key_hash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+                .to_string(),
             name: "Test API Key".to_string(),
             owner_id: 10,
             quota_daily_requests: Some(1000),
@@ -323,7 +330,7 @@ mod tests {
         assert!(json.get("expires_at").is_some());
         assert!(json.get("last_used_at").is_some());
         // Option 在 JSON 中序列化为 null，而不是缺失
-        assert_eq!(json.get("revoked_at").and_then(|v| v.as_null()), Some(()));  // None 应该是 null
+        assert_eq!(json.get("revoked_at").and_then(|v| v.as_null()), Some(())); // None 应该是 null
     }
 
     #[test]
@@ -365,7 +372,7 @@ mod tests {
             condition: ">".to_string(),
             threshold: 90.5,
             duration_seconds: 300,
-            severity: 0,  // Critical
+            severity: 0, // Critical
             channels: "[\"email\", \"slack\"]".to_string(),
             webhook_url: Some("https://example.com/webhook".to_string()),
             is_enabled: true,
@@ -377,7 +384,7 @@ mod tests {
         assert_eq!(json["name"], "High CPU Usage");
         assert_eq!(json["metric_name"], "cpu_usage");
         assert_eq!(json["threshold"], 90.5);
-        assert_eq!(json["severity"], 0);  // Critical
+        assert_eq!(json["severity"], 0); // Critical
         assert_eq!(json["is_enabled"], true);
     }
 
@@ -388,7 +395,7 @@ mod tests {
         assert_eq!(AlertSeverity::from(0), AlertSeverity::Critical);
         assert_eq!(AlertSeverity::from(1), AlertSeverity::Warning);
         assert_eq!(AlertSeverity::from(2), AlertSeverity::Info);
-        
+
         // 无效值默认为 Warning
         assert_eq!(AlertSeverity::from(99), AlertSeverity::Warning);
     }
@@ -405,7 +412,7 @@ mod tests {
         assert_eq!(AlertStatus::from(0), AlertStatus::Firing);
         assert_eq!(AlertStatus::from(1), AlertStatus::Acknowledged);
         assert_eq!(AlertStatus::from(2), AlertStatus::Resolved);
-        
+
         // 无效值默认为 Firing
         assert_eq!(AlertStatus::from(99), AlertStatus::Firing);
     }
@@ -455,7 +462,10 @@ mod tests {
         assert_eq!(json["action"], "SYSTEM_STARTUP");
         // Option 在 JSON 中序列化为 null
         assert_eq!(json.get("user_id").and_then(|v| v.as_null()), Some(()));
-        assert_eq!(json.get("resource_type").and_then(|v| v.as_null()), Some(()));
+        assert_eq!(
+            json.get("resource_type").and_then(|v| v.as_null()),
+            Some(())
+        );
     }
 
     // ==================== ConfigHistory 模型测试 ====================

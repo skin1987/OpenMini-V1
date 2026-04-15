@@ -66,12 +66,12 @@ pub struct InferenceMetrics {
     pub output_tokens_per_second: f64,
 
     // 延迟相关
-    pub avg_ttft_ms: f64,        // Time To First Token
+    pub avg_ttft_ms: f64, // Time To First Token
     pub p50_ttft_ms: f64,
     pub p95_ttft_ms: f64,
     pub p99_ttft_ms: f64,
 
-    pub avg_tpot_ms: f64,        // Time Per Output Token
+    pub avg_tpot_ms: f64, // Time Per Output Token
     pub p50_tpot_ms: f64,
     pub p95_tpot_ms: f64,
 
@@ -131,8 +131,12 @@ impl MetricType {
     /// 获取指标单位
     pub fn unit(&self) -> &'static str {
         match self {
-            MetricType::CpuUsage | MetricType::MemoryUsage | MetricType::GpuUsage |
-            MetricType::GpuMemory | MetricType::GpuTemperature | MetricType::QueueLength => "%",
+            MetricType::CpuUsage
+            | MetricType::MemoryUsage
+            | MetricType::GpuUsage
+            | MetricType::GpuMemory
+            | MetricType::GpuTemperature
+            | MetricType::QueueLength => "%",
             MetricType::RequestsPerSecond => "req/s",
             MetricType::TokensPerSecond => "tok/s",
             MetricType::LatencyAvg | MetricType::LatencyP95 => "ms",
@@ -213,12 +217,12 @@ fn calculate_interval(time_range_secs: u64, requested_interval: Option<u64>) -> 
 
     // 自动计算：根据时间范围选择合适的间隔，确保数据点数量合理（50-300 个点）
     match time_range_secs {
-        t if t <= 300 => 10,       // 5 分钟内：10 秒间隔
-        t if t <= 900 => 30,       // 15 分钟内：30 秒间隔
-        t if t <= 3600 => 60,      // 1 小时内：1 分钟间隔
-        t if t <= 21600 => 300,    // 6 小时内：5 分钟间隔
-        t if t <= 86400 => 600,    // 24 小时内：10 分钟间隔
-        _ => 3600,                 // 更长时间：1 小时间隔
+        t if t <= 300 => 10,    // 5 分钟内：10 秒间隔
+        t if t <= 900 => 30,    // 15 分钟内：30 秒间隔
+        t if t <= 3600 => 60,   // 1 小时内：1 分钟间隔
+        t if t <= 21600 => 300, // 6 小时内：5 分钟间隔
+        t if t <= 86400 => 600, // 24 小时内：10 分钟间隔
+        _ => 3600,              // 更长时间：1 小时间隔
     }
 }
 
@@ -231,9 +235,7 @@ fn calculate_interval(time_range_secs: u64, requested_interval: Option<u64>) -> 
 /// - 内存使用情况
 /// - GPU 状态（如果有 GPU）
 /// - 磁盘使用情况
-pub async fn system_metrics(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn system_metrics(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     // 在实际实现中，这里应该调用系统 API 获取真实的硬件信息
     // 当前返回模拟数据用于演示
 
@@ -277,9 +279,7 @@ pub async fn system_metrics(
 /// - 延迟分布（TTFT、TPOT、总体延迟的 P50/P95/P99）
 /// - 队列状态
 /// - 成功率统计
-pub async fn inference_metrics(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn inference_metrics(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     // 当前返回模拟数据
     // 实际实现中可以从上游服务的 /metrics 端点获取 Prometheus 格式的指标数据并解析
 
@@ -327,7 +327,7 @@ pub async fn metrics_history(
     let interval = calculate_interval(time_range_secs, params.interval_seconds);
 
     // 计算数据点数量
-    let num_points = (time_range_secs / interval).min(500).max(10) as usize;
+    let num_points = (time_range_secs / interval).clamp(10, 500) as usize;
 
     // 生成模拟的历史数据
     // 实际实现中应该从时序数据库或缓存中读取真实数据
@@ -390,16 +390,19 @@ pub async fn metrics_history(
 /// 一次性返回最重要的核心指标，减少前端请求次数。
 pub async fn dashboard_overview(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
     // 并行获取多个指标以提高响应速度
-    let (system_result, inference_result, session_stats) =
-        tokio::try_join!(system_metrics(State(state.clone())), inference_metrics(State(state.clone())), async {
+    let (system_result, inference_result, session_stats) = tokio::try_join!(
+        system_metrics(State(state.clone())),
+        inference_metrics(State(state.clone())),
+        async {
             // 快速获取会话统计（最近 1 小时）
-            let active: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE status = 'active'")
-                .fetch_one(&*state.pool)
-                .await
-                .unwrap_or((0,));
+            let active: (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE status = 'active'")
+                    .fetch_one(&*state.pool)
+                    .await
+                    .unwrap_or((0,));
 
             let total_today: (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM sessions WHERE created_at >= datetime('now', '-1 day')"
+                "SELECT COUNT(*) FROM sessions WHERE created_at >= datetime('now', '-1 day')",
             )
             .fetch_one(&*state.pool)
             .await
@@ -409,7 +412,8 @@ pub async fn dashboard_overview(State(state): State<AppState>) -> Result<Json<Va
                 "active_sessions": active.0,
                 "sessions_today": total_today.0
             }))
-        })?;
+        }
+    )?;
 
     let system_data = system_result.0;
     let inference_data = inference_result.0;
@@ -427,9 +431,7 @@ pub async fn dashboard_overview(State(state): State<AppState>) -> Result<Json<Va
 ///
 /// 返回当前配置的各项指标告警阈值，
 /// 用于前端展示和比较是否触发告警。
-pub async fn alert_thresholds(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn alert_thresholds(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     let thresholds = serde_json::json!({
         "cpu_usage": {
             "warning": 80.0,
@@ -595,9 +597,9 @@ mod tests {
     #[test]
     fn test_calculate_interval_auto() {
         // 测试自动计算的采样间隔
-        assert_eq!(calculate_interval(300, None), 10);   // 5分钟
-        assert_eq!(calculate_interval(900, None), 30);   // 15分钟
-        assert_eq!(calculate_interval(3600, None), 60);  // 1小时
+        assert_eq!(calculate_interval(300, None), 10); // 5分钟
+        assert_eq!(calculate_interval(900, None), 30); // 15分钟
+        assert_eq!(calculate_interval(3600, None), 60); // 1小时
         assert_eq!(calculate_interval(21600, None), 300); // 6小时
         assert_eq!(calculate_interval(86400, None), 600); // 24小时
     }
@@ -614,7 +616,10 @@ mod tests {
         assert_eq!(MetricType::CpuUsage.display_name(), "CPU 使用率");
         assert_eq!(MetricType::CpuUsage.unit(), "%");
 
-        assert_eq!(MetricType::RequestsPerSecond.display_name(), "每秒请求数 (QPS)");
+        assert_eq!(
+            MetricType::RequestsPerSecond.display_name(),
+            "每秒请求数 (QPS)"
+        );
         assert_eq!(MetricType::RequestsPerSecond.unit(), "req/s");
 
         assert_eq!(MetricType::LatencyP95.display_name(), "P95 延迟");
@@ -624,9 +629,21 @@ mod tests {
     #[test]
     fn test_metric_summary_calculation() {
         let points = vec![
-            MetricPoint { timestamp: 1000, value: 10.0, metric_type: "test".into() },
-            MetricPoint { timestamp: 2000, value: 20.0, metric_type: "test".into() },
-            MetricPoint { timestamp: 3000, value: 30.0, metric_type: "test".into() },
+            MetricPoint {
+                timestamp: 1000,
+                value: 10.0,
+                metric_type: "test".into(),
+            },
+            MetricPoint {
+                timestamp: 2000,
+                value: 20.0,
+                metric_type: "test".into(),
+            },
+            MetricPoint {
+                timestamp: 3000,
+                value: 30.0,
+                metric_type: "test".into(),
+            },
         ];
 
         let values: Vec<f64> = points.iter().map(|p| p.value).collect();

@@ -126,10 +126,7 @@ impl Memory {
     ///
     /// # 返回
     /// 成功返回记忆列表
-    pub async fn find_by_session(
-        pool: &SqlitePool,
-        session_id: &str,
-    ) -> anyhow::Result<Vec<Self>> {
+    pub async fn find_by_session(pool: &SqlitePool, session_id: &str) -> anyhow::Result<Vec<Self>> {
         let memories = sqlx::query_as::<_, Memory>(
             r#"
             SELECT * FROM memories WHERE session_id = ? ORDER BY created_at DESC
@@ -225,17 +222,15 @@ impl Memory {
     /// # 返回
     /// 成功返回删除的记录数
     pub async fn cleanup_expired(pool: &SqlitePool) -> anyhow::Result<u64> {
-        let result = sqlx::query("DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?")
-            .bind(Utc::now())
-            .execute(pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("清理过期记忆失败: {}", e))?;
+        let result =
+            sqlx::query("DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?")
+                .bind(Utc::now())
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow::anyhow!("清理过期记忆失败: {}", e))?;
 
         if result.rows_affected() > 0 {
-            tracing::info!(
-                deleted_count = result.rows_affected(),
-                "已清理过期记忆"
-            );
+            tracing::info!(deleted_count = result.rows_affected(), "已清理过期记忆");
         }
 
         Ok(result.rows_affected())

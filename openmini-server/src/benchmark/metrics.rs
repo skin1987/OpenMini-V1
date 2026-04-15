@@ -98,15 +98,13 @@ impl Default for MemoryMetrics {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UtilizationMetrics {
     pub cpu_percent: Option<f64>,
     pub gpu_percent: Option<f64>,
     pub gpu_memory_percent: Option<f64>,
     pub power_watts: Option<f64>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkMetrics {
@@ -144,8 +142,8 @@ impl BenchmarkMetrics {
 
     pub fn calculate_tbtl(&mut self) {
         if self.inference_duration_ms > 0.0 && self.total_tokens_generated > 0 {
-            self.tbtl = (self.total_tokens_generated as f64)
-                / (self.inference_duration_ms / 1000.0);
+            self.tbtl =
+                (self.total_tokens_generated as f64) / (self.inference_duration_ms / 1000.0);
         }
     }
 
@@ -185,14 +183,20 @@ impl MetricsCollector {
 
     pub fn record_first_token(&mut self) {
         self.first_token_time = Some(std::time::Instant::now());
-        let ttft_ms = self.first_token_time.unwrap().duration_since(self.start_time).as_millis() as f64;
+        let ttft_ms = self
+            .first_token_time
+            .unwrap()
+            .duration_since(self.start_time)
+            .as_millis() as f64;
         self.ttft_samples.push(ttft_ms);
     }
 
     pub fn record_token(&mut self) {
         self.token_count += 1;
         if let Some(first_time) = self.first_token_time {
-            let elapsed = std::time::Instant::now().duration_since(first_time).as_millis() as f64;
+            let elapsed = std::time::Instant::now()
+                .duration_since(first_time)
+                .as_millis() as f64;
             if self.token_count > 1 {
                 let per_token = elapsed / (self.token_count - 1) as f64;
                 self.tpot_samples.push(per_token);
@@ -290,8 +294,14 @@ mod tests {
         assert_eq!(metrics.total_tokens_generated, 10);
         assert_eq!(metrics.total_prompt_tokens, 512);
         // TTFT和TPOT应该有正值（因为我们添加了足够的延迟）
-        assert!(metrics.ttft_ms.mean > 0.0, "TTFT should be positive after recording first token with delay");
-        assert!(metrics.tpot_ms_per_token.mean > 0.0, "TPOT should be positive after recording tokens with delay");
+        assert!(
+            metrics.ttft_ms.mean > 0.0,
+            "TTFT should be positive after recording first token with delay"
+        );
+        assert!(
+            metrics.tpot_ms_per_token.mean > 0.0,
+            "TPOT should be positive after recording tokens with delay"
+        );
     }
 
     #[test]
@@ -313,6 +323,9 @@ mod tests {
         let metrics = BenchmarkMetrics::default();
         let json = serde_json::to_string(&metrics).unwrap();
         let deserialized: BenchmarkMetrics = serde_json::from_str(&json).unwrap();
-        assert_eq!(metrics.total_tokens_generated, deserialized.total_tokens_generated);
+        assert_eq!(
+            metrics.total_tokens_generated,
+            deserialized.total_tokens_generated
+        );
     }
 }

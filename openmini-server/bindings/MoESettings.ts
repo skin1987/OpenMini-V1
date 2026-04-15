@@ -3,36 +3,4 @@
 /**
  * MoE (Mixture of Experts) 配置
  */
-export type MoESettings = { 
-/**
- * 策略: cyclic | full_layer | hybrid
- */
-strategy: string, 
-/**
- * 循环周期
- */
-cycle_period: number, 
-/**
- * FullLayer策略时的FFN前缀层数
- */
-ffn_prefix_layers: number, 
-/**
- * 路由专家数量
- */
-num_routing_experts: number, 
-/**
- * 共享专家数量
- */
-num_shared_experts: number, 
-/**
- * Top-K 选择数
- */
-top_k: number, 
-/**
- * 容量因子
- */
-capacity_factor: number, 
-/**
- * 是否启用负载均衡
- */
-load_balance: boolean, };
+export type MoESettings = {  };

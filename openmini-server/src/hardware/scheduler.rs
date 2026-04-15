@@ -327,59 +327,59 @@ impl AdaptiveScheduler {
         level: HardwareLevel,
         _device_type: DeviceType,
     ) -> InferenceConfig {
-        #[allow(clippy::field_reassign_with_default)]
-        let mut config = InferenceConfig::default();
-
-        config.num_threads = hardware.cpu.physical_cores.min(hardware.cpu.logical_cores);
-
+        let num_threads = hardware
+            .cpu
+            .physical_cores
+            .min(hardware.cpu.logical_cores)
+            .max(1);
         let has_gpu = hardware.gpu.gpu_type != super::detector::GpuType::Unknown;
 
         match level {
-            HardwareLevel::Entry => {
-                config.strategy = ScheduleStrategy::Entry;
-                config.attention = AttentionStrategy::Dsa;
-                config.memory = MemoryStrategy::SmallArena;
-                config.parallel = ParallelStrategy::SimdVectorized;
-                config.use_simd = true;
-                config.use_gpu = has_gpu;
-                config.kv_cache_size = 256;
-                config.batch_size = 1;
-            }
-            HardwareLevel::Standard => {
-                config.strategy = ScheduleStrategy::Standard;
-                config.attention = AttentionStrategy::Dsa;
-                config.memory = MemoryStrategy::StandardArena;
-                config.parallel = ParallelStrategy::MultiThread;
-                config.use_simd = true;
-                config.use_gpu = has_gpu;
-                config.kv_cache_size = 512;
-                config.batch_size = 1;
-            }
-            HardwareLevel::Professional => {
-                config.strategy = ScheduleStrategy::Professional;
-                config.attention = AttentionStrategy::FlashAttention;
-                config.memory = MemoryStrategy::PagedAttention;
-                config.parallel = ParallelStrategy::GpuAccelerated;
-                config.use_simd = true;
-                config.use_gpu = true;
-                config.kv_cache_size = 2048;
-                config.batch_size = 4;
-            }
-            HardwareLevel::Server => {
-                config.strategy = ScheduleStrategy::Server;
-                config.attention = AttentionStrategy::FlashAttention;
-                config.memory = MemoryStrategy::Distributed;
-                config.parallel = ParallelStrategy::Distributed;
-                config.use_simd = true;
-                config.use_gpu = true;
-                config.kv_cache_size = 8192;
-                config.batch_size = 16;
-            }
+            HardwareLevel::Entry => InferenceConfig {
+                num_threads,
+                strategy: ScheduleStrategy::Entry,
+                attention: AttentionStrategy::Dsa,
+                memory: MemoryStrategy::SmallArena,
+                parallel: ParallelStrategy::SimdVectorized,
+                use_simd: true,
+                use_gpu: has_gpu,
+                kv_cache_size: 256,
+                batch_size: 1,
+            },
+            HardwareLevel::Standard => InferenceConfig {
+                num_threads,
+                strategy: ScheduleStrategy::Standard,
+                attention: AttentionStrategy::Dsa,
+                memory: MemoryStrategy::StandardArena,
+                parallel: ParallelStrategy::MultiThread,
+                use_simd: true,
+                use_gpu: has_gpu,
+                kv_cache_size: 512,
+                batch_size: 1,
+            },
+            HardwareLevel::Professional => InferenceConfig {
+                num_threads,
+                strategy: ScheduleStrategy::Professional,
+                attention: AttentionStrategy::FlashAttention,
+                memory: MemoryStrategy::PagedAttention,
+                parallel: ParallelStrategy::GpuAccelerated,
+                use_simd: true,
+                use_gpu: true,
+                kv_cache_size: 2048,
+                batch_size: 4,
+            },
+            HardwareLevel::Server => InferenceConfig {
+                num_threads,
+                strategy: ScheduleStrategy::Server,
+                attention: AttentionStrategy::FlashAttention,
+                memory: MemoryStrategy::Distributed,
+                parallel: ParallelStrategy::Distributed,
+                use_simd: true,
+                use_gpu: true,
+                kv_cache_size: 8192,
+                batch_size: 16,
+            },
         }
-
-        config.num_threads = config.num_threads.max(1);
-
-        config
     }
 
     /// 获取当前配置

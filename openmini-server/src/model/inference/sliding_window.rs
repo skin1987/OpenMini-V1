@@ -16,11 +16,12 @@ use serde::{Deserialize, Serialize};
 /// 注意力模式枚举
 ///
 /// 定义不同的注意力计算策略，用于适应不同场景需求
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum AttentionMode {
     /// 局部注意力模式
     /// 仅关注当前token周围的窗口内token
     /// 适用场景：长文本处理、降低计算复杂度
+    #[default]
     Local,
 
     /// 全局注意力模式
@@ -35,12 +36,6 @@ pub enum AttentionMode {
         /// 步长大小，控制跳跃间隔
         stride: usize,
     },
-}
-
-impl Default for AttentionMode {
-    fn default() -> Self {
-        AttentionMode::Local
-    }
 }
 
 /// 滑动窗口注意力配置
@@ -68,6 +63,7 @@ pub struct SlidingWindowConfig {
     pub use_cache: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for SlidingWindowConfig {
     fn default() -> Self {
         Self {
@@ -447,10 +443,7 @@ mod tests {
     fn test_strided_config() {
         let config = SlidingWindowConfig::strided(128, 16);
         assert_eq!(config.window_size, 128);
-        assert_eq!(
-            config.attention_mode,
-            AttentionMode::Strided { stride: 16 }
-        );
+        assert_eq!(config.attention_mode, AttentionMode::Strided { stride: 16 });
         assert!(!config.use_cache); // Strided模式默认不使用缓存
     }
 
@@ -571,10 +564,7 @@ mod tests {
 
         // 输出不应包含NaN或Inf
         for val in output.iter() {
-            assert!(
-                val.is_finite(),
-                "Output should not contain NaN or Inf"
-            );
+            assert!(val.is_finite(), "Output should not contain NaN or Inf");
         }
     }
 
@@ -661,8 +651,7 @@ mod tests {
             .collect();
 
         let config = SlidingWindowConfig::local_only(4, true);
-        let outputs =
-            multi_head_sliding_window_attention(&query, &key, &value, &config, None);
+        let outputs = multi_head_sliding_window_attention(&query, &key, &value, &config, None);
 
         assert!(outputs.is_ok());
         let results = outputs.unwrap();

@@ -1,9 +1,9 @@
+pub mod api;
+mod auth;
 pub mod config;
 pub mod db;
-mod auth;
-pub mod api;
-pub mod services;
 mod error;
+pub mod services;
 
 use std::sync::Arc;
 
@@ -31,15 +31,13 @@ pub async fn seed_admin_user(pool: &sqlx::SqlitePool) -> anyhow::Result<()> {
 
     if exists.is_none() {
         let password_hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)?;
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)"
-        )
-        .bind("admin")
-        .bind("admin@openmini.local")
-        .bind(password_hash)
-        .bind(0i32)
-        .execute(pool)
-        .await?;
+        sqlx::query("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("admin")
+            .bind("admin@openmini.local")
+            .bind(password_hash)
+            .bind(0i32)
+            .execute(pool)
+            .await?;
         tracing::info!("默认管理员账号已创建: admin / admin123");
     }
 

@@ -365,7 +365,11 @@ impl KascadeSparseAttention {
     /// # 返回值
     ///
     /// Top-K 索引矩阵 [seq_len, top_k]
-    fn compute_full_topk(&self, q: &Array2<f32>, k: &Array2<f32>) -> InferenceResult<Array2<usize>> {
+    fn compute_full_topk(
+        &self,
+        q: &Array2<f32>,
+        k: &Array2<f32>,
+    ) -> InferenceResult<Array2<usize>> {
         let (seq_len_q, _) = q.dim();
         let (seq_len_k, _) = k.dim();
 
@@ -390,7 +394,8 @@ impl KascadeSparseAttention {
                 let mut indexed_scores: Vec<(usize, f32)> =
                     score_row.iter().copied().enumerate().collect();
 
-                indexed_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed_scores
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 for (j, (idx, _)) in indexed_scores.iter().take(top_k).enumerate() {
                     row[j] = *idx;
@@ -436,18 +441,12 @@ impl KascadeSparseAttention {
             .for_each(|(i, mut row)| {
                 let q_vec = q.row(i);
 
-                row.iter_mut()
-                    .enumerate()
-                    .for_each(|(j, val)| {
-                        let k_vec = k.row(j);
-                        let dot_product: f32 = q_vec
-                            .iter()
-                            .zip(k_vec.iter())
-                            .map(|(a, b)| a * b)
-                            .sum();
+                row.iter_mut().enumerate().for_each(|(j, val)| {
+                    let k_vec = k.row(j);
+                    let dot_product: f32 = q_vec.iter().zip(k_vec.iter()).map(|(a, b)| a * b).sum();
 
-                        *val = dot_product;
-                    });
+                    *val = dot_product;
+                });
             });
 
         Ok(scores)
@@ -475,11 +474,13 @@ impl KascadeSparseAttention {
         let (batch, heads, dim) = q.dim();
         let total_queries = batch * heads;
 
-        let q_2d: Array2<f32> = q.to_shape((total_queries, dim))
+        let q_2d: Array2<f32> = q
+            .to_shape((total_queries, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape Q: {}", e)))?
             .into_owned();
 
-        let k_2d: Array2<f32> = k.to_shape((total_queries, dim))
+        let k_2d: Array2<f32> = k
+            .to_shape((total_queries, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape K: {}", e)))?
             .into_owned();
 
@@ -523,9 +524,9 @@ impl KascadeSparseAttention {
                 self.weighted_interpolation(layer_idx, q, k, anchor_weights)
             }
 
-            ReuseStrategy::Adaptive { similarity_threshold } => {
-                self.adaptive_reuse(layer_idx, q, k, *similarity_threshold)
-            }
+            ReuseStrategy::Adaptive {
+                similarity_threshold,
+            } => self.adaptive_reuse(layer_idx, q, k, *similarity_threshold),
         }
     }
 
@@ -659,10 +660,7 @@ impl KascadeSparseAttention {
                     .get(&anchor)
                     .map(|indices| (anchor, indices))
             })
-            .min_by_key(|(anchor, _)| {
-                
-                (*anchor as isize - layer as isize).abs()
-            })
+            .min_by_key(|(anchor, _)| (*anchor as isize - layer as isize).abs())
             .map(|(_, indices)| indices)
     }
 
@@ -670,10 +668,7 @@ impl KascadeSparseAttention {
     fn find_nearest_anchor(&self, layer: usize) -> Option<usize> {
         self.anchor_layers
             .iter()
-            .min_by_key(|anchor| {
-                
-                (**anchor as isize - layer as isize).abs()
-            })
+            .min_by_key(|anchor| (**anchor as isize - layer as isize).abs())
             .copied()
     }
 
@@ -689,10 +684,7 @@ impl KascadeSparseAttention {
             })
             .collect();
 
-        anchors.sort_by_key(|&anchor| {
-            
-            (anchor as isize - layer as isize).abs()
-        });
+        anchors.sort_by_key(|&anchor| (anchor as isize - layer as isize).abs());
         anchors.truncate(2.min(anchors.len()));
         anchors
     }
@@ -714,8 +706,8 @@ impl KascadeSparseAttention {
             .axis_iter_mut(Axis(0))
             .enumerate()
             .for_each(|(i, mut row)| {
-                use rand::Rng;
                 use rand::seq::SliceRandom;
+                use rand::Rng;
                 let mut rng = rand::thread_rng();
 
                 let _primary_set: std::collections::HashSet<_> =
@@ -841,15 +833,21 @@ impl KascadeSparseAttention {
         let (batch, heads, dim) = q.dim();
         let total = batch * heads;
 
-        let q_2d: Array2<f32> = q.to_owned().to_shape((total, dim))
+        let q_2d: Array2<f32> = q
+            .to_owned()
+            .to_shape((total, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape Q: {}", e)))?
             .into_owned();
 
-        let k_2d: Array2<f32> = k.to_owned().to_shape((total, dim))
+        let k_2d: Array2<f32> = k
+            .to_owned()
+            .to_shape((total, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape K: {}", e)))?
             .into_owned();
 
-        let v_2d: Array2<f32> = v.to_owned().to_shape((total, dim))
+        let v_2d: Array2<f32> = v
+            .to_owned()
+            .to_shape((total, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape V: {}", e)))?
             .into_owned();
 
@@ -879,11 +877,15 @@ impl KascadeSparseAttention {
         let total_queries = batch * heads;
         let (_n_queries, _top_k) = indices.dim();
 
-        let k_flat: Array2<f32> = k.to_owned().to_shape((total_queries, dim))
+        let k_flat: Array2<f32> = k
+            .to_owned()
+            .to_shape((total_queries, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape K: {}", e)))?
             .into_owned();
 
-        let v_flat: Array2<f32> = v.to_owned().to_shape((total_queries, dim))
+        let v_flat: Array2<f32> = v
+            .to_owned()
+            .to_shape((total_queries, dim))
             .map_err(|e| InferenceError::config(format!("Failed to reshape V: {}", e)))?
             .into_owned();
 
@@ -924,7 +926,9 @@ impl KascadeSparseAttention {
                                     let weight = sim.exp();
                                     weight_sum += weight;
 
-                                    for (d, (&v_val, ws)) in v_vec.iter().zip(weighted_sum.iter_mut()).enumerate() {
+                                    for (d, (&v_val, ws)) in
+                                        v_vec.iter().zip(weighted_sum.iter_mut()).enumerate()
+                                    {
                                         if d < dim {
                                             *ws += (v_val as f64) * weight;
                                         }
@@ -969,8 +973,8 @@ impl KascadeSparseAttention {
             return 1.0;
         }
 
-        let anchor_ratio = self.anchor_layers.len() as f64
-            / (self.config.anchor_interval as f64).max(1.0);
+        let anchor_ratio =
+            self.anchor_layers.len() as f64 / (self.config.anchor_interval as f64).max(1.0);
 
         let reuse_ratio = self.stats.hits as f64 / total_ops as f64;
 
@@ -1096,10 +1100,7 @@ mod tests {
 
         for (i, &anchor) in anchors.iter().enumerate() {
             if i > 0 {
-                assert!(
-                    anchor > anchors[i - 1],
-                    "Anchors should be sorted"
-                );
+                assert!(anchor > anchors[i - 1], "Anchors should be sorted");
             }
         }
     }
@@ -1281,7 +1282,9 @@ mod tests {
         let (q, k, _) = create_test_tensors(16, 32);
 
         for i in 0..5u32 {
-            kascade.compute_and_cache_anchor_indices(i as usize, &q, &k).unwrap();
+            kascade
+                .compute_and_cache_anchor_indices(i as usize, &q, &k)
+                .unwrap();
         }
 
         assert!(
@@ -1359,10 +1362,7 @@ mod tests {
             kascade.cached_layer_count() > 0,
             "Forward should cache anchor layers"
         );
-        assert!(
-            kascade.stats().hits > 0,
-            "Forward should have cache hits"
-        );
+        assert!(kascade.stats().hits > 0, "Forward should have cache hits");
     }
 
     #[test]
@@ -1405,11 +1405,21 @@ mod tests {
     fn test_reuse_strategy_display() {
         assert_eq!(format!("{}", ReuseStrategy::Direct), "Direct");
         assert_eq!(
-            format!("{}", ReuseStrategy::Weighted { anchor_weights: vec![0.5, 0.5] }),
+            format!(
+                "{}",
+                ReuseStrategy::Weighted {
+                    anchor_weights: vec![0.5, 0.5]
+                }
+            ),
             "Weighted"
         );
         assert_eq!(
-            format!("{}", ReuseStrategy::Adaptive { similarity_threshold: 0.7 }),
+            format!(
+                "{}",
+                ReuseStrategy::Adaptive {
+                    similarity_threshold: 0.7
+                }
+            ),
             "Adaptive"
         );
     }
@@ -1474,16 +1484,20 @@ mod tests {
         let mut kascade = KascadeSparseAttention::new(config, ReuseStrategy::Direct);
 
         kascade.select_anchor_layers(16, 512);
-        kascade.compute_and_cache_anchor_indices(
-            0,
-            &create_test_tensors(16, 32).0,
-            &create_test_tensors(16, 32).1,
-        ).unwrap();
-        kascade.compute_and_cache_anchor_indices(
-            8,
-            &create_test_tensors(16, 32).0,
-            &create_test_tensors(16, 32).1,
-        ).unwrap();
+        kascade
+            .compute_and_cache_anchor_indices(
+                0,
+                &create_test_tensors(16, 32).0,
+                &create_test_tensors(16, 32).1,
+            )
+            .unwrap();
+        kascade
+            .compute_and_cache_anchor_indices(
+                8,
+                &create_test_tensors(16, 32).0,
+                &create_test_tensors(16, 32).1,
+            )
+            .unwrap();
 
         let surrounding = kascade.find_surrounding_anchors(4);
 
@@ -1575,8 +1589,8 @@ mod tests {
 
         for i in 0..seq_len {
             for j in 0..dim {
-                q[[i, j]] = ((i as f32 * 0.1 + j as f32 * 0.01)).sin();
-                k[[i, j]] = ((i as f32 * 0.15 + j as f32 * 0.02)).cos();
+                q[[i, j]] = (i as f32 * 0.1 + j as f32 * 0.01).sin();
+                k[[i, j]] = (i as f32 * 0.15 + j as f32 * 0.02).cos();
             }
         }
 

@@ -52,7 +52,7 @@ impl CoreRouter {
     pub fn new(actors: Vec<ActorHandle>, strategy: BalanceStrategy) -> Self {
         let count = actors.len();
         assert!(count > 0, "Must have at least one actor");
-        
+
         Self {
             actors,
             strategy,
@@ -61,7 +61,7 @@ impl CoreRouter {
     }
 
     /// 分发请求到目标 Actor
-    /// 
+    ///
     /// 返回 oneshot 接收端，用于获取推理结果
     pub async fn dispatch(
         &self,
@@ -79,7 +79,10 @@ impl CoreRouter {
             response_tx,
         };
 
-        actor.tx.send(request).await
+        actor
+            .tx
+            .send(request)
+            .await
             .map_err(|_| format!("Core-{} is closed", actor.core_id))?;
 
         Ok(response_rx)
@@ -98,7 +101,6 @@ impl CoreRouter {
 
     /// 轮询选择
     fn round_robin_select(&self) -> usize {
-        
         self.next_index.fetch_add(1, Ordering::Relaxed) % self.actors.len()
     }
 
@@ -137,10 +139,7 @@ mod tests {
     fn test_router_creation() {
         let (tx0, _) = mpsc::channel(100);
         let (tx1, _) = mpsc::channel(100);
-        let actors = vec![
-            ActorHandle::new(0, tx0),
-            ActorHandle::new(1, tx1),
-        ];
+        let actors = vec![ActorHandle::new(0, tx0), ActorHandle::new(1, tx1)];
         let router = CoreRouter::new(actors, BalanceStrategy::RoundRobin);
         assert_eq!(router.actor_count(), 2);
     }
@@ -156,10 +155,7 @@ mod tests {
     fn test_round_robin_distribution() {
         let (tx0, _) = mpsc::channel(100);
         let (tx1, _) = mpsc::channel(100);
-        let actors = vec![
-            ActorHandle::new(0, tx0),
-            ActorHandle::new(1, tx1),
-        ];
+        let actors = vec![ActorHandle::new(0, tx0), ActorHandle::new(1, tx1)];
         let router = CoreRouter::new(actors.clone(), BalanceStrategy::RoundRobin);
 
         let mut counts = [0usize; 2];
@@ -167,7 +163,7 @@ mod tests {
             let idx = router.round_robin_select();
             counts[idx] += 1;
         }
-        
+
         assert_eq!(counts[0], 50);
         assert_eq!(counts[1], 50);
     }
@@ -176,10 +172,7 @@ mod tests {
     fn test_consistent_hash_deterministic() {
         let (tx0, _) = mpsc::channel(100);
         let (tx1, _) = mpsc::channel(100);
-        let actors = vec![
-            ActorHandle::new(0, tx0),
-            ActorHandle::new(1, tx1),
-        ];
+        let actors = vec![ActorHandle::new(0, tx0), ActorHandle::new(1, tx1)];
         let router = CoreRouter::new(actors, BalanceStrategy::ConsistentHash(100));
 
         let idx1 = router.consistent_hash_select("session-abc", 100);
@@ -187,6 +180,6 @@ mod tests {
         let _idx3 = router.consistent_hash_select("session-xyz", 100);
 
         assert_eq!(idx1, idx2); // 相同 key 总是映射到同一个 target
-        // idx3 可能与 idx1 不同（不强制要求）
+                                // idx3 可能与 idx1 不同（不强制要求）
     }
 }

@@ -3,8 +3,8 @@
 //! 将超大/非正方形图像分割为多个固定尺寸的patch，
 //! 分别编码后拼接为完整的视觉特征序列。
 
-use ndarray::Array3;
 use super::image_processor::GemmaImageProcessor;
+use ndarray::Array3;
 
 #[derive(Clone)]
 pub struct PanScanConfig {
@@ -42,7 +42,7 @@ pub fn calculate_patch_layout(
     config: &PanScanConfig,
 ) -> Vec<ImagePatch> {
     let mut patches = Vec::new();
-    
+
     // 如果图像尺寸不超过 base_size，直接作为单个 patch 处理
     if image_width <= config.base_size && image_height <= config.base_size {
         patches.push(ImagePatch {
@@ -53,25 +53,30 @@ pub fn calculate_patch_layout(
         });
         return patches;
     }
-    
+
     let mut y = 0;
     while y < image_height {
         let h = config.base_size.min(image_height - y);
-        
+
         let mut x = 0;
         while x < image_width {
             let w = config.base_size.min(image_width - x);
-            
+
             if w > 0 && h > 0 {
-                patches.push(ImagePatch { x, y, width: w, height: h });
+                patches.push(ImagePatch {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                });
             }
-            
+
             x += config.base_size - config.overlap;
         }
-        
+
         y += config.base_size - config.overlap;
     }
-    
+
     patches
 }
 
@@ -86,9 +91,9 @@ pub fn extract_patch(image: &Array3<u8>, patch: &ImagePatch, config: &PanScanCon
     let (h, w, _ch) = image.dim();
     let ph = patch.height.min(h - patch.y);
     let pw = patch.width.min(w - patch.x);
-    
+
     let mut result = Array3::<u8>::zeros((config.base_size, config.base_size, 3));
-    
+
     for y in 0..ph {
         for x in 0..pw {
             for c in 0..3 {
@@ -97,7 +102,7 @@ pub fn extract_patch(image: &Array3<u8>, patch: &ImagePatch, config: &PanScanCon
             }
         }
     }
-    
+
     result
 }
 
@@ -118,12 +123,12 @@ impl PanScanProcessor {
             }),
         }
     }
-    
+
     /// 处理任意尺寸的图像，返回预处理后的 patch 列表
     pub fn process(&self, image: &Array3<u8>) -> Result<Vec<(Array3<f32>, ImagePatch)>, String> {
         let (h, w, _) = image.dim();
         let layout = calculate_patch_layout(w, h, &self.config);
-        
+
         let total_tokens = estimate_total_tokens(&layout, self.config.base_size);
         if total_tokens > self.config.max_tokens {
             return Err(format!(
@@ -131,7 +136,7 @@ impl PanScanProcessor {
                 w, h, total_tokens, self.config.max_tokens
             ));
         }
-        
+
         let mut processed = Vec::with_capacity(layout.len());
         for patch in &layout {
             let patch_image = extract_patch(image, patch, &self.config);
@@ -140,10 +145,10 @@ impl PanScanProcessor {
                 Err(e) => return Err(format!("Patch preprocessing failed: {}", e)),
             }
         }
-        
+
         Ok(processed)
     }
-    
+
     /// 获取处理后的总 token 数量
     pub fn total_token_count(&self, image_width: usize, image_height: usize) -> usize {
         let layout = calculate_patch_layout(image_width, image_height, &self.config);
@@ -154,7 +159,7 @@ impl PanScanProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_square_image_single_patch() {
         let config = PanScanConfig::default();
@@ -163,24 +168,34 @@ mod tests {
         assert_eq!(patches[0].width, 896);
         assert_eq!(patches[0].height, 896);
     }
-    
+
     #[test]
     fn test_large_image_multiple_patches() {
         let config = PanScanConfig::default();
         let patches = calculate_patch_layout(2000, 1500, &config);
         assert!(patches.len() >= 4);
-        
+
         let first = &patches[0];
         assert_eq!(first.x, 0);
         assert_eq!(first.y, 0);
     }
-    
+
     #[test]
     fn test_token_estimation() {
         let _config = PanScanConfig::default();
         let patches = vec![
-            ImagePatch { x: 0, y: 0, width: 896, height: 896 },
-            ImagePatch { x: 882, y: 0, width: 896, height: 896 },
+            ImagePatch {
+                x: 0,
+                y: 0,
+                width: 896,
+                height: 896,
+            },
+            ImagePatch {
+                x: 882,
+                y: 0,
+                width: 896,
+                height: 896,
+            },
         ];
         let tokens = estimate_total_tokens(&patches, 896);
         assert_eq!(tokens, 2 * 4096 + 1); // 2 patches * 4096 + CLS

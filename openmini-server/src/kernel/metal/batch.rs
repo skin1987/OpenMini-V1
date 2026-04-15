@@ -473,8 +473,8 @@ mod tests {
         #[cfg(feature = "metal")]
         {
             // 仅验证函数可以调用
-            let _ = matmul_batch(&vec![], &vec![]);
-            let _ = matmul_batch_chunked(&vec![], &vec![], None);
+            let _ = matmul_batch(&[], &[]);
+            let _ = matmul_batch_chunked(&[], &[], None);
         }
     }
 }

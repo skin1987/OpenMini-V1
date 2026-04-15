@@ -36,14 +36,10 @@ pub mod database;
 pub mod eviction_policy;
 pub mod kv_swap;
 
-pub use database::{DatabaseManager, DatabaseConfig, PersistenceError};
 pub use compression::CompressionManager;
-pub use eviction_policy::{
-    EvictionAlgorithm, EvictionPolicy,
-};
-pub use kv_swap::{
-    KvSwapConfig, KvSwapManager, KvSwapStats,
-};
+pub use database::{DatabaseConfig, DatabaseManager, PersistenceError};
+pub use eviction_policy::{EvictionAlgorithm, EvictionPolicy};
+pub use kv_swap::{KvSwapConfig, KvSwapManager, KvSwapStats};
 
 /// Persistence Layer 版本信息
 pub const PERSISTENCE_VERSION: &str = "1.0.0";

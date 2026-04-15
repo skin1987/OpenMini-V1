@@ -146,11 +146,7 @@ pub trait CollectiveOps: Send + Sync {
     /// # 性能优势
     ///
     /// 相比先all_reduce再手动切分，reduce_scatter减少了一半的通信量。
-    fn reduce_scatter(
-        &self,
-        global: &[f32],
-        local: &mut [f32],
-    ) -> Result<(), DistributedError>;
+    fn reduce_scatter(&self, global: &[f32], local: &mut [f32]) -> Result<(), DistributedError>;
 
     /// Broadcast 操作
     ///
@@ -315,10 +311,13 @@ impl CollectiveOps for LocalComm {
         {
             let state = self.shared_state.lock().unwrap();
 
-            for i in 0..data.len() {
-                let values: Vec<f32> = state.iter().map(|s| s.get(i).copied().unwrap_or(0.0)).collect();
+            for (i, res) in result.iter_mut().enumerate() {
+                let values: Vec<f32> = state
+                    .iter()
+                    .map(|s| s.get(i).copied().unwrap_or(0.0))
+                    .collect();
 
-                result[i] = match op {
+                *res = match op {
                     ReduceOp::Sum => values.iter().sum(),
                     ReduceOp::Max => values.into_iter().fold(f32::NEG_INFINITY, f32::max),
                     ReduceOp::Min => values.into_iter().fold(f32::INFINITY, f32::min),
@@ -334,7 +333,10 @@ impl CollectiveOps for LocalComm {
         // 写回结果
         data.copy_from_slice(&result);
 
-        debug!("AllReduce completed: rank={}, first_value={}", self.rank, data[0]);
+        debug!(
+            "AllReduce completed: rank={}, first_value={}",
+            self.rank, data[0]
+        );
         Ok(())
     }
 
@@ -386,17 +388,12 @@ impl CollectiveOps for LocalComm {
 
         debug!(
             "AllGather completed: rank={}, collected {} ranks",
-            self.rank,
-            self.world_size
+            self.rank, self.world_size
         );
         Ok(())
     }
 
-    fn reduce_scatter(
-        &self,
-        global: &[f32],
-        local: &mut [f32],
-    ) -> Result<(), DistributedError> {
+    fn reduce_scatter(&self, global: &[f32], local: &mut [f32]) -> Result<(), DistributedError> {
         trace!(
             "ReduceScatter called: rank={}, global_len={}, local_len={}",
             self.rank,
@@ -432,7 +429,7 @@ impl CollectiveOps for LocalComm {
         {
             let state = self.shared_state.lock().unwrap();
 
-            for i in 0..chunk_size {
+            for (i, loc) in local.iter_mut().enumerate() {
                 let global_idx = self.rank * chunk_size + i;
 
                 // 对所有rank在该位置的数据求和
@@ -441,14 +438,13 @@ impl CollectiveOps for LocalComm {
                     .map(|s| s.get(global_idx).copied().unwrap_or(0.0))
                     .sum();
 
-                local[i] = sum;
+                *loc = sum;
             }
         }
 
         debug!(
             "ReduceScatter completed: rank={}, chunk_size={}",
-            self.rank,
-            chunk_size
+            self.rank, chunk_size
         );
         Ok(())
     }

@@ -359,6 +359,7 @@ impl RbacManager {
     }
 
     /// 递归收集父角色
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_parent_roles(
         &self,
         role: &str,
@@ -397,6 +398,7 @@ impl RbacManager {
 
     /// 检查 from 是否能到达 to（通过层次关系）
     /// 层次关系定义：hierarchy[X] = [Y1, Y2, ...] 表示 X 继承 Y1, Y2（Y 是 X 的父角色）
+    #[allow(clippy::only_used_in_recursion)]
     fn can_reach(&self, from: &str, to: &str, hierarchy: &HashMap<String, Vec<String>>) -> bool {
         if from == to {
             return true;
@@ -683,15 +685,9 @@ pub enum Action {
 }
 
 impl Action {
-    /// 从字符串解析操作类型
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "read" | "get" | "view" => Action::Read,
-            "write" | "post" | "put" | "patch" | "create" | "update" | "delete" => Action::Write,
-            "execute" | "run" | "invoke" => Action::Execute,
-            "admin" | "manage" | "configure" => Action::Admin,
-            _ => Action::Read, // 默认为读操作
-        }
+    /// 从字符串解析操作类型（兼容旧版本，未知字符串默认为读操作）
+    pub fn from_str_or_read(s: &str) -> Self {
+        s.parse().unwrap_or(Action::Read)
     }
 
     /// 转换为字符串表示
@@ -701,6 +697,22 @@ impl Action {
             Action::Write => "write",
             Action::Execute => "execute",
             Action::Admin => "admin",
+        }
+    }
+}
+
+impl std::str::FromStr for Action {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "read" | "get" | "view" => Ok(Action::Read),
+            "write" | "post" | "put" | "patch" | "create" | "update" | "delete" => {
+                Ok(Action::Write)
+            }
+            "execute" | "run" | "invoke" => Ok(Action::Execute),
+            "admin" | "manage" | "configure" => Ok(Action::Admin),
+            _ => Err(()),
         }
     }
 }
@@ -733,13 +745,13 @@ impl Condition {
                 // 要求用户具有指定角色
                 self.params
                     .get("role")
-                    .map_or(false, |role| ctx.has_role(role))
+                    .is_some_and(|role| ctx.has_role(role))
             }
             ConditionType::TenantMatch => {
                 // 要求用户租户与资源租户匹配
-                self.params.get("tenant_id").map_or(true, |tenant| {
-                    ctx.tenant_id.as_ref().map_or(false, |t| t == tenant)
-                })
+                self.params
+                    .get("tenant_id")
+                    .is_none_or(|tenant| ctx.tenant_id.as_ref() == Some(tenant))
             }
             ConditionType::TimeRange => {
                 // 时间范围限制（简化版，实际应使用 chrono）
@@ -1358,13 +1370,13 @@ mod tests {
 
     #[test]
     fn test_action_from_str() {
-        assert_eq!(Action::from_str("read"), Action::Read);
-        assert_eq!(Action::from_str("GET"), Action::Read);
-        assert_eq!(Action::from_str("write"), Action::Write);
-        assert_eq!(Action::from_str("POST"), Action::Write);
-        assert_eq!(Action::from_str("execute"), Action::Execute);
-        assert_eq!(Action::from_str("admin"), Action::Admin);
-        assert_eq!(Action::from_str("unknown"), Action::Read); // 默认值
+        assert_eq!(Action::from_str_or_read("read"), Action::Read);
+        assert_eq!(Action::from_str_or_read("GET"), Action::Read);
+        assert_eq!(Action::from_str_or_read("write"), Action::Write);
+        assert_eq!(Action::from_str_or_read("POST"), Action::Write);
+        assert_eq!(Action::from_str_or_read("execute"), Action::Execute);
+        assert_eq!(Action::from_str_or_read("admin"), Action::Admin);
+        assert_eq!(Action::from_str_or_read("unknown"), Action::Read); // 默认值
     }
 
     #[test]
@@ -1434,7 +1446,7 @@ mod tests {
         let admin = Role::admin_role();
         assert_eq!(admin.name, "admin");
         assert!(admin.is_builtin);
-        assert_eq!(admin.permissions.len(), 13); // 全部权限
+        assert_eq!(admin.permissions.len(), 14); // 全部权限
 
         // 验证包含关键权限
         assert!(admin.permissions.contains(&Permission::ModelRead));
@@ -1554,8 +1566,13 @@ mod tests {
         rbac.assign_role("user-1", "admin", None).unwrap();
 
         let ctx = ctx_for("user-1");
-        for perm in [Permission::ModelRead, Permission::ModelWrite,
-                      Permission::UserManage, Permission::SystemConfig, Permission::AlertManage] {
+        for perm in [
+            Permission::ModelRead,
+            Permission::ModelWrite,
+            Permission::UserManage,
+            Permission::SystemConfig,
+            Permission::AlertManage,
+        ] {
             let (res, act) = perm_action(perm);
             assert!(rbac.check_permission(&ctx, res, act));
         }
@@ -1570,11 +1587,19 @@ mod tests {
             .unwrap();
 
         let ctx = ctx_for("user-2");
-        for perm in [Permission::ModelDeploy, Permission::InferenceAdmin, Permission::MetricsExport] {
+        for perm in [
+            Permission::ModelDeploy,
+            Permission::InferenceAdmin,
+            Permission::MetricsExport,
+        ] {
             let (res, act) = perm_action(perm);
             assert!(rbac.check_permission(&ctx, res, act));
         }
-        for perm in [Permission::UserManage, Permission::RoleManage, Permission::SystemConfig] {
+        for perm in [
+            Permission::UserManage,
+            Permission::RoleManage,
+            Permission::SystemConfig,
+        ] {
             let (res, act) = perm_action(perm);
             assert!(!rbac.check_permission(&ctx, res, act));
         }

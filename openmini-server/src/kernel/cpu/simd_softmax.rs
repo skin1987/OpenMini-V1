@@ -185,7 +185,7 @@ impl SimdFeatures {
         Self {
             avx2: cfg!(target_arch = "x86_64") && is_x86_feature_detected!("avx2"),
             sse42: cfg!(target_arch = "x86_64") && is_x86_feature_detected!("sse4.1"),
-            neon: cfg!(target_arch = "aarch64"),  // ARM NEON 在 aarch64 上普遍支持
+            neon: cfg!(target_arch = "aarch64"), // ARM NEON 在 aarch64 上普遍支持
         }
     }
 
@@ -355,7 +355,7 @@ where
             while j < simd_end {
                 let chunk = _mm256_loadu_ps(ptr.add(j));
                 let shifted = _mm256_sub_ps(chunk, max_broadcast);
-                
+
                 // 对每个元素调用 exp（批量加载/存储）
                 let mut temp = [0.0f32; 8];
                 _mm256_storeu_ps(temp.as_mut_ptr(), shifted);
@@ -452,7 +452,7 @@ where
             while j < simd_end {
                 let chunk = vld1q_f32(ptr.add(j));
                 let shifted = vsubq_f32(chunk, max_broadcast);
-                
+
                 let mut temp = [0.0f32; 4];
                 vst1q_f32(temp.as_mut_ptr(), shifted);
                 for t in temp.iter_mut() {
@@ -541,10 +541,10 @@ mod tests {
     #[test]
     fn test_simd_features_detection() {
         let features = SimdFeatures::detect();
-        
+
         let path = features.best_softmax_path();
         assert!(!path.is_empty());
-        
+
         println!("Detected SIMD features: {:?}", features);
         println!("Selected path: {}", path);
     }
@@ -558,11 +558,20 @@ mod tests {
 
         for i in 0..2 {
             let row_sum: f32 = result.row(i).iter().sum();
-            assert!((row_sum - 1.0).abs() < 1e-5, "Row {} sum = {} (expected ~1.0)", i, row_sum);
+            assert!(
+                (row_sum - 1.0).abs() < 1e-5,
+                "Row {} sum = {} (expected ~1.0)",
+                i,
+                row_sum
+            );
         }
 
         for val in result.iter() {
-            assert!(*val > 0.0 && *val < 1.0, "Value {} out of range (0, 1)", val);
+            assert!(
+                *val > 0.0 && *val < 1.0,
+                "Value {} out of range (0, 1)",
+                val
+            );
         }
     }
 
@@ -584,7 +593,7 @@ mod tests {
         for i in 0..2 {
             let sum: f32 = result.row(i).iter().sum();
             assert!((sum - 1.0).abs() < 1e-5);
-            
+
             if i == 0 {
                 assert!(result[[i, 2]] > 0.9, "Largest value should dominate");
             }
@@ -627,8 +636,14 @@ mod tests {
         for i in 0..2 {
             for j in 0..8 {
                 let diff = (simd_result[[i, j]] - scalar_result[[i, j]]).abs();
-                assert!(diff < 1e-5, "Mismatch at [{},{}]: SIMD={} vs Scalar={}", 
-                       i, j, simd_result[[i, j]], scalar_result[[i, j]]);
+                assert!(
+                    diff < 1e-5,
+                    "Mismatch at [{},{}]: SIMD={} vs Scalar={}",
+                    i,
+                    j,
+                    simd_result[[i, j]],
+                    scalar_result[[i, j]]
+                );
             }
         }
     }
@@ -654,7 +669,7 @@ mod tests {
 
         println!("SIMD softmax:   {:?}", simd_duration / 10);
         println!("Scalar softmax: {:?}", scalar_duration / 10);
-        
+
         let _ = (simd_duration, scalar_duration);
     }
 }

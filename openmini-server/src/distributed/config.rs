@@ -309,8 +309,7 @@ impl DistributedConfig {
             ));
         }
 
-        let unique_devices: std::collections::HashSet<_> =
-            self.cuda_device_ids.iter().collect();
+        let unique_devices: std::collections::HashSet<_> = self.cuda_device_ids.iter().collect();
         if unique_devices.len() != self.cuda_device_ids.len() {
             return Err(DistributedError::ConfigValidation(
                 "cuda_device_ids must contain unique values".to_string(),

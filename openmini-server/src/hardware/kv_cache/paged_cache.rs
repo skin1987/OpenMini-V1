@@ -216,7 +216,7 @@ impl PagedKVCache {
         let mut block_mapping: HashMap<usize, BlockId> = HashMap::new();
 
         let first_block_idx = start_pos / self.block_size;
-        let last_block_idx = (start_pos + num_tokens - 1) / self.block_size;
+        let last_block_idx = (start_pos + num_tokens - 1).div_ceil(self.block_size);
 
         for block_idx in first_block_idx..=last_block_idx {
             let page_table_ref = self.page_tables.get(&request_id).unwrap();

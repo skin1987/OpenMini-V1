@@ -27,3 +27,6 @@ crossbeam = "0.8"
 parking_lot = "0.12"
 async-channel = "2"
 num_cpus = "1"
+
+# [patch.crates-io]
+# core2 = { git = "https://github.com/dignifiedquire/core2", rev = "v0.4.0" }

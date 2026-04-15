@@ -49,8 +49,14 @@ fn test_full_memory_monitor_lifecycle() {
 
     for (i, &size) in alloc_sizes.iter().enumerate() {
         let result = monitor.allocate(size);
-        assert!(result.is_ok(), "Allocation {} of {} bytes should succeed", i, size);
-        allocated_ids.push(result.unwrap());
+        assert!(
+            result.is_ok(),
+            "Allocation {} of {} bytes should succeed",
+            i,
+            size
+        );
+        result.unwrap();
+        allocated_ids.push(());
         eprintln!(
             "[lifecycle-memory] Allocated {} KB (total usage: {} KB)",
             size / 1024,
@@ -95,14 +101,11 @@ async fn test_full_connection_pool_lifecycle() {
     let num_ops = 20;
 
     for _ in 0..num_ops {
-        match pool.acquire_or_connect(addr).await {
-            Ok(conn) => {
-                acquire_count.fetch_add(1, Ordering::Relaxed);
-                tokio::time::sleep(Duration::from_millis(5)).await;
-                pool.release(conn);
-                release_count.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(_) => {}
+        if let Ok(conn) = pool.acquire_or_connect(addr).await {
+            acquire_count.fetch_add(1, Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            pool.release(conn);
+            release_count.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -115,10 +118,15 @@ async fn test_full_connection_pool_lifecycle() {
 
     eprintln!(
         "[lifecycle-conn] Acquired: {}, Released: {}, Active: {}",
-        acquired, released, stats.active_connections.load(Ordering::Relaxed)
+        acquired,
+        released,
+        stats.active_connections.load(Ordering::Relaxed)
     );
 
-    assert_eq!(acquired, released, "Acquire and release counts should match");
+    assert_eq!(
+        acquired, released,
+        "Acquire and release counts should match"
+    );
     assert_eq!(
         stats.active_connections.load(Ordering::Relaxed),
         0,

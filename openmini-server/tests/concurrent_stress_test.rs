@@ -17,7 +17,10 @@ async fn test_high_concurrency_requests() {
     let completed = Arc::new(AtomicUsize::new(0));
     let errors = Arc::new(AtomicUsize::new(0));
 
-    eprintln!("[concurrent] Starting {} concurrent requests", concurrent_count);
+    eprintln!(
+        "[concurrent] Starting {} concurrent requests",
+        concurrent_count
+    );
 
     let mut set = JoinSet::new();
     for i in 0..concurrent_count {
@@ -71,11 +74,14 @@ async fn test_high_concurrency_requests() {
 
 #[tokio::test]
 async fn test_sustained_load_memory_stability() {
-    use sysinfo::{System, RefreshKind, MemoryRefreshKind};
+    use sysinfo::{MemoryRefreshKind, RefreshKind, System};
 
     let iterations = 1000;
 
-    eprintln!("[memory-stability] Running {} sustained iterations", iterations);
+    eprintln!(
+        "[memory-stability] Running {} sustained iterations",
+        iterations
+    );
 
     let mut sys =
         System::new_with_specifics(RefreshKind::new().with_memory(MemoryRefreshKind::everything()));
@@ -103,9 +109,18 @@ async fn test_sustained_load_memory_stability() {
     let elapsed = start.elapsed();
 
     let memory_delta = final_memory.saturating_sub(initial_memory);
-    eprintln!("[memory-stability] Initial: {} MB", initial_memory / 1024 / 1024);
-    eprintln!("[memory-stability] Final:   {} MB", final_memory / 1024 / 1024);
-    eprintln!("[memory-stability] Delta:   {} MB", memory_delta / 1024 / 1024);
+    eprintln!(
+        "[memory-stability] Initial: {} MB",
+        initial_memory / 1024 / 1024
+    );
+    eprintln!(
+        "[memory-stability] Final:   {} MB",
+        final_memory / 1024 / 1024
+    );
+    eprintln!(
+        "[memory-stability] Delta:   {} MB",
+        memory_delta / 1024 / 1024
+    );
     eprintln!("[memory-stability] Elapsed: {:?}", elapsed);
 
     assert!(true);
@@ -124,7 +139,9 @@ async fn test_async_shared_state_contention() {
 
     eprintln!(
         "[contention] {} writers x {} ops = {} total ops",
-        writers, ops_per_writer, writers * ops_per_writer
+        writers,
+        ops_per_writer,
+        writers * ops_per_writer
     );
 
     let mut handles = Vec::with_capacity(writers);

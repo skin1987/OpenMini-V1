@@ -6,10 +6,10 @@
 //! - CRUD 操作 (保存/加载/列表/删除)
 //! - 过期缓存自动清理
 
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 /// 持久化错误类型
 #[derive(Debug, thiserror::Error)]
@@ -98,8 +98,8 @@ impl KvCachePersistence {
     /// - `name`: 缓存名称（用作文件名）
     ///
     /// # 错误
-    /// - [`PersistenceError::Serialization`]: 序列化失败
-    /// - [`PersistenceError::Io`]: 文件写入失败
+    /// - [`PersistenceError::Serialization`][]: 序列化失败
+    /// - [`PersistenceError::Io`][]: 文件写入失败
     pub fn save(&self, cache: &PersistedKvCache, name: &str) -> Result<(), PersistenceError> {
         let path = self.cache_path(name);
         let file = fs::File::create(&path)?;
@@ -140,8 +140,8 @@ impl KvCachePersistence {
     /// 成功返回 [`PersistedKvCache`]，失败返回相应错误
     ///
     /// # 错误
-    /// - [`PersistenceError::NotFound`]: 缓存文件不存在
-    /// - [`PersistenceError::Deserialization`]: 反序列化失败
+    /// - [`PersistenceError::NotFound`][]: 缓存文件不存在
+    /// - [`PersistenceError::Deserialization`][]: 反序列化失败
     pub fn load(&self, name: &str) -> Result<PersistedKvCache, PersistenceError> {
         let path = self.cache_path(name);
         if !path.exists() {
@@ -151,7 +151,7 @@ impl KvCachePersistence {
         let file = fs::File::open(&path)?;
         let reader = BufReader::new(file);
 
-        if path.extension().map_or(false, |e| e == "zst") {
+        if path.extension().is_some_and(|e| e == "zst") {
             // zstd 压缩格式
             #[cfg(feature = "compression")]
             {
@@ -198,7 +198,7 @@ impl KvCachePersistence {
                     .to_string();
 
                 let metadata = fs::metadata(&path)?;
-                let compressed = path.extension().map_or(false, |e| e == "zst");
+                let compressed = path.extension().is_some_and(|e| e == "zst");
                 let created_at = metadata
                     .modified()?
                     .duration_since(std::time::UNIX_EPOCH)?
@@ -226,7 +226,7 @@ impl KvCachePersistence {
     /// - `name`: 要删除的缓存名称
     ///
     /// # 错误
-    /// - [`PersistenceError::NotFound`]: 缓存文件不存在
+    /// - [`PersistenceError::NotFound`][]: 缓存文件不存在
     pub fn delete(&self, name: &str) -> Result<(), PersistenceError> {
         let path = self.cache_path(name);
         if !path.exists() {
@@ -253,10 +253,10 @@ impl KvCachePersistence {
 
         let mut deleted = 0;
         for cache in caches {
-            if now.saturating_sub(cache.created_at) > max_age_secs {
-                if self.delete(&cache.name).is_ok() {
-                    deleted += 1;
-                }
+            if now.saturating_sub(cache.created_at) > max_age_secs
+                && self.delete(&cache.name).is_ok()
+            {
+                deleted += 1;
             }
         }
 
@@ -279,9 +279,7 @@ impl KvCachePersistence {
     /// # 返回
     /// 成功返回文件大小，文件不存在返回 None
     pub fn size(&self, name: &str) -> Option<u64> {
-        fs::metadata(self.cache_path(name))
-            .ok()
-            .map(|m| m.len())
+        fs::metadata(self.cache_path(name)).ok().map(|m| m.len())
     }
 
     /// 构建缓存文件路径

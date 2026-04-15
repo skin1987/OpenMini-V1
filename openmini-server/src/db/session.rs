@@ -83,7 +83,9 @@ impl Session {
     pub async fn create(pool: &SqlitePool, new_session: NewSession) -> anyhow::Result<Self> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        let model = new_session.model.unwrap_or_else(|| "openmini-v1".to_string());
+        let model = new_session
+            .model
+            .unwrap_or_else(|| "openmini-v1".to_string());
         let metadata = new_session
             .metadata
             .map(|m| serde_json::to_string(&m).unwrap_or_default());

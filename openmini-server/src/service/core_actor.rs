@@ -28,11 +28,21 @@ pub struct CoreResponse {
 
 impl CoreResponse {
     pub fn ok(session_id: String, text: String) -> Self {
-        Self { session_id, text, finished: true, error: None }
+        Self {
+            session_id,
+            text,
+            finished: true,
+            error: None,
+        }
     }
 
     pub fn err(session_id: String, error: String) -> Self {
-        Self { session_id, text: String::new(), finished: true, error: Some(error) }
+        Self {
+            session_id,
+            text: String::new(),
+            finished: true,
+            error: Some(error),
+        }
     }
 }
 
@@ -93,8 +103,10 @@ impl PerCoreActor {
     async fn handle_request(request: &CoreRequest) -> CoreResponse {
         let session_id = request.session_id.clone();
 
-        debug!("Core-{} processing request for session {}",
-            /* 需要获取 core_id 但 self 不可用 */ 0, session_id);
+        debug!(
+            "Core-{} processing request for session {}",
+            /* 需要获取 core_id 但 self 不可用 */ 0, session_id
+        );
 
         // TODO: Phase 3 完成后对接 AsyncInferencePool
         // 目前返回模拟响应

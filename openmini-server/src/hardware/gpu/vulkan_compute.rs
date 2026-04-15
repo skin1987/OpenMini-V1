@@ -22,10 +22,7 @@
 //! let result = vector_add_gpu(&gpu, &a, &b)?;
 //! ```
 
-use super::vulkan::{
-    VulkanGpu, VulkanBuffer, VulkanError,
-    TypedVulkanBuffer, BufferUsage
-};
+use super::vulkan::{BufferUsage, TypedVulkanBuffer, VulkanBuffer, VulkanError, VulkanGpu};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -113,11 +110,7 @@ impl ShaderCache {
     /// // ... 编译为 SPIR-V
     /// ```
     pub fn load_embedded(&mut self, key: &str, source: &str) -> Result<(), VulkanError> {
-        log::debug!(
-            "加载嵌入式着色器: key={}, source_len={}",
-            key,
-            source.len()
-        );
+        log::debug!("加载嵌入式着色器: key={}, source_len={}", key, source.len());
 
         // TODO: 实现真正的 GLSL -> SPIR-V 编译
         // 当前使用空 vec 作为占位符，表示"已注册但未编译"
@@ -138,10 +131,7 @@ impl ShaderCache {
 
         self.cache.insert(key.to_string(), placeholder);
 
-        log::info!(
-            "着色器已注册到缓存: key={} (待编译)",
-            key
-        );
+        log::info!("着色器已注册到缓存: key={} (待编译)", key);
 
         Ok(())
     }
@@ -156,15 +146,13 @@ impl ShaderCache {
     /// - `spirv_data`: SPIR-V 二进制数据（u32 数组）
     pub fn load_precompiled(&mut self, key: &str, spirv_data: Vec<u32>) -> Result<(), VulkanError> {
         if spirv_data.is_empty() {
-            return Err(VulkanError::ShaderError(
-                "SPIR-V 数据不能为空".to_string()
-            ));
+            return Err(VulkanError::ShaderError("SPIR-V 数据不能为空".to_string()));
         }
 
         // 验证 SPIR-V magic number
         if spirv_data[0] != 0x07230203 {
             return Err(VulkanError::ShaderError(
-                "无效的 SPIR-V magic number".to_string()
+                "无效的 SPIR-V magic number".to_string(),
             ));
         }
 
@@ -197,10 +185,9 @@ impl ShaderCache {
         match path.extension().and_then(|e| e.to_str()) {
             Some("spv") => {
                 // 直接读取 SPIR-V 二进制
-                let data = std::fs::read(path)
-                    .map_err(|e| VulkanError::ShaderError(format!(
-                        "读取 SPIR-V 文件失败: {}", e
-                    )))?;
+                let data = std::fs::read(path).map_err(|e| {
+                    VulkanError::ShaderError(format!("读取 SPIR-V 文件失败: {}", e))
+                })?;
 
                 // 将字节转换为 u32 数组（SPIR-V 是 little-endian）
                 let spirv_data: Vec<u32> = data
@@ -213,9 +200,7 @@ impl ShaderCache {
             Some("comp") => {
                 // 读取 GLSL 源码并尝试编译
                 let source = std::fs::read_to_string(path)
-                    .map_err(|e| VulkanError::ShaderError(format!(
-                        "读取 GLSL 文件失败: {}", e
-                    )))?;
+                    .map_err(|e| VulkanError::ShaderError(format!("读取 GLSL 文件失败: {}", e)))?;
 
                 self.load_embedded(key, &source)?;
             }
@@ -329,16 +314,10 @@ impl Default for ShaderCache {
 /// let c = vector_add_gpu(&gpu, &a, &b)?;
 /// assert_eq!(c, vec![6.0, 8.0, 10.0, 12.0]);
 /// ```
-pub fn vector_add_gpu(
-    gpu: &VulkanGpu,
-    a: &[f32],
-    b: &[f32],
-) -> Result<Vec<f32>, VulkanError> {
+pub fn vector_add_gpu(gpu: &VulkanGpu, a: &[f32], b: &[f32]) -> Result<Vec<f32>, VulkanError> {
     // ========== 输入验证 ==========
     if a.is_empty() || b.is_empty() {
-        return Err(VulkanError::ComputeError(
-            "输入向量不能为空".to_string(),
-        ));
+        return Err(VulkanError::ComputeError("输入向量不能为空".to_string()));
     }
 
     if a.len() != b.len() {
@@ -406,14 +385,15 @@ pub fn vector_add_gpu(
         // Ok(result)
 
         // 当前：记录日志说明使用了回退
-        log::warn!(
-            "GPU 计算尚未完全实现，使用 CPU 回退 (size={})",
-            count
-        );
+        log::warn!("GPU 计算尚未完全实现，使用 CPU 回退 (size={})", count);
     } else {
         log::debug!(
             "使用 CPU 回退执行向量加法 (reason={}, size={})",
-            if !gpu.is_compute_capable() { "设备不支持" } else { "数据规模太小" },
+            if !gpu.is_compute_capable() {
+                "设备不支持"
+            } else {
+                "数据规模太小"
+            },
             count
         );
     }
@@ -422,10 +402,7 @@ pub fn vector_add_gpu(
     // 保证功能正确性，即使没有完整的 Vulkan 实现
     let start = std::time::Instant::now();
 
-    let result: Vec<f32> = a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| x + y)
-        .collect();
+    let result: Vec<f32> = a.iter().zip(b.iter()).map(|(x, y)| x + y).collect();
 
     let elapsed = start.elapsed();
     log::debug!(
@@ -481,26 +458,35 @@ pub fn matrix_multiply_gpu(
     if a.len() != m * k {
         return Err(VulkanError::ComputeError(format!(
             "矩阵 A 维度不匹配: expected {} elements ({}×{}), got {}",
-            m * k, m, k, a.len()
+            m * k,
+            m,
+            k,
+            a.len()
         )));
     }
 
     if b.len() != k * n {
         return Err(VulkanError::ComputeError(format!(
             "矩阵 B 维度不匹配: expected {} elements ({}×{}), got {}",
-            k * n, k, n, b.len()
+            k * n,
+            k,
+            n,
+            b.len()
         )));
     }
 
     if m == 0 || k == 0 || n == 0 {
-        return Err(VulkanError::ComputeError(
-            "矩阵维度不能为零".to_string(),
-        ));
+        return Err(VulkanError::ComputeError("矩阵维度不能为零".to_string()));
     }
 
     log::debug!(
         "开始矩阵乘法: {}×{} × {}×{} = {}×{}, device={:?}",
-        m, k, k, n, m, n,
+        m,
+        k,
+        k,
+        n,
+        m,
+        n,
         gpu.device_info()
     );
 
@@ -524,15 +510,9 @@ pub fn matrix_multiply_gpu(
         // - 寄存器阻塞: 减少 bank conflict
         // - 双缓冲: 重叠计算和数据传输
 
-        log::warn!(
-            "GPU 矩阵乘法尚未完全实现，使用 CPU 回退 ({}×{})",
-            m, n
-        );
+        log::warn!("GPU 矩阵乘法尚未完全实现，使用 CPU 回退 ({}×{})", m, n);
     } else {
-        log::debug!(
-            "使用 CPU 回退执行矩阵乘法 (size={}×{})",
-            m, n
-        );
+        log::debug!("使用 CPU 回退执行矩阵乘法 (size={}×{})", m, n);
     }
 
     // ========== CPU 回退实现 ==========
@@ -553,7 +533,9 @@ pub fn matrix_multiply_gpu(
     let elapsed = start.elapsed();
     log::debug!(
         "矩阵乘法完成: {}×{}×{}, time={:.2}ms",
-        m, k, n,
+        m,
+        k,
+        n,
         elapsed.as_secs_f64() * 1000.0
     );
 
@@ -568,11 +550,7 @@ pub fn matrix_multiply_gpu(
 ///
 /// 内部调用 `vector_add_gpu`，保持向后兼容性。
 #[deprecated(since = "0.2.0", note = "请使用 vector_add_gpu 替代")]
-pub fn vector_add(
-    gpu: &VulkanGpu,
-    a: &[f32],
-    b: &[f32],
-) -> Result<Vec<f32>, VulkanError> {
+pub fn vector_add(gpu: &VulkanGpu, a: &[f32], b: &[f32]) -> Result<Vec<f32>, VulkanError> {
     vector_add_gpu(gpu, a, b)
 }
 
@@ -594,15 +572,9 @@ pub fn matrix_multiply_simple(
 /// 使用泛型缓冲区的向量加法示例
 ///
 /// 展示如何使用 TypedVulkanBuffer 进行类型安全的 GPU 操作。
-pub fn vector_add_typed(
-    gpu: &VulkanGpu,
-    a: &[f32],
-    b: &[f32],
-) -> Result<Vec<f32>, VulkanError> {
+pub fn vector_add_typed(gpu: &VulkanGpu, a: &[f32], b: &[f32]) -> Result<Vec<f32>, VulkanError> {
     if a.len() != b.len() {
-        return Err(VulkanError::ComputeError(
-            "向量长度不匹配".to_string(),
-        ));
+        return Err(VulkanError::ComputeError("向量长度不匹配".to_string()));
     }
 
     let count = a.len();
@@ -922,14 +894,8 @@ mod tests {
     fn test_batch_vector_add() {
         match VulkanGpu::new(None) {
             Ok(gpu) => {
-                let vectors_a = vec![
-                    vec![1.0f32, 2.0],
-                    vec![3.0f32, 4.0],
-                ];
-                let vectors_b = vec![
-                    vec![10.0f32, 20.0],
-                    vec![30.0f32, 40.0],
-                ];
+                let vectors_a = vec![vec![1.0f32, 2.0], vec![3.0f32, 4.0]];
+                let vectors_b = vec![vec![10.0f32, 20.0], vec![30.0f32, 40.0]];
 
                 let results = batch_vector_add(&gpu, &vectors_a, &vectors_b).unwrap();
 
@@ -1018,12 +984,8 @@ mod tests {
                 let k = 64;
                 let n = 64;
 
-                let a: Vec<f32> = (0..m * k)
-                    .map(|i| (i % 100) as f32 / 100.0)
-                    .collect();
-                let b: Vec<f32> = (0..k * n)
-                    .map(|i| (i % 100) as f32 / 100.0)
-                    .collect();
+                let a: Vec<f32> = (0..m * k).map(|i| (i % 100) as f32 / 100.0).collect();
+                let b: Vec<f32> = (0..k * n).map(|i| (i % 100) as f32 / 100.0).collect();
 
                 let start = Instant::now();
                 let result = matrix_multiply_gpu(&gpu, &a, &b, m, k, n).unwrap();
@@ -1033,7 +995,9 @@ mod tests {
 
                 println!(
                     "📊 矩阵乘法 {}×{}×{}: {:.2}ms",
-                    m, k, n,
+                    m,
+                    k,
+                    n,
                     elapsed.as_secs_f64() * 1000.0
                 );
             }
@@ -1048,7 +1012,10 @@ mod tests {
     fn test_glsl_shader_sources() {
         // 验证嵌入的 shader 源码已正确加载
         assert!(!VECTOR_ADD_SHADER.is_empty(), "VECTOR_ADD_SHADER 不应为空");
-        assert!(!MATRIX_MULTIPLY_SHADER.is_empty(), "MATRIX_MULTIPLY_SHADER 不应为空");
+        assert!(
+            !MATRIX_MULTIPLY_SHADER.is_empty(),
+            "MATRIX_MULTIPLY_SHADER 不应为空"
+        );
 
         // 验证 GLSL 版本声明
         assert!(
@@ -1085,10 +1052,7 @@ mod tests {
         );
 
         // 验证存储缓冲区布局
-        assert!(
-            VECTOR_ADD_SHADER.contains("std430"),
-            "应使用 std430 布局"
-        );
+        assert!(VECTOR_ADD_SHADER.contains("std430"), "应使用 std430 布局");
         assert!(
             MATRIX_MULTIPLY_SHADER.contains("push_constant"),
             "matrix_multiply 应使用 push_constant"
@@ -1096,7 +1060,10 @@ mod tests {
 
         println!("✅ GLSL Shader 源码完整性验证通过");
         println!("   - vector_add.comp: {} bytes", VECTOR_ADD_SHADER.len());
-        println!("   - matrix_multiply.comp: {} bytes", MATRIX_MULTIPLY_SHADER.len());
+        println!(
+            "   - matrix_multiply.comp: {} bytes",
+            MATRIX_MULTIPLY_SHADER.len()
+        );
     }
 
     /// 测试 ShaderCache 与真实 GLSL 源码集成

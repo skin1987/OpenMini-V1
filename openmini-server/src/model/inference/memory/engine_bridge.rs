@@ -1394,10 +1394,10 @@ impl MemoryWarmer {
             let new_key = format!("{}_v{}", key, counter);
             if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(new_key) {
                 e.insert(CacheItem {
-                        data: Arc::new(data),
-                        access_count: 0,
-                        last_access: current_timestamp(),
-                    });
+                    data: Arc::new(data),
+                    access_count: 0,
+                    last_access: current_timestamp(),
+                });
                 return true;
             }
         }

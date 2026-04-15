@@ -2,12 +2,12 @@
 //!
 //! 导出服务层相关的子模块和类型
 
+pub mod core_actor;
+pub mod hot_reload;
+pub mod router;
 pub mod server;
 pub mod thread;
 pub mod worker;
-pub mod core_actor;
-pub mod router;
-pub mod hot_reload;
 
 /// 统一任务调度器模块 (推荐使用)
 ///
@@ -28,9 +28,9 @@ pub mod grpc {
 pub mod http {
     pub mod handlers;
     pub mod middleware;
+    pub mod sensitive_filter;
     pub mod server;
     pub mod types;
-    pub mod sensitive_filter;
 }
 
 /// 分布式推理模块 (可选功能)

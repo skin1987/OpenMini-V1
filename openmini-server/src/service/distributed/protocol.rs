@@ -207,13 +207,8 @@ mod tests {
 
     #[test]
     fn test_inference_request_creation() {
-        let request = InferenceRequest::new(
-            "session-001",
-            "llama-7b",
-            vec![1, 2, 3, 4, 5],
-            100,
-            0.7,
-        );
+        let request =
+            InferenceRequest::new("session-001", "llama-7b", vec![1, 2, 3, 4, 5], 100, 0.7);
 
         assert_eq!(request.session_id, "session-001");
         assert_eq!(request.model_name, "llama-7b");
@@ -225,12 +220,8 @@ mod tests {
     #[test]
     fn test_inference_response_creation() {
         let stats = InferenceStats::empty();
-        let response = InferenceResponse::success(
-            vec![10, 20, 30],
-            vec![-0.5, -0.3, -0.1],
-            "length",
-            stats,
-        );
+        let response =
+            InferenceResponse::success(vec![10, 20, 30], vec![-0.5, -0.3, -0.1], "length", stats);
 
         assert_eq!(response.output_len(), 3);
         assert_eq!(response.finish_reason, "length");
@@ -251,12 +242,7 @@ mod tests {
         assert!(!caps.supports_model("gpt-4"));
 
         // 通配符匹配
-        let wildcard_caps = NodeCapabilities::new(
-            "GPU",
-            24 * 1024,
-            16,
-            vec!["*".to_string()],
-        );
+        let wildcard_caps = NodeCapabilities::new("GPU", 24 * 1024, 16, vec!["*".to_string()]);
         assert!(wildcard_caps.supports_model("any-model"));
     }
 
@@ -273,8 +259,7 @@ mod tests {
 
         // 测试序列化和反序列化
         let encoded: Vec<u8> = bincode::serialize(&msg).expect("序列化失败");
-        let decoded: DistributedMessage =
-            bincode::deserialize(&encoded).expect("反序列化失败");
+        let decoded: DistributedMessage = bincode::deserialize(&encoded).expect("反序列化失败");
 
         match decoded {
             DistributedMessage::Heartbeat {
@@ -302,7 +287,9 @@ mod tests {
         };
 
         match &msg {
-            DistributedMessage::TaskAssign { task_id, priority, .. } => {
+            DistributedMessage::TaskAssign {
+                task_id, priority, ..
+            } => {
                 assert_eq!(*task_id, "task-001");
                 assert_eq!(*priority, 1);
             }

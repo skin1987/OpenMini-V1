@@ -260,7 +260,9 @@ impl SlaMonitor {
         for target in &self.targets {
             if &target.metric == metric {
                 // 原子更新当前值（转换为定点数存储）
-                target.current_value.store(f32_to_fixed(value), Ordering::Relaxed);
+                target
+                    .current_value
+                    .store(f32_to_fixed(value), Ordering::Relaxed);
 
                 // 添加样本到窗口
                 if let Ok(mut samples) = target.samples.lock() {
@@ -321,7 +323,11 @@ impl SlaMonitor {
                         threshold: target.threshold,
                         actual_value: current,
                         violation_time: Utc::now(),
-                        severity: self.calculate_severity(&target.metric, current, target.threshold),
+                        severity: self.calculate_severity(
+                            &target.metric,
+                            current,
+                            target.threshold,
+                        ),
                     })
                 } else {
                     None
@@ -390,8 +396,14 @@ impl SlaMonitor {
                 if !period_samples.is_empty() {
                     let values: Vec<f32> = period_samples.iter().map(|s| s.value).collect();
                     let avg = values.iter().sum::<f32>() / values.len() as f32;
-                    let max = *values.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-                    let min = *values.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+                    let max = *values
+                        .iter()
+                        .max_by(|a, b| a.partial_cmp(b).unwrap())
+                        .unwrap();
+                    let min = *values
+                        .iter()
+                        .min_by(|a, b| a.partial_cmp(b).unwrap())
+                        .unwrap();
 
                     // 检查是否合规（使用平均值）
                     let is_compliant = match target.metric {
@@ -510,9 +522,9 @@ impl SlaMonitor {
     fn calculate_severity(&self, metric: &SlaMetric, actual: f32, threshold: f32) -> Severity {
         let deviation = match metric {
             SlaMetric::Availability { .. } => threshold - actual, // 可用性：低于阈值是坏事
-            SlaMetric::LatencyP95 { .. } => actual - threshold, // 延迟：高于阈值是坏事
-            SlaMetric::ErrorRate { .. } => actual - threshold, // 错误率：高于阈值是坏事
-            SlaMetric::Throughput { .. } => threshold - actual, // 吞吐量：低于阈值是坏事
+            SlaMetric::LatencyP95 { .. } => actual - threshold,   // 延迟：高于阈值是坏事
+            SlaMetric::ErrorRate { .. } => actual - threshold,    // 错误率：高于阈值是坏事
+            SlaMetric::Throughput { .. } => threshold - actual,   // 吞吐量：低于阈值是坏事
         };
 
         // 根据偏离程度判断严重级别
@@ -548,7 +560,10 @@ impl std::fmt::Debug for SlaTarget {
             .field("name", &self.name)
             .field("metric", &self.metric)
             .field("threshold", &self.threshold)
-            .field("current_value", &fixed_to_f32(self.current_value.load(Ordering::Relaxed)))
+            .field(
+                "current_value",
+                &fixed_to_f32(self.current_value.load(Ordering::Relaxed)),
+            )
             .finish()
     }
 }
@@ -746,10 +761,18 @@ impl SlaLevel {
     /// 获取目标可用性
     pub fn target_availability(&self) -> f32 {
         match self {
-            SlaLevel::P0 { target_availability } => *target_availability,
-            SlaLevel::P1 { target_availability } => *target_availability,
-            SlaLevel::P2 { target_availability } => *target_availability,
-            SlaLevel::P3 { target_availability } => *target_availability,
+            SlaLevel::P0 {
+                target_availability,
+            } => *target_availability,
+            SlaLevel::P1 {
+                target_availability,
+            } => *target_availability,
+            SlaLevel::P2 {
+                target_availability,
+            } => *target_availability,
+            SlaLevel::P3 {
+                target_availability,
+            } => *target_availability,
         }
     }
 
@@ -1048,10 +1071,8 @@ impl SlaMonitor {
             if let Some(counter) = &self.success_counter {
                 counter.fetch_add(1, Ordering::Relaxed);
             }
-        } else {
-            if let Some(counter) = &self.error_counter {
-                counter.fetch_add(1, Ordering::Relaxed);
-            }
+        } else if let Some(counter) = &self.error_counter {
+            counter.fetch_add(1, Ordering::Relaxed);
         }
 
         // 更新延迟统计（使用滑动窗口）
@@ -1118,7 +1139,9 @@ impl SlaMonitor {
         };
 
         // 获取违规次数
-        let violations_count = self.enhanced_violations.as_ref()
+        let violations_count = self
+            .enhanced_violations
+            .as_ref()
             .and_then(|v| v.lock().ok())
             .map(|v| v.len() as u32)
             .unwrap_or(0);
@@ -1234,11 +1257,7 @@ impl SlaMonitor {
     /// 如果目标 ID 已存在，返回错误。
     pub fn register_target(&mut self, target: EnhancedSlaTarget) -> Result<(), SlaError> {
         // 检查是否已存在相同 ID 的目标
-        if self
-            .enhanced_targets
-            .iter()
-            .any(|t| t.id == target.id)
-        {
+        if self.enhanced_targets.iter().any(|t| t.id == target.id) {
             return Err(SlaError::InvalidConfig(format!(
                 "Target with id '{}' already exists",
                 target.id
@@ -1372,19 +1391,29 @@ mod tests {
 
         let violations = sla.check_violations();
         // 检查是否有 availability 相关的违规
-        let avail_violations: Vec<_> = violations.iter()
+        let avail_violations: Vec<_> = violations
+            .iter()
             .filter(|v| v.target_name == "availability")
             .collect();
-        assert!(avail_violations.is_empty(), "Expected no availability violations, but got: {:?}", avail_violations);
+        assert!(
+            avail_violations.is_empty(),
+            "Expected no availability violations, but got: {:?}",
+            avail_violations
+        );
 
         // 记录明显低可用性
         sla.record_metric(&SlaMetric::Availability { target: 99.9 }, 50.0);
 
         let violations = sla.check_violations();
-        let avail_violations: Vec<_> = violations.iter()
+        let avail_violations: Vec<_> = violations
+            .iter()
             .filter(|v| v.target_name == "availability")
             .collect();
-        assert_eq!(avail_violations.len(), 1, "Expected 1 availability violation"); // 50.0 < 99.9，违规
+        assert_eq!(
+            avail_violations.len(),
+            1,
+            "Expected 1 availability violation"
+        ); // 50.0 < 99.9，违规
         assert_eq!(violations[0].target_name, "availability");
     }
 
@@ -1465,7 +1494,10 @@ mod tests {
 
         // 记录一些数据
         for i in 0..10 {
-            sla.record_metric(&SlaMetric::Availability { target: 99.9 }, 99.95 + (i as f32 * 0.01));
+            sla.record_metric(
+                &SlaMetric::Availability { target: 99.9 },
+                99.95 + (i as f32 * 0.01),
+            );
         }
 
         let report = sla.generate_report(Duration::hours(1));
@@ -1563,7 +1595,9 @@ mod tests {
     // SlaLevel 测试
     #[test]
     fn test_sla_level_p0_target_availability() {
-        let level = SlaLevel::P0 { target_availability: 99.99 };
+        let level = SlaLevel::P0 {
+            target_availability: 99.99,
+        };
         assert!((level.target_availability() - 99.99).abs() < 0.001);
         assert_eq!(level.level_name(), "P0");
     }
@@ -1572,10 +1606,18 @@ mod tests {
     fn test_sla_level_typical_thresholds() {
         // 测试每个级别的典型阈值是否合理
         let levels = vec![
-            SlaLevel::P0 { target_availability: 99.99 },
-            SlaLevel::P1 { target_availability: 99.9 },
-            SlaLevel::P2 { target_availability: 99.0 },
-            SlaLevel::P3 { target_availability: 95.0 },
+            SlaLevel::P0 {
+                target_availability: 99.99,
+            },
+            SlaLevel::P1 {
+                target_availability: 99.9,
+            },
+            SlaLevel::P2 {
+                target_availability: 99.0,
+            },
+            SlaLevel::P3 {
+                target_availability: 95.0,
+            },
         ];
         for level in &levels {
             let (lat, err, tps) = level.typical_thresholds();
@@ -1588,10 +1630,16 @@ mod tests {
     // EnhancedSlaTarget 测试
     #[test]
     fn test_enhanced_target_from_level() {
-        let target = EnhancedSlaTarget::from_level("test-p0", "Critical API", SlaLevel::P0 { target_availability: 99.99 });
+        let target = EnhancedSlaTarget::from_level(
+            "test-p0",
+            "Critical API",
+            SlaLevel::P0 {
+                target_availability: 99.99,
+            },
+        );
         assert_eq!(target.id, "test-p0");
-        assert!(target.is_compliant(99.99, 50.0, 0.05, 6000));  // 应该合规
-        assert!(!target.is_compliant(99.0, 50.0, 0.05, 6000));  // 可用性不足
+        assert!(target.is_compliant(99.99, 50.0, 0.05, 6000)); // 应该合规
+        assert!(!target.is_compliant(99.0, 50.0, 0.05, 6000)); // 可用性不足
     }
 
     // SlaMonitor record_request 测试
@@ -1621,17 +1669,26 @@ mod tests {
         let mut monitor = SlaMonitor::new(&config).unwrap();
         monitor.init_enhanced_features();
 
-        let target = EnhancedSlaTarget::from_level("lat-test", "Latency Test", SlaLevel::P1 { target_availability: 99.9 });
+        let target = EnhancedSlaTarget::from_level(
+            "lat-test",
+            "Latency Test",
+            SlaLevel::P1 {
+                target_availability: 99.9,
+            },
+        );
         monitor.register_target(target).unwrap();
 
         // 模拟高延迟请求
         for _ in 0..100 {
-            monitor.record_request(2000.0, true);  // P1阈值是500ms，这会超限
+            monitor.record_request(2000.0, true); // P1阈值是500ms，这会超限
         }
 
-        let targets = monitor.enhanced_targets.clone();  // 获取目标列表
+        let targets = monitor.enhanced_targets.clone(); // 获取目标列表
         if let Some(violation) = monitor.check_enhanced_violation(&targets[0]) {
-            assert_eq!(violation.violation_type, SlaViolationType::LatencyExceededP95);
+            assert_eq!(
+                violation.violation_type,
+                SlaViolationType::LatencyExceededP95
+            );
         }
     }
 
@@ -1645,7 +1702,7 @@ mod tests {
         // 记录一些数据
         for i in 0..20 {
             monitor.record_request(100.0 + i as f32, true);
-            monitor.save_snapshot();  // 手动保存快照以生成趋势数据
+            monitor.save_snapshot(); // 手动保存快照以生成趋势数据
         }
 
         let trends = monitor.trend(Duration::minutes(5));
@@ -1659,7 +1716,13 @@ mod tests {
         let mut monitor = SlaMonitor::new(&config).unwrap();
         monitor.init_enhanced_features();
 
-        let target = EnhancedSlaTarget::from_level("lc-test", "Lifecycle Test", SlaLevel::P2 { target_availability: 99.0 });
+        let target = EnhancedSlaTarget::from_level(
+            "lc-test",
+            "Lifecycle Test",
+            SlaLevel::P2 {
+                target_availability: 99.0,
+            },
+        );
 
         // 注册
         monitor.register_target(target).unwrap();
@@ -1680,7 +1743,13 @@ mod tests {
         let mut monitor = SlaMonitor::new(&config).unwrap();
         monitor.init_enhanced_features();
 
-        let target = EnhancedSlaTarget::from_level("comp-test", "Compliance Test", SlaLevel::P3 { target_availability: 95.0 });
+        let target = EnhancedSlaTarget::from_level(
+            "comp-test",
+            "Compliance Test",
+            SlaLevel::P3 {
+                target_availability: 95.0,
+            },
+        );
         monitor.register_target(target).unwrap();
 
         // 正常操作（应该合规）
@@ -1689,8 +1758,8 @@ mod tests {
         }
 
         let report = monitor.compliance_report();
-        assert_eq!(report.len(), 1);  // 应该有1个目标的报告
-        assert!(report[0].1);  // 应该是合规的(true)
+        assert_eq!(report.len(), 1); // 应该有1个目标的报告
+        assert!(report[0].1); // 应该是合规的(true)
     }
 
     // 边界情况测试
@@ -1702,7 +1771,7 @@ mod tests {
 
         let status = monitor.current_status();
         assert_eq!(status.total_requests, 0);
-        assert_eq!(status.error_rate_pct, 0.0);  // 无请求时错误率应为0
+        assert_eq!(status.error_rate_pct, 0.0); // 无请求时错误率应为0
     }
 
     #[test]
@@ -1742,18 +1811,37 @@ mod tests {
     // ViolationSeverity from_level 测试
     #[test]
     fn test_violation_severity_from_level() {
-        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P0 { target_availability: 99.99 }), ViolationSeverity::Critical);
-        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P1 { target_availability: 99.9 }), ViolationSeverity::Major);
-        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P2 { target_availability: 99.0 }), ViolationSeverity::Minor);
-        assert_eq!(ViolationSeverity::from_level(&SlaLevel::P3 { target_availability: 95.0 }), ViolationSeverity::Warning);
+        assert_eq!(
+            ViolationSeverity::from_level(&SlaLevel::P0 {
+                target_availability: 99.99
+            }),
+            ViolationSeverity::Critical
+        );
+        assert_eq!(
+            ViolationSeverity::from_level(&SlaLevel::P1 {
+                target_availability: 99.9
+            }),
+            ViolationSeverity::Major
+        );
+        assert_eq!(
+            ViolationSeverity::from_level(&SlaLevel::P2 {
+                target_availability: 99.0
+            }),
+            ViolationSeverity::Minor
+        );
+        assert_eq!(
+            ViolationSeverity::from_level(&SlaLevel::P3 {
+                target_availability: 95.0
+            }),
+            ViolationSeverity::Warning
+        );
     }
 
     // EnhancedSlaViolation resolve 测试
     #[test]
     fn test_violation_resolve() {
-        let violation = EnhancedSlaViolation::new(
-            "v1".to_string(),
-            "t1".to_string(),
+        let mut violation = EnhancedSlaViolation::new(
+            "v1",
             SlaViolationType::AvailabilityBelowTarget,
             99.0,
             99.99,
@@ -1761,8 +1849,8 @@ mod tests {
         );
         assert!(!violation.resolved);
 
-        let resolved = violation.resolve();
-        assert!(resolved.resolved);
-        assert!(resolved.resolved_at.is_some());
+        violation.resolve();
+        assert!(violation.resolved);
+        assert!(violation.resolved_at.is_some());
     }
 }

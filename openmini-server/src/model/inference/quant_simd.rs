@@ -29,6 +29,44 @@ const QK8_0: usize = 32;
 // 第一部分：CPU Feature 检测与安全包装（SIGSEGV 修复）
 // ============================================================================
 
+/// 安全获取Q4量化字节值（i32版本，用于Q4_0）
+#[inline(always)]
+fn safe_get_q4_byte_i32(qs: &[u8], byte_idx: usize, is_high: bool) -> i32 {
+    if let Some(byte) = qs.get(byte_idx) {
+        if is_high {
+            ((byte >> 4) as i32) - 8
+        } else {
+            ((byte & 0x0F) as i32) - 8
+        }
+    } else {
+        0 // 安全回退值
+    }
+}
+
+/// 安全获取Q4量化字节值（f32版本，用于Q4_1）
+#[inline(always)]
+fn safe_get_q4_byte_f32(qs: &[u8], byte_idx: usize, is_high: bool) -> f32 {
+    if let Some(byte) = qs.get(byte_idx) {
+        if is_high {
+            (byte >> 4) as f32
+        } else {
+            (byte & 0x0F) as f32
+        }
+    } else {
+        0.0 // 安全回退值
+    }
+}
+
+/// 安全获取Q8量化字节值（f32版本，用于Q8_0）
+#[inline(always)]
+fn safe_get_q8_byte_f32(qs: &[u8], idx: usize) -> f32 {
+    if let Some(byte) = qs.get(idx) {
+        *byte as i8 as f32
+    } else {
+        0.0 // 安全回退值
+    }
+}
+
 /// SIMD 支持状态描述
 #[derive(Debug, Clone, Copy)]
 pub struct SimdSupport {
@@ -40,8 +78,11 @@ pub struct SimdSupport {
 
 impl std::fmt::Display for SimdSupport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AVX512={}, AVX2={}, SSE4.2={}, NEON={}",
-            self.avx512, self.avx2, self.sse42, self.neon)
+        write!(
+            f,
+            "AVX512={}, AVX2={}, SSE4.2={}, NEON={}",
+            self.avx512, self.avx2, self.sse42, self.neon
+        )
     }
 }
 
@@ -634,10 +675,14 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
-                        let q = if is_high {
-                            ((qs[byte_idx] >> 4) as i32) - 8
+                        let q = if let Some(byte) = qs.get(byte_idx) {
+                            if is_high {
+                                ((byte >> 4) as i32) - 8
+                            } else {
+                                ((byte & 0x0F) as i32) - 8
+                            }
                         } else {
-                            ((qs[byte_idx] & 0x0F) as i32) - 8
+                            0 // 安全回退值，实际应不会发生，因为有边界检查
                         };
                         values[j] = q as f32;
                     }
@@ -654,10 +699,14 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        ((qs[byte_idx] >> 4) as i32) - 8
+                    let q = if let Some(byte) = qs.get(byte_idx) {
+                        if is_high {
+                            ((byte >> 4) as i32) - 8
+                        } else {
+                            ((byte & 0x0F) as i32) - 8
+                        }
                     } else {
-                        ((qs[byte_idx] & 0x0F) as i32) - 8
+                        0 // 安全回退值
                     };
                     result[idx] = q as f32 * scale;
                 }
@@ -677,11 +726,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
-                        let q = if is_high {
-                            ((qs[byte_idx] >> 4) as i32) - 8
-                        } else {
-                            ((qs[byte_idx] & 0x0F) as i32) - 8
-                        };
+                        let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                         values[j] = q as f32;
                     }
 
@@ -697,11 +742,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        ((qs[byte_idx] >> 4) as i32) - 8
-                    } else {
-                        ((qs[byte_idx] & 0x0F) as i32) - 8
-                    };
+                    let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                     result[idx] = q as f32 * scale;
                 }
             } else if is_x86_feature_detected!("sse4.2") {
@@ -720,11 +761,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
-                        let q = if is_high {
-                            ((qs[byte_idx] >> 4) as i32) - 8
-                        } else {
-                            ((qs[byte_idx] & 0x0F) as i32) - 8
-                        };
+                        let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                         values[j] = q as f32;
                     }
 
@@ -740,11 +777,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        ((qs[byte_idx] >> 4) as i32) - 8
-                    } else {
-                        ((qs[byte_idx] & 0x0F) as i32) - 8
-                    };
+                    let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                     result[idx] = q as f32 * scale;
                 }
             } else {
@@ -753,11 +786,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        ((qs[byte_idx] >> 4) as i32) - 8
-                    } else {
-                        ((qs[byte_idx] & 0x0F) as i32) - 8
-                    };
+                    let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                     result[idx] = q as f32 * scale;
                 }
             }
@@ -770,7 +799,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 #[cfg(target_arch = "aarch64")]
 fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
     use half::f16;
-    let block_count = (n + QK4_0 - 1) / QK4_0;
+    let block_count = n.div_ceil(QK4_0);
     let mut result = vec![0.0f32; n];
 
     for block_idx in 0..block_count {
@@ -801,11 +830,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = elems_start + j;
                     let byte_idx = (elems_start + j) / 2;
                     let is_high = (elems_start + j) % 2 == 0;
-                    let q = if is_high {
-                        ((qs[byte_idx] >> 4) as i32) - 8
-                    } else {
-                        ((qs[byte_idx] & 0x0F) as i32) - 8
-                    };
+                    let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                     values[j] = q as f32;
                 }
 
@@ -824,11 +849,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 
             let byte_idx = i / 2;
             let is_high = i % 2 == 0;
-            let q = if is_high {
-                ((qs[byte_idx] >> 4) as i32) - 8
-            } else {
-                ((qs[byte_idx] & 0x0F) as i32) - 8
-            };
+            let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
             result[idx] = q as f32 * scale;
         }
     }
@@ -890,11 +911,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
-                        let q = if is_high {
-                            (qs[byte_idx] >> 4) as f32
-                        } else {
-                            (qs[byte_idx] & 0x0F) as f32
-                        };
+                        let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
                         values[j] = q;
                     }
 
@@ -911,11 +928,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        (qs[byte_idx] >> 4) as f32
-                    } else {
-                        (qs[byte_idx] & 0x0F) as f32
-                    };
+                    let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
                     result[idx] = q * scale + min_val;
                 }
             } else if is_x86_feature_detected!("sse4.2") {
@@ -934,11 +947,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
-                        let q = if is_high {
-                            (qs[byte_idx] >> 4) as f32
-                        } else {
-                            (qs[byte_idx] & 0x0F) as f32
-                        };
+                        let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
                         values[j] = q;
                     }
 
@@ -955,11 +964,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        (qs[byte_idx] >> 4) as f32
-                    } else {
-                        (qs[byte_idx] & 0x0F) as f32
-                    };
+                    let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
                     result[idx] = q * scale + min_val;
                 }
             } else {
@@ -968,11 +973,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = start + i;
                     let byte_idx = i / 2;
                     let is_high = i % 2 == 0;
-                    let q = if is_high {
-                        (qs[byte_idx] >> 4) as f32
-                    } else {
-                        (qs[byte_idx] & 0x0F) as f32
-                    };
+                    let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
                     result[idx] = q * scale + min_val;
                 }
             }
@@ -985,7 +986,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
 #[cfg(target_arch = "aarch64")]
 fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
     use half::f16;
-    let block_count = (n + QK4_1 - 1) / QK4_1;
+    let block_count = n.div_ceil(QK4_1);
     let mut result = vec![0.0f32; n];
 
     for block_idx in 0..block_count {
@@ -1019,11 +1020,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let idx = elems_start + j;
                     let byte_idx = (elems_start + j) / 2;
                     let is_high = (elems_start + j) % 2 == 0;
-                    let q = if is_high {
-                        (qs[byte_idx] >> 4) as f32
-                    } else {
-                        (qs[byte_idx] & 0x0F) as f32
-                    };
+                    let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
                     values[j] = q;
                 }
 
@@ -1043,11 +1040,7 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
 
             let byte_idx = i / 2;
             let is_high = i % 2 == 0;
-            let q = if is_high {
-                (qs[byte_idx] >> 4) as f32
-            } else {
-                (qs[byte_idx] & 0x0F) as f32
-            };
+            let q = safe_get_q4_byte_f32(qs, byte_idx, is_high);
             result[idx] = q * scale + min_val;
         }
     }
@@ -1103,7 +1096,7 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 
                     let mut f32_vals = [0.0f32; 16];
                     for j in 0..simd_width {
-                        f32_vals[j] = qs[elems_start + j] as i8 as f32;
+                        f32_vals[j] = safe_get_q8_byte_f32(qs, elems_start + j);
                     }
 
                     let scale_v = _mm512_set1_ps(scale);
@@ -1116,7 +1109,7 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                 let scalar_start = simd_blocks * simd_width;
                 for i in scalar_start..elems_in_block {
                     let idx = start + i;
-                    result[idx] = qs[i] as i8 as f32 * scale;
+                    result[idx] = safe_get_q8_byte_f32(qs, i) * scale;
                 }
             } else if is_x86_feature_detected!("avx2") {
                 let simd_width = 8usize;
@@ -1132,7 +1125,7 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 
                     let mut f32_vals = [0.0f32; 8];
                     for j in 0..simd_width {
-                        f32_vals[j] = qs[elems_start + j] as i8 as f32;
+                        f32_vals[j] = safe_get_q8_byte_f32(qs, elems_start + j);
                     }
 
                     let scale_v = _mm256_set1_ps(scale);
@@ -1145,7 +1138,7 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                 let scalar_start = simd_blocks * simd_width;
                 for i in scalar_start..elems_in_block {
                     let idx = start + i;
-                    result[idx] = qs[i] as i8 as f32 * scale;
+                    result[idx] = safe_get_q8_byte_f32(qs, i) * scale;
                 }
             } else if is_x86_feature_detected!("sse4.2") {
                 let simd_width = 4usize;
@@ -1161,7 +1154,7 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 
                     let mut f32_vals = [0.0f32; 4];
                     for j in 0..simd_width {
-                        f32_vals[j] = qs[elems_start + j] as i8 as f32;
+                        f32_vals[j] = safe_get_q8_byte_f32(qs, elems_start + j);
                     }
 
                     let scale_v = _mm_set1_ps(scale);
@@ -1174,13 +1167,13 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                 let scalar_start = simd_blocks * simd_width;
                 for i in scalar_start..elems_in_block {
                     let idx = start + i;
-                    result[idx] = qs[i] as i8 as f32 * scale;
+                    result[idx] = safe_get_q8_byte_f32(qs, i) * scale;
                 }
             } else {
                 // 无 SIMD 支持时使用标量回退
                 for i in 0..elems_in_block {
                     let idx = start + i;
-                    result[idx] = qs[i] as i8 as f32 * scale;
+                    result[idx] = safe_get_q8_byte_f32(qs, i) * scale;
                 }
             }
         }
@@ -1192,7 +1185,7 @@ fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
 #[cfg(target_arch = "aarch64")]
 fn dequantize_q8_0_impl(data: &[u8], n: usize) -> Vec<f32> {
     use half::f16;
-    let block_count = (n + QK8_0 - 1) / QK8_0;
+    let block_count = n.div_ceil(QK8_0);
     let mut result = vec![0.0f32; n];
 
     for block_idx in 0..block_count {
@@ -1271,7 +1264,8 @@ fn dequantize_q4_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
 
     // 使用 par_chunks_mut 安全地分割结果数组
     // 每个 chunk 处理 n/chunks 个元素，确保不会越界
-    result.par_chunks_mut(n.div_ceil(chunks))
+    result
+        .par_chunks_mut(n.div_ceil(chunks))
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
             let elem_start = chunk_idx * (n.div_ceil(chunks));
@@ -1340,7 +1334,8 @@ fn dequantize_q4_1_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
     let chunks = num_threads.min(n).max(1);
 
     // 使用 par_chunks_mut 安全地分割结果数组
-    result.par_chunks_mut(n.div_ceil(chunks))
+    result
+        .par_chunks_mut(n.div_ceil(chunks))
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
             let elem_start = chunk_idx * (n.div_ceil(chunks));
@@ -1413,7 +1408,8 @@ fn dequantize_q8_0_parallel(data: &[u8], n: usize, num_threads: usize) -> Vec<f3
     let chunks = num_threads.min(n).max(1);
 
     // 使用 par_chunks_mut 安全地分割结果数组
-    result.par_chunks_mut(n.div_ceil(chunks))
+    result
+        .par_chunks_mut(n.div_ceil(chunks))
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
             let elem_start = chunk_idx * (n.div_ceil(chunks));
@@ -1511,9 +1507,12 @@ pub fn softmax_simd(input: &[f32]) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        unsafe {
-            softmax_neon(input, &mut result, max_val);
-            return result;
+        use std::arch::aarch64::is_aarch64_feature_detected;
+        if is_aarch64_feature_detected!("neon") {
+            unsafe {
+                softmax_neon(input, &mut result, max_val);
+                return result;
+            }
         }
     }
 
@@ -1725,8 +1724,13 @@ pub fn rms_norm_simd(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        unsafe {
-            ss = sum_squares_neon(input);
+        use std::arch::aarch64::is_aarch64_feature_detected;
+        if is_aarch64_feature_detected!("neon") {
+            unsafe {
+                ss = sum_squares_neon(input);
+            }
+        } else {
+            ss = input.iter().map(|&x| x * x).sum();
         }
     }
 
@@ -1752,9 +1756,12 @@ pub fn rms_norm_simd(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        unsafe {
-            rms_norm_neon(input, weight, &mut result, inv_rms);
-            return result;
+        use std::arch::aarch64::is_aarch64_feature_detected;
+        if is_aarch64_feature_detected!("neon") {
+            unsafe {
+                rms_norm_neon(input, weight, &mut result, inv_rms);
+                return result;
+            }
         }
     }
 
@@ -3858,7 +3865,6 @@ fn try_gpu_dequant(data: &[u8], tensor_type: GgufTensorType, n: usize) -> Option
             return None;
         }
 
-        
         match tensor_type {
             GgufTensorType::Q4_0 => gpu_ops.dequantize_q4_0_gpu(data, n).ok(),
             GgufTensorType::Q8_0 => gpu_ops.dequantize_q8_0_gpu(data, n).ok(),
@@ -4323,7 +4329,7 @@ mod deep_optimization_tests {
         )
         .collect();
 
-        assert_eq!(chunks.len(), (total_elements + chunk_size - 1) / chunk_size);
+        assert_eq!(chunks.len(), total_elements.div_ceil(chunk_size));
         // 验证总元素数
         let total: usize = chunks.iter().map(|c| c.len()).sum();
         assert_eq!(total, total_elements);

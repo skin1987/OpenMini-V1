@@ -52,7 +52,10 @@ fn test_toml_roundtrip_consistency() {
 
     assert_eq!(loaded.server.host, original.server.host);
     assert_eq!(loaded.server.port, original.server.port);
-    assert_eq!(loaded.server.max_connections, original.server.max_connections);
+    assert_eq!(
+        loaded.server.max_connections,
+        original.server.max_connections
+    );
     assert_eq!(loaded.model.quantization, original.model.quantization);
     assert_eq!(loaded.model.context_length, original.model.context_length);
     assert_eq!(loaded.thread_pool.size, original.thread_pool.size);
@@ -144,7 +147,7 @@ fn test_config_validation_edge_cases() {
 
     let config = ServerConfig::default();
 
-    assert!(config.server.port > 0 && config.server.port <= 65535);
+    assert!(config.server.port > 0); // port is u16, always <= 65535
     assert!(config.server.max_connections >= 1 && config.server.max_connections <= 100000);
     assert!(config.server.request_timeout_ms >= 1000);
 
@@ -157,9 +160,7 @@ fn test_config_validation_edge_cases() {
 
     assert!(config.model.context_length >= 512 && config.model.context_length <= 131072);
 
-    let valid_quantizations = [
-        "Q4_K_M", "Q4_0", "Q8_0", "F16", "F32", "Q5_K_M", "Q6_K",
-    ];
+    let valid_quantizations = ["Q4_K_M", "Q4_0", "Q8_0", "F16", "F32", "Q5_K_M", "Q6_K"];
     assert!(
         valid_quantizations.contains(&config.model.quantization.as_str()),
         "Default quantization should be valid"
@@ -178,12 +179,18 @@ fn test_config_validation_edge_cases() {
 
     let addr = config.addr();
     assert!(addr.contains(':'), "Address should contain ':' separator");
-    assert_eq!(addr, format!("{}:{}", config.server.host, config.server.port));
+    assert_eq!(
+        addr,
+        format!("{}:{}", config.server.host, config.server.port)
+    );
 
     let max_bytes = config.max_memory_bytes();
     assert_eq!(max_bytes, config.memory.max_memory_gb * 1024 * 1024 * 1024);
 
     let arena_bytes = config.arena_size_bytes();
     assert_eq!(arena_bytes, config.memory.arena_size_mb * 1024 * 1024);
-    assert!(arena_bytes < max_bytes, "Arena should fit within max memory");
+    assert!(
+        arena_bytes < max_bytes,
+        "Arena should fit within max memory"
+    );
 }

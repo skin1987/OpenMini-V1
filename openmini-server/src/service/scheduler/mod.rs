@@ -307,15 +307,15 @@ impl TaskHandle {
     /// 等待任务完成并返回结果
     pub async fn wait(mut self) -> Result<TaskResult, AppError> {
         match self.receiver.take() {
-            Some(receiver) => {
-                match receiver.await {
-                    Ok(result) => result,
-                    Err(_) => Err(AppError::Internal(
-                        "Task cancelled or scheduler shutdown".to_string(),
-                    )),
-                }
-            }
-            None => Err(AppError::Internal("Task handle already consumed".to_string())),
+            Some(receiver) => match receiver.await {
+                Ok(result) => result,
+                Err(_) => Err(AppError::Internal(
+                    "Task cancelled or scheduler shutdown".to_string(),
+                )),
+            },
+            None => Err(AppError::Internal(
+                "Task handle already consumed".to_string(),
+            )),
         }
     }
 
@@ -402,13 +402,13 @@ impl TaskScheduler {
         let failed_clone = failed_tasks.clone();
         let is_running_clone = is_running.clone();
         let max_concurrent = config.max_concurrent;
-        let queue_capacity = config.queue_capacity;  // 提取到局部变量
+        let queue_capacity = config.queue_capacity; // 提取到局部变量
 
         // 启动调度循环
         tokio::spawn(async move {
             info!(
                 max_concurrent,
-                queue_capacity,  // 使用局部变量
+                queue_capacity, // 使用局部变量
                 "TaskScheduler started"
             );
 
@@ -522,7 +522,14 @@ impl TaskScheduler {
     pub async fn status(&self) -> SchedulerStatus {
         let (response_tx, response_rx) = oneshot::channel();
 
-        if self.sender.send(SchedulerMessage::Status { response: response_tx }).await.is_ok() {
+        if self
+            .sender
+            .send(SchedulerMessage::Status {
+                response: response_tx,
+            })
+            .await
+            .is_ok()
+        {
             response_rx.await.unwrap_or(SchedulerStatus {
                 active_tasks: 0,
                 queued_tasks: 0,
@@ -601,7 +608,11 @@ impl TaskScheduler {
 ///
 /// 这里是占位实现，实际应该调用 InferenceEngine。
 fn execute_task_internal(task: Task) -> Result<TaskResult, AppError> {
-    debug!(task_id = task.id, data_len = task.data.len(), "Processing task");
+    debug!(
+        task_id = task.id,
+        data_len = task.data.len(),
+        "Processing task"
+    );
 
     // TODO: 集成实际的推理引擎调用
     // let engine = InferenceEngine::get_or_init()?;
@@ -642,7 +653,10 @@ mod tests {
         let scheduler = TaskScheduler::new(&config);
 
         let task = Task::new(1, b"test prompt".to_vec());
-        let handle = scheduler.submit(task).await.expect("Task submission should succeed");
+        let handle = scheduler
+            .submit(task)
+            .await
+            .expect("Task submission should succeed");
 
         let result = handle.wait().await;
         assert!(result.is_ok(), "Task should complete successfully");

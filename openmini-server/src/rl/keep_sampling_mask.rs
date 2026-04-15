@@ -153,9 +153,7 @@ pub fn create_mask_from_terminated(
     let valid_length = terminate_pos.min(max_length);
 
     let mut mask_data = vec![0.0; max_length];
-    for i in 0..valid_length {
-        mask_data[i] = 1.0;
-    }
+    mask_data[..valid_length].fill(1.0);
 
     (Tensor::new(mask_data, vec![max_length]), vec![valid_length])
 }

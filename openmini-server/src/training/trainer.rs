@@ -3,10 +3,10 @@
 //! 整合 Autograd、Optimizer、Loss、DataLoader 为完整的训练循环，
 //! 支持因果语言模型预训练、继续预训练、有监督微调三种模式。
 
-use crate::training::optimizer::{Optimizer, AdamW, ParamState};
-use crate::training::loss::{CrossEntropyLoss, CrossEntropyConfig, Reduction};
-use crate::training::dataloader::{DataLoader, Batch};
 use crate::training::autograd::ComputationGraph;
+use crate::training::dataloader::{Batch, DataLoader};
+use crate::training::loss::{CrossEntropyConfig, CrossEntropyLoss, Reduction};
+use crate::training::optimizer::{AdamW, Optimizer, ParamState};
 use ndarray::{Array2, ArrayD};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -418,8 +418,10 @@ impl Trainer {
         let loss_fn = CrossEntropyLoss::new(loss_config);
 
         // 创建早停机制
-        let early_stopping =
-            EarlyStopping::new(config.early_stopping_patience, config.early_stopping_threshold);
+        let early_stopping = EarlyStopping::new(
+            config.early_stopping_patience,
+            config.early_stopping_threshold,
+        );
 
         Ok(Self {
             config: config.clone(),
@@ -436,7 +438,7 @@ impl Trainer {
             accumulation_count: 0,
             accumulation_gradients: Vec::new(),
             target_accumulation_steps: config.gradient_accumulation_steps as u32,
-            model_params: Vec::new(),  // 将在第一次训练时初始化
+            model_params: Vec::new(), // 将在第一次训练时初始化
             accumulation_initialized: false,
         })
     }
@@ -587,11 +589,7 @@ impl Trainer {
         let summary = TrainingSummary {
             total_epochs: self.state.epoch,
             total_steps: self.state.global_step,
-            final_train_loss: self
-                .metrics_history
-                .last()
-                .map(|m| m.loss)
-                .unwrap_or(0.0),
+            final_train_loss: self.metrics_history.last().map(|m| m.loss).unwrap_or(0.0),
             best_val_loss: self.state.best_val_loss,
             best_epoch: self.state.epoch.saturating_sub(1),
             total_time_secs: start_time.elapsed().as_secs_f64(),
@@ -694,7 +692,11 @@ impl Trainer {
         }
 
         // 累加梯度
-        for (accumulated, new_grad) in self.accumulation_gradients.iter_mut().zip(std::iter::once(&grad_arrayd)) {
+        for (accumulated, new_grad) in self
+            .accumulation_gradients
+            .iter_mut()
+            .zip(std::iter::once(&grad_arrayd))
+        {
             *accumulated = &*accumulated + new_grad;
         }
         self.accumulation_count += 1;
@@ -705,7 +707,7 @@ impl Trainer {
             // 返回当前 loss，但 grad_norm 为 0（因为还没执行实际更新）
             return Ok(StepMetrics {
                 loss,
-                grad_norm: 0.0,  // 累积期间不计算有效梯度范数
+                grad_norm: 0.0, // 累积期间不计算有效梯度范数
                 learning_rate: self.get_current_lr(),
                 throughput_tokens_per_sec: 0.0,
                 step_time_ms: 0.0,
@@ -954,9 +956,9 @@ impl Trainer {
 
         if grad_norm > max_norm && grad_norm > 0.0 {
             let _scale = max_norm / grad_norm; // 在实际实现中应该用这个值缩放梯度
-            // 注意：这里不直接修改传入的 gradients（因为可能是不可变的）
-            // 在实际实现中，应该在调用此方法前处理缩放
-            // 这里仅返回裁剪后的范数值
+                                               // 注意：这里不直接修改传入的 gradients（因为可能是不可变的）
+                                               // 在实际实现中，应该在调用此方法前处理缩放
+                                               // 这里仅返回裁剪后的范数值
             max_norm
         } else {
             grad_norm
@@ -1180,9 +1182,9 @@ impl Trainer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use std::io::Write;
     use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
 
     fn create_test_data(dir: &TempDir) -> PathBuf {
         let path = dir.path().join("test_data.jsonl");
@@ -1220,10 +1222,7 @@ mod tests {
 
         assert!(config.learning_rate > 0.0, "学习率必须大于 0");
         assert!(config.num_train_epochs > 0, "训练轮数必须大于 0");
-        assert!(
-            config.per_device_train_batch_size > 0,
-            "批次大小必须大于 0"
-        );
+        assert!(config.per_device_train_batch_size > 0, "批次大小必须大于 0");
         assert!(config.max_grad_norm > 0.0, "最大梯度范数必须大于 0");
     }
 
@@ -1528,7 +1527,10 @@ mod tests {
         let trainer = Trainer::new(config).unwrap();
 
         // 默认配置下，gradient_accumulation_steps = 1，即不启用累积
-        assert!(!trainer.is_gradient_accumulation_enabled(), "默认配置不应启用梯度累积");
+        assert!(
+            !trainer.is_gradient_accumulation_enabled(),
+            "默认配置不应启用梯度累积"
+        );
         assert_eq!(trainer.target_accumulation_steps(), 1, "默认目标步数应为 1");
         assert_eq!(trainer.accumulation_count(), 0, "初始累积计数应为 0");
     }
@@ -1544,7 +1546,11 @@ mod tests {
         // 启用了梯度累积
         assert!(trainer.is_gradient_accumulation_enabled(), "应启用梯度累积");
         assert_eq!(trainer.target_accumulation_steps(), 4, "目标步数应为 4");
-        assert_eq!(trainer.effective_batch_size(), 32, "有效 batch size 应为 32 (8×4)");
+        assert_eq!(
+            trainer.effective_batch_size(),
+            32,
+            "有效 batch size 应为 32 (8×4)"
+        );
         assert_eq!(trainer.accumulation_count(), 0, "初始累积计数应为 0");
     }
 
@@ -1619,11 +1625,7 @@ mod tests {
         assert!(summary.total_steps > 0);
 
         // 验证训练后累积状态已重置
-        assert_eq!(
-            trainer.accumulation_count(),
-            0,
-            "训练结束后累积计数应为 0"
-        );
+        assert_eq!(trainer.accumulation_count(), 0, "训练结束后累积计数应为 0");
     }
 
     #[test]

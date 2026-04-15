@@ -102,8 +102,14 @@ impl Default for BlockFFNConfig {
 
 impl BlockFFNConfig {
     /// 创建新的配置并自动计算 num_chunks
-    pub fn new(hidden_dim: usize, ffn_dim: usize, chunk_size: usize, sparsity_target: f32, threshold: f32) -> Self {
-        let num_chunks = (ffn_dim + chunk_size - 1) / chunk_size; // 向上取整
+    pub fn new(
+        hidden_dim: usize,
+        ffn_dim: usize,
+        chunk_size: usize,
+        sparsity_target: f32,
+        threshold: f32,
+    ) -> Self {
+        let num_chunks = ffn_dim.div_ceil(chunk_size); // 向上取整
         Self {
             hidden_dim,
             ffn_dim,
@@ -317,9 +323,7 @@ impl FFNChunk {
     /// - `hidden_dim`: 输入隐藏维度
     pub fn new(id: usize, chunk_size: usize, hidden_dim: usize) -> InferenceResult<Self> {
         if chunk_size == 0 || hidden_dim == 0 {
-            return Err(InferenceError::config(
-                "Chunk dimensions must be positive",
-            ));
+            return Err(InferenceError::config("Chunk dimensions must be positive"));
         }
 
         // Xavier 初始化
@@ -482,16 +486,12 @@ impl ReLURMSNormRouter {
     /// - `hidden_dim`: 输入隐藏维度
     pub fn new(num_chunks: usize, hidden_dim: usize) -> InferenceResult<Self> {
         if num_chunks == 0 || hidden_dim == 0 {
-            return Err(InferenceError::config(
-                "Router dimensions must be positive",
-            ));
+            return Err(InferenceError::config("Router dimensions must be positive"));
         }
 
         // 初始化路由权重
         let scale = (2.0 / hidden_dim as f32).sqrt();
-        let weight = Array1::from_shape_fn(num_chunks, |_| {
-            rand_weight(-scale, scale)
-        });
+        let weight = Array1::from_shape_fn(num_chunks, |_| rand_weight(-scale, scale));
 
         Ok(Self {
             weight,
@@ -523,19 +523,17 @@ impl ReLURMSNormRouter {
             .enumerate()
             .for_each(|(i, mut row)| {
                 let norm_input = normalized.row(i);
-                row.iter_mut()
-                    .enumerate()
-                    .for_each(|(_j, val)| {
-                        // 点积：归一化输入 · 路由权重[j]
-                        // 这里简化：使用输入的均值与权重相乘
-                        let dot_product: f32 = norm_input
-                            .iter()
-                            .take(self.norm.dim().min(norm_input.len()))
-                            .zip(self.weight.iter().cycle())
-                            .map(|(x, w)| x * w)
-                            .sum();
-                        *val = dot_product / self.norm.dim() as f32;
-                    });
+                row.iter_mut().for_each(|val| {
+                    // 点积：归一化输入 · 路由权重[j]
+                    // 这里简化：使用输入的均值与权重相乘
+                    let dot_product: f32 = norm_input
+                        .iter()
+                        .take(self.norm.dim().min(norm_input.len()))
+                        .zip(self.weight.iter().cycle())
+                        .map(|(x, w)| x * w)
+                        .sum();
+                    *val = dot_product / self.norm.dim() as f32;
+                });
             });
 
         // 3. 应用 ReLU（增加稀疏性）
@@ -742,7 +740,11 @@ impl BlockFFN {
         for i in 0..config.num_chunks {
             let actual_chunk_size = if i == config.num_chunks - 1 {
                 let remainder = config.ffn_dim % config.chunk_size;
-                if remainder > 0 { remainder } else { config.chunk_size }
+                if remainder > 0 {
+                    remainder
+                } else {
+                    config.chunk_size
+                }
             } else {
                 config.chunk_size
             };
@@ -797,14 +799,12 @@ impl BlockFFN {
             .filter_map(|(i, chunk)| {
                 if active_mask[i] {
                     // 对每个样本检查该 chunk 是否应该激活
-                    let should_activate = (0..batch_size)
-                        .any(|b| chunk_scores[[b, i]] >= self.config.threshold);
+                    let should_activate =
+                        (0..batch_size).any(|b| chunk_scores[[b, i]] >= self.config.threshold);
 
                     if should_activate {
                         match chunk.forward(x) {
-                            Ok(chunk_out) => {
-                                Some((i, chunk_out))
-                            }
+                            Ok(chunk_out) => Some((i, chunk_out)),
                             Err(_) => None,
                         }
                     } else {
@@ -818,7 +818,7 @@ impl BlockFFN {
 
         // 合并输出
         for (idx, chunk_out) in &active_chunks {
-            output = output + chunk_out;
+            output += chunk_out;
             self.cls_stats.record_activation(*idx);
         }
 
@@ -1035,8 +1035,8 @@ impl BlockFFN {
         Some(SdFastPathConfig {
             enabled: true,
             fast_threshold: self.config.threshold * 1.5, // SD 可以容忍稍高的阈值
-            max_active_chunks: max_active.min(8), // 限制最大活跃数以提高速度
-            use_cache: self.config.num_chunks <= 64, // chunk 数较少时启用缓存
+            max_active_chunks: max_active.min(8),        // 限制最大活跃数以提高速度
+            use_cache: self.config.num_chunks <= 64,     // chunk 数较少时启用缓存
         })
     }
 
@@ -1137,17 +1137,15 @@ where
     c.axis_iter_mut(Axis(0))
         .enumerate()
         .for_each(|(i, mut row)| {
-            row.iter_mut()
-                .enumerate()
-                .for_each(|(j, val)| {
-                    let dot_product: f32 = a
-                        .row(i)
-                        .iter()
-                        .zip(b.row(j).iter())
-                        .map(|(a_val, b_val)| a_val * b_val)
-                        .sum();
-                    *val = dot_product;
-                });
+            row.iter_mut().enumerate().for_each(|(j, val)| {
+                let dot_product: f32 = a
+                    .row(i)
+                    .iter()
+                    .zip(b.row(j).iter())
+                    .map(|(a_val, b_val)| a_val * b_val)
+                    .sum();
+                *val = dot_product;
+            });
         });
 
     Ok(c)
@@ -1548,7 +1546,7 @@ mod tests {
         blockffn.forward(&input).unwrap();
 
         let active = blockffn.active_chunk_count();
-        assert!(active >= 0 && active <= blockffn.config().num_chunks);
+        assert!(active <= blockffn.config().num_chunks);
     }
 
     #[test]
@@ -1649,7 +1647,10 @@ mod tests {
 
         assert!(!result.details.is_empty());
         // 应该包含一些 ✓ 或 ⚠ 标记
-        assert!(result.details.iter().any(|d| d.contains('✓') || d.contains('⚠')));
+        assert!(result
+            .details
+            .iter()
+            .any(|d| d.contains('✓') || d.contains('⚠')));
     }
 
     #[test]
@@ -1669,7 +1670,7 @@ mod tests {
     fn test_sd_fast_path_config_incompatible() {
         // 创建一个不太兼容的配置
         let config = BlockFFNConfig {
-            chunk_size: 16, // 太小
+            chunk_size: 16,       // 太小
             sparsity_target: 0.1, // 太低
             ..create_test_config()
         };

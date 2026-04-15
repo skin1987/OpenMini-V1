@@ -212,8 +212,7 @@ impl MultiHeadSinkhorn {
             }
 
             // 执行 Sinkhorn 归一化
-            let (normalized, iterations) =
-                sinkhorn_knopp(attn_matrix, &self.config)?;
+            let (normalized, iterations) = sinkhorn_knopp(attn_matrix, &self.config)?;
 
             total_iterations += iterations;
             results.push(normalized);
@@ -222,7 +221,8 @@ impl MultiHeadSinkhorn {
         // 更新统计信息
         let elapsed = start_time.elapsed().as_secs_f64() * 1000.0; // 转换为毫秒
         self.stats.total_calls += 1;
-        self.stats.avg_iterations = (self.stats.avg_iterations * (self.stats.total_calls - 1) as f32
+        self.stats.avg_iterations = (self.stats.avg_iterations
+            * (self.stats.total_calls - 1) as f32
             + total_iterations as f32)
             / self.stats.total_calls as f32;
         self.stats.max_iterations = self.stats.max_iterations.max(total_iterations);
@@ -324,10 +324,7 @@ fn sinkhorn_knopp(
     // 处理可能的溢出
     if !p.iter().all(|&v| v.is_finite()) {
         // 如果溢出，使用更保守的正则化
-        let max_val = input
-            .iter()
-            .cloned()
-            .fold(f32::NEG_INFINITY, f32::max);
+        let max_val = input.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         p = input.mapv(|v| ((v - max_val) / reg).exp());
     }
 
@@ -354,7 +351,8 @@ fn sinkhorn_knopp(
         }
 
         // 保存当前状态用于下次比较
-        if iteration % 5 == 4 { // 每5次迭代保存一次，减少内存开销
+        if iteration % 5 == 4 {
+            // 每5次迭代保存一次，减少内存开销
             prev_p.assign(&p);
         }
     }
@@ -477,7 +475,7 @@ pub fn mhc_attention(
     }
 
     // 计算缩放因子
-    let scale_factor = 1.0 / (scale as f32).sqrt();
+    let scale_factor = 1.0 / scale.sqrt();
 
     // Step 1: 计算原始注意力分数 Q @ K^T
     let scores = query.dot(&key.t()) * scale_factor;
@@ -795,9 +793,7 @@ mod tests {
 
         let matrices: Vec<Array2<f32>> = (0..4)
             .map(|h| {
-                Array2::from_shape_fn((3, 3), |(i, j)| {
-                    ((h * 9 + i * 3 + j) as f32 + 1.0) / 10.0
-                })
+                Array2::from_shape_fn((3, 3), |(i, j)| ((h * 9 + i * 3 + j) as f32 + 1.0) / 10.0)
             })
             .collect();
 
@@ -900,16 +896,14 @@ mod tests {
 
         // 部分掩码（不完全屏蔽任何一行）
         let partial_mask = arr2_bool(vec![
-            vec![true, true, false],  // 第一行有2个可见
-            vec![true, true, true],   // 第二行全部可见
-            vec![true, true, true],   // 第三行全部可见
+            vec![true, true, false], // 第一行有2个可见
+            vec![true, true, true],  // 第二行全部可见
+            vec![true, true, true],  // 第三行全部可见
         ]);
 
         let masks = vec![partial_mask];
         let score_vec = vec![scores];
-        let result = mhc
-            .normalize_with_mask(&score_vec, Some(&masks))
-            .unwrap();
+        let result = mhc.normalize_with_mask(&score_vec, Some(&masks)).unwrap();
 
         assert_eq!(result.len(), 1);
         let normalized = &result[0];
@@ -1025,10 +1019,7 @@ mod tests {
     #[test]
     fn test_very_small_values() {
         // 极小值输入
-        let input = arr2(vec![
-            vec![1e-10, 2e-10],
-            vec![3e-10, 4e-10],
-        ]);
+        let input = arr2(vec![vec![1e-10, 2e-10], vec![3e-10, 4e-10]]);
 
         let config = SinkhornConfig::default();
         let (result, _) = sinkhorn_knopp(&input, &config).unwrap();
@@ -1045,10 +1036,7 @@ mod tests {
     #[test]
     fn test_very_large_values() {
         // 中等偏大值输入（测试数值稳定性）
-        let input = arr2(vec![
-            vec![100.0, 200.0],
-            vec![300.0, 400.0],
-        ]);
+        let input = arr2(vec![vec![100.0, 200.0], vec![300.0, 400.0]]);
 
         let config = SinkhornConfig {
             regularization: 50.0, // 较大的正则化帮助稳定

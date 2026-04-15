@@ -6,7 +6,6 @@
 //! - Worker 状态机转换正确性
 //! - 错误恢复路径覆盖
 
-
 #[test]
 fn test_worker_config_boundary_values() {
     use openmini_server::service::worker::pool::WorkerConfig;
@@ -64,7 +63,10 @@ fn test_task_serialization_fault_tolerance() {
     assert_eq!(de_binary.data, binary_data);
 
     let too_short = &[0u8; 4];
-    assert!(Task::deserialize(too_short).is_err(), "Too short data should fail");
+    assert!(
+        Task::deserialize(too_short).is_err(),
+        "Too short data should fail"
+    );
 
     let truncated_id_only = {
         let mut v = vec![0u8; 8];
@@ -107,13 +109,16 @@ fn test_worker_state_machine_transitions() {
 
 #[test]
 fn test_worker_pool_error_handling() {
-    use openmini_server::service::worker::pool::{WorkerPoolError, WorkerPoolBuilder};
+    use openmini_server::service::worker::pool::{WorkerPoolBuilder, WorkerPoolError};
 
     eprintln!("[fault-error] Testing error handling paths...");
 
     let spawn_error = WorkerPoolError::SpawnError("fork() failed".to_string());
     let display_spawn = format!("{}", spawn_error);
-    assert!(display_spawn.contains("spawn"), "SpawnError display should contain 'spawn'");
+    assert!(
+        display_spawn.contains("spawn"),
+        "SpawnError display should contain 'spawn'"
+    );
 
     let comm_error = WorkerPoolError::CommunicationError("pipe broken".to_string());
     let display_comm = format!("{}", comm_error);
@@ -125,7 +130,10 @@ fn test_worker_pool_error_handling() {
 
     let dead_error = WorkerPoolError::WorkerDead(7);
     let display_dead = format!("{}", dead_error);
-    assert!(display_dead.contains("7"), "Dead worker ID should appear in message");
+    assert!(
+        display_dead.contains("7"),
+        "Dead worker ID should appear in message"
+    );
 
     let _: &dyn std::error::Error = &spawn_error;
     let _: &dyn std::error::Error = &comm_error;
@@ -154,7 +162,8 @@ fn test_task_result_serialization_roundtrip_with_failures() {
         data: b"OK".to_vec(),
     };
     let ser_success = success_result.serialize();
-    let de_success = TaskResult::deserialize(&ser_success).expect("Success result should roundtrip");
+    let de_success =
+        TaskResult::deserialize(&ser_success).expect("Success result should roundtrip");
     assert!(de_success.success);
     assert_eq!(de_success.task_id, 1);
     assert_eq!(de_success.data, b"OK");
@@ -165,7 +174,8 @@ fn test_task_result_serialization_roundtrip_with_failures() {
         data: b"ERROR: out of memory".to_vec(),
     };
     let ser_failure = failure_result.serialize();
-    let de_failure = TaskResult::deserialize(&ser_failure).expect("Failure result should roundtrip");
+    let de_failure =
+        TaskResult::deserialize(&ser_failure).expect("Failure result should roundtrip");
     assert!(!de_failure.success);
     assert_eq!(de_failure.task_id, 2);
     assert_eq!(de_failure.data, b"ERROR: out of memory");
@@ -180,7 +190,10 @@ fn test_task_result_serialization_roundtrip_with_failures() {
     assert!(!de_empty.success);
     assert!(de_empty.data.is_empty());
 
-    assert!(TaskResult::deserialize(&[0u8; 4]).is_err(), "Too short should fail");
+    assert!(
+        TaskResult::deserialize(&[0u8; 4]).is_err(),
+        "Too short should fail"
+    );
 
     eprintln!("[fault-result] All result roundtrip tests passed");
 }

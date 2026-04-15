@@ -105,20 +105,25 @@ pub struct AttentionStats {
 pub struct FlashAttentionKernel {
     context: CudaContext,
     config: FlashAttentionConfig,
-    kernel_loaded: bool,
+    _kernel_loaded: bool,
 }
 
 impl FlashAttentionKernel {
     /// 创建新的FA Kernel实例
-    pub fn new(context: CudaContext, config: Option<FlashAttentionConfig>) -> Result<Self, CudaError> {
+    pub fn new(
+        context: CudaContext,
+        config: Option<FlashAttentionConfig>,
+    ) -> Result<Self, CudaError> {
         let config = config.unwrap_or_default();
-        
+
         // 验证配置
         Self::validate_config(&config)?;
-        
+
         log::info!(
             "初始化FlashAttention Kernel: heads={}, dim={}, seq={}",
-            config.num_heads, config.head_dim, config.seq_len
+            config.num_heads,
+            config.head_dim,
+            config.seq_len
         );
 
         #[cfg(feature = "cuda-native")]
@@ -130,7 +135,7 @@ impl FlashAttentionKernel {
         Ok(Self {
             context,
             config,
-            kernel_loaded: false,
+            _kernel_loaded: false,
         })
     }
 
@@ -195,10 +200,12 @@ impl FlashAttentionKernel {
         mask: Option<&CudaBuffer<f32>>,
     ) -> Result<FlashAttentionOutput, CudaError> {
         let start_time = std::time::Instant::now();
-        
+
         log::debug!(
             "FlashAttention forward: Q{:?}, K{:?}, V{:?}",
-            (q.len(),), (k.len(),), (v.len(),)
+            (q.len(),),
+            (k.len(),),
+            (v.len(),)
         );
 
         // 验证输入维度
@@ -247,14 +254,10 @@ impl FlashAttentionKernel {
         v: &CudaBuffer<f32>,
     ) -> Result<(), CudaError> {
         let expected_q_size = self.config.num_heads * self.config.seq_len * self.config.head_dim;
-        
+
         if q.len() < expected_q_size {
             return Err(CudaError::InvalidParameter {
-                parameter: format!(
-                    "Q张量大小不足: 需要{}, 实际{}",
-                    expected_q_size,
-                    q.len()
-                ),
+                parameter: format!("Q张量大小不足: 需要{}, 实际{}", expected_q_size, q.len()),
             });
         }
 
@@ -285,11 +288,11 @@ impl FlashAttentionKernel {
         output: &CudaBuffer<f32>,
     ) -> Result<(), CudaError> {
         use cudarc::driver::result::launch_kernel;
-        
+
         // 设置grid/block维度
         let threads_per_block = 256;
         let blocks = (
-            (self.config.seq_len + self.config.block_sizes.br - 1) / self.config.block_sizes.br,
+            self.config.seq_len.div_ceil(self.config.block_sizes.br),
             self.config.num_heads,
             1,
         );
@@ -314,10 +317,11 @@ impl FlashAttentionKernel {
                 self.get_kernel_function("flash_forward"),
                 blocks,
                 threads_per_block,
-                0, // shared mem (auto)
+                0,                    // shared mem (auto)
                 std::ptr::null_mut(), // stream
                 &params,
-            ).map_err(|e| CudaError::KernelLaunchFailed {
+            )
+            .map_err(|e| CudaError::KernelLaunchFailed {
                 message: e.to_string(),
             })?;
         }
@@ -359,10 +363,10 @@ impl FlashAttentionKernel {
             for i in 0..sl {
                 // 计算attention scores
                 let mut scores = vec![0.0f32; sl];
-                
-                for j in 0..sl {
+
+                for (j, score) in scores.iter_mut().enumerate() {
                     if self.config.causal && j > i {
-                        scores[j] = f32::NEG_INFINITY;
+                        *score = f32::NEG_INFINITY;
                         continue;
                     }
 
@@ -372,20 +376,20 @@ impl FlashAttentionKernel {
                         let k_idx = h * sl * hd + j * hd + d;
                         dot += q_data[q_idx] * k_data[k_idx];
                     }
-                    scores[j] = dot * scale;
+                    *score = dot * scale;
                 }
 
                 // Softmax
                 let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let exp_scores: Vec<f32> = scores.iter()
-                    .map(|&s| (s - max_score).exp())
-                    .collect();
+                let exp_scores: Vec<f32> = scores.iter().map(|&s| (s - max_score).exp()).collect();
                 let sum_exp: f32 = exp_scores.iter().sum();
                 let probs: Vec<f32> = exp_scores.iter().map(|&e| e / sum_exp).collect();
 
                 // 加权求和
-                for (d, out_val) in out_data[h * sl * hd + i * hd..][..hd].iter_mut().enumerate() {
-                    let d = d;
+                for (d, out_val) in out_data[h * sl * hd + i * hd..][..hd]
+                    .iter_mut()
+                    .enumerate()
+                {
                     let mut val = 0.0f32;
                     #[allow(clippy::needless_range_loop)]
                     for j in 0..sl {
@@ -419,7 +423,7 @@ impl FlashAttentionKernel {
         let sl_f = sl as f64;
         let hd_f = hd as f64;
         let flops = (2.0 * sl_f * sl_f * hd_f + sl_f * sl_f + 2.0 * sl_f * sl_f * hd_f) * nh as f64;
-        
+
         // HBM访问估算
         let hbm_reads = q.size() + k.size() + v.size();
         let hbm_writes = nh * sl * hd * 4; // output
@@ -462,7 +466,7 @@ impl FlashAttentionKernel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     fn get_test_kernel() -> FlashAttentionKernel {
         let ctx = CudaContext::new(None).unwrap();
         FlashAttentionKernel::new(ctx, None).unwrap()
@@ -502,7 +506,7 @@ mod tests {
             },
             enable_fa3: false,
         };
-        
+
         let kernel = FlashAttentionKernel::new(ctx, Some(config)).unwrap();
         let cfg = kernel.config();
         assert_eq!(cfg.num_heads, 8);
@@ -517,7 +521,7 @@ mod tests {
             num_heads: 0,
             ..Default::default()
         };
-        
+
         let result = FlashAttentionKernel::new(ctx, Some(config));
         assert!(result.is_err());
     }
@@ -529,7 +533,7 @@ mod tests {
             head_dim: 17, // 不是8的倍数
             ..Default::default()
         };
-        
+
         let result = FlashAttentionKernel::new(ctx, Some(config));
         assert!(result.is_err());
     }
@@ -552,9 +556,9 @@ mod tests {
         let v = CudaBuffer::from_host(&v_data, device_id).unwrap();
 
         let result = kernel.forward(&q, &k, &v, None).unwrap();
-        
+
         assert_eq!(result.output.len(), q_size);
-        assert!(result.stats.execution_time_us >= 0);
+        // execution_time_us is u64, always non-negative
         assert!(result.stats.hbm_reads > 0);
     }
 
@@ -601,12 +605,12 @@ mod tests {
     #[test]
     fn test_update_config() {
         let mut kernel = get_test_kernel();
-        
+
         let new_config = FlashAttentionConfig {
             num_heads: 16,
             ..Default::default()
         };
-        
+
         kernel.update_config(new_config).unwrap();
         assert_eq!(kernel.config().num_heads, 16);
     }
@@ -637,7 +641,7 @@ mod tests {
         let v = CudaBuffer::from_host(&v_data, device_id).unwrap();
 
         let result = kernel.forward(&q, &k, &v, None).unwrap();
-        
+
         // 验证统计信息的合理性
         assert!(result.stats.hbm_reads > 0);
         assert!(result.stats.hbm_writes > 0);

@@ -332,8 +332,7 @@ pub struct DistributedRouter {
     stats: Arc<std::sync::Mutex<HashMap<WorkerId, WorkerStats>>>,
 
     /// 已分发但未完成的请求映射
-    pending_requests:
-        Arc<std::sync::Mutex<HashMap<String, (WorkerId, InferenceRequest)>>>,
+    pending_requests: Arc<std::sync::Mutex<HashMap<String, (WorkerId, InferenceRequest)>>>,
 }
 
 /// Worker内部统计数据
@@ -460,9 +459,7 @@ impl DistributedRouter {
                 info!("Request {} dispatched to {}", req_id_for_log, id);
                 Ok(id)
             }
-            None => Err(DistributedError::Router(
-                "No available worker".to_string(),
-            )),
+            None => Err(DistributedError::Router("No available worker".to_string())),
         }
     }
 
@@ -477,7 +474,10 @@ impl DistributedRouter {
     /// # 返回
     ///
     /// 推理响应（成功或失败）
-    pub fn collect_result(&self, worker_id: WorkerId) -> Result<InferenceResponse, DistributedError> {
+    pub fn collect_result(
+        &self,
+        worker_id: WorkerId,
+    ) -> Result<InferenceResponse, DistributedError> {
         debug!("Collecting result from {}", worker_id);
 
         // 从pending队列找到该worker最早的一个请求
@@ -568,12 +568,8 @@ impl DistributedRouter {
                 let queue_len = w.get_queue_length();
                 let stat = stats.get(&w.id);
 
-                let health = if load >= 95 {
+                let health = if load >= 80 {
                     WorkerHealth::Overloaded { load }
-                } else if load >= 80 {
-                    WorkerHealth::Overloaded { load }
-                } else if load > 0 && load < 80 {
-                    WorkerHealth::Healthy
                 } else {
                     WorkerHealth::Healthy
                 };
@@ -655,8 +651,7 @@ impl DistributedRouter {
         self.workers
             .iter()
             .map(|w| {
-                let score =
-                    w.get_queue_length() as f64 * 0.6 + (w.get_load() as f64 / 100.0) * 0.4;
+                let score = w.get_queue_length() as f64 * 0.6 + (w.get_load() as f64 / 100.0) * 0.4;
                 (w.id, score)
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -689,7 +684,7 @@ mod tests {
 
         // Round-robin应该交替选择
         assert_ne!(w0, w1); // 不同worker
-        assert_eq!(w0, w2);  // 第3个回到第1个
+        assert_eq!(w0, w2); // 第3个回到第1个
     }
 
     #[test]
@@ -794,7 +789,9 @@ mod tests {
         // 发送5个请求
         let mut worker_ids = Vec::new();
         for i in 0..5 {
-            let wid = router.dispatch(create_request(&format!("req_{}", i))).unwrap();
+            let wid = router
+                .dispatch(create_request(&format!("req_{}", i)))
+                .unwrap();
             worker_ids.push(wid);
         }
 

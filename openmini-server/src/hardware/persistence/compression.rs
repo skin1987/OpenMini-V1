@@ -33,8 +33,7 @@
 use std::collections::HashMap;
 
 /// 压缩算法类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CompressionAlgorithm {
     /// Zstandard 压缩 (高质量)
     #[default]
@@ -44,7 +43,6 @@ pub enum CompressionAlgorithm {
     /// 无压缩
     None,
 }
-
 
 impl std::fmt::Display for CompressionAlgorithm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -76,7 +74,7 @@ impl Default for CompressionConfig {
     fn default() -> Self {
         Self {
             algorithm: CompressionAlgorithm::Zstd,
-            level: 3, // 平衡速度和压缩率
+            level: 3,               // 平衡速度和压缩率
             min_compress_size: 256, // < 256 字节不压缩
             dictionary_training: false,
         }
@@ -220,7 +218,8 @@ impl Compressor for ZstdCompressor {
     fn decompress(&self, data: &[u8], _original_size: usize) -> Result<DecompressResult, String> {
         let start = std::time::Instant::now();
 
-        let decompressed = zstd::decode_all(data).map_err(|e| format!("Zstd decompression failed: {}", e))?;
+        let decompressed =
+            zstd::decode_all(data).map_err(|e| format!("Zstd decompression failed: {}", e))?;
 
         let elapsed = start.elapsed();
         let original_size = decompressed.len();
@@ -331,7 +330,8 @@ impl Compressor for Lz4Compressor {
         let start = std::time::Instant::now();
 
         // 使用 lz4 Decoder 进行帧级别解压
-        let mut decoder = lz4::Decoder::new(data).map_err(|e| format!("LZ4 decoder creation failed: {}", e))?;
+        let mut decoder =
+            lz4::Decoder::new(data).map_err(|e| format!("LZ4 decoder creation failed: {}", e))?;
         let mut decompressed = Vec::new();
         use std::io::Read;
         decoder
@@ -456,7 +456,8 @@ impl CompressionStats {
 
     /// 计算节省的空间 (字节)
     pub fn saved_bytes(&self) -> u64 {
-        self.total_original_bytes.saturating_sub(self.total_compressed_bytes)
+        self.total_original_bytes
+            .saturating_sub(self.total_compressed_bytes)
     }
 
     /// 计算节省的百分比
@@ -605,7 +606,11 @@ impl CompressionManager {
     /// 使用指定算法压缩数据
     ///
     /// 自动更新压缩统计信息。
-    pub fn compress_with(&self, algo: CompressionAlgorithm, data: &[u8]) -> Result<CompressResult, String> {
+    pub fn compress_with(
+        &self,
+        algo: CompressionAlgorithm,
+        data: &[u8],
+    ) -> Result<CompressResult, String> {
         let compressor = self
             .compressors
             .get(&algo)
@@ -620,10 +625,11 @@ impl CompressionManager {
             stats.total_original_bytes += result.original_size as u64;
             stats.total_compressed_bytes += result.compressed_size as u64;
             stats.total_compression_time_us += result.duration_us;
-            
+
             // 滚动平均计算压缩率
             if stats.total_compressions > 0 {
-                stats.avg_compression_ratio = (stats.avg_compression_ratio * (stats.total_compressions - 1) as f32
+                stats.avg_compression_ratio = (stats.avg_compression_ratio
+                    * (stats.total_compressions - 1) as f32
                     + result.ratio)
                     / stats.total_compressions as f32;
             } else {
@@ -754,7 +760,9 @@ mod tests {
         assert!(compressed.ratio < 1.0);
         assert_eq!(compressed.algorithm, CompressionAlgorithm::Zstd);
 
-        let decompressed = compressor.decompress(&compressed.data, compressed.original_size).unwrap();
+        let decompressed = compressor
+            .decompress(&compressed.data, compressed.original_size)
+            .unwrap();
         assert_eq!(decompressed.data, data);
     }
 
@@ -769,7 +777,9 @@ mod tests {
         assert!(compressed.ratio < 1.0);
         assert_eq!(compressed.algorithm, CompressionAlgorithm::Lz4);
 
-        let decompressed = compressor.decompress(&compressed.data, compressed.original_size).unwrap();
+        let decompressed = compressor
+            .decompress(&compressed.data, compressed.original_size)
+            .unwrap();
         assert_eq!(decompressed.data, data);
     }
 
@@ -822,7 +832,9 @@ mod tests {
 
         // 小数据应选择 None 或 Lz4
         let small_algo = manager.auto_select_algorithm(100).unwrap();
-        assert!(small_algo == CompressionAlgorithm::None || small_algo == CompressionAlgorithm::Lz4);
+        assert!(
+            small_algo == CompressionAlgorithm::None || small_algo == CompressionAlgorithm::Lz4
+        );
 
         // 大数据应选择 Zstd (如果可用)
         let _large_algo = manager.auto_select_algorithm(1024 * 1024).unwrap();
@@ -850,7 +862,11 @@ mod tests {
 
         // 解压
         let decompressed = manager
-            .decompress(&compressed.data, compressed.original_size, compressed.algorithm)
+            .decompress(
+                &compressed.data,
+                compressed.original_size,
+                compressed.algorithm,
+            )
             .unwrap();
         assert_eq!(decompressed.data, original);
 
@@ -877,7 +893,7 @@ mod tests {
             let result = manager.compress_with(CompressionAlgorithm::Zstd, b"test");
             assert!(result.is_err());
         }
-        
+
         #[cfg(feature = "compression")]
         {
             // 当 compression feature 启用时，所有算法都支持，此测试验证 None 算法正常工作
@@ -893,10 +909,10 @@ mod tests {
     #[test]
     fn test_reset_stats() {
         let manager = CompressionManager::new();
-        
+
         manager.compress(b"test").unwrap();
         assert_eq!(manager.stats().total_compressions, 1);
-        
+
         manager.reset_stats();
         assert_eq!(manager.stats().total_compressions, 0);
     }
@@ -908,7 +924,7 @@ mod tests {
 
         // 低级别 (快速但压缩率低)
         let fast = ZstdCompressor::new(1).compress(&data).unwrap();
-        
+
         // 高级别 (慢但压缩率高)
         let high_quality = ZstdCompressor::new(15).compress(&data).unwrap();
 

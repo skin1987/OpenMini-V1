@@ -1,4 +1,4 @@
-use candle_core::{Device, DType, Result as CandleResult, Tensor};
+use candle_core::{DType, Device, Result as CandleResult, Tensor};
 use ndarray::{Array1, Array2, Array3};
 
 use super::{GemmBackendType, GemmEngine};
@@ -137,8 +137,10 @@ impl GemmEngine for CandleCudaBackend {
         if let Some(b) = bias {
             let bias_data = b.as_slice().unwrap().to_vec();
             let bias_shape = vec![b.len()];
-            let bias_tensor = Tensor::from_vec(bias_data, bias_shape, &self.device)
-                .map_err(|e| InferenceError::generation(format!("Bias tensor creation failed: {}", e)))?;
+            let bias_tensor =
+                Tensor::from_vec(bias_data, bias_shape, &self.device).map_err(|e| {
+                    InferenceError::generation(format!("Bias tensor creation failed: {}", e))
+                })?;
             result = (result + bias_tensor)
                 .map_err(|e| InferenceError::generation(format!("Bias addition failed: {}", e)))?;
         }
@@ -195,19 +197,21 @@ impl GemmEngine for CandleCudaBackend {
         let sigmoid_up = one_tensor
             .div(&exp_neg_up_plus_one)
             .map_err(|e| InferenceError::generation(format!("Division failed: {}", e)))?;
-        let silu_up = up
-            .mul(&sigmoid_up)
-            .map_err(|e| InferenceError::generation(format!("SiLU multiplication failed: {}", e)))?;
+        let silu_up = up.mul(&sigmoid_up).map_err(|e| {
+            InferenceError::generation(format!("SiLU multiplication failed: {}", e))
+        })?;
 
-        let mut result = gate
-            .mul(&silu_up)
-            .map_err(|e| InferenceError::generation(format!("Final multiplication failed: {}", e)))?;
+        let mut result = gate.mul(&silu_up).map_err(|e| {
+            InferenceError::generation(format!("Final multiplication failed: {}", e))
+        })?;
 
         if let Some(b) = bias {
             let bias_data = b.as_slice().unwrap().to_vec();
             let bias_shape = vec![b.len()];
-            let bias_tensor = Tensor::from_vec(bias_data, bias_shape, &self.device)
-                .map_err(|e| InferenceError::generation(format!("Bias tensor creation failed: {}", e)))?;
+            let bias_tensor =
+                Tensor::from_vec(bias_data, bias_shape, &self.device).map_err(|e| {
+                    InferenceError::generation(format!("Bias tensor creation failed: {}", e))
+                })?;
             result = (result + bias_tensor)
                 .map_err(|e| InferenceError::generation(format!("Bias addition failed: {}", e)))?;
         }

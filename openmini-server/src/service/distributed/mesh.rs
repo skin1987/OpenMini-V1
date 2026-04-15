@@ -128,11 +128,7 @@ impl MeshNode {
     /// - [`MeshError::NotConnected`]: 目标节点未连接
     /// - [`MeshError::SendFailed`]: 发送失败（通道满或已关闭）
     /// - [`MeshError::ChannelClosed`]: 通道已关闭
-    pub async fn send_to(
-        &self,
-        peer_id: &str,
-        msg: DistributedMessage,
-    ) -> Result<(), MeshError> {
+    pub async fn send_to(&self, peer_id: &str, msg: DistributedMessage) -> Result<(), MeshError> {
         let peers = self.peers.read().await;
 
         match peers.get(peer_id) {
@@ -176,10 +172,7 @@ impl MeshNode {
                         "广播消息发送失败"
                     );
                     if last_error.is_none() {
-                        last_error = Some(MeshError::SendFailed(format!(
-                            "{}: {}",
-                            peer_id, e
-                        )));
+                        last_error = Some(MeshError::SendFailed(format!("{}: {}", peer_id, e)));
                     }
                 }
             }
@@ -300,7 +293,9 @@ mod tests {
         assert!(received.is_some());
 
         match received.unwrap() {
-            DistributedMessage::Heartbeat { node_id, timestamp, .. } => {
+            DistributedMessage::Heartbeat {
+                node_id, timestamp, ..
+            } => {
                 assert_eq!(node_id, "node-a");
                 assert_eq!(timestamp, 1234);
             }

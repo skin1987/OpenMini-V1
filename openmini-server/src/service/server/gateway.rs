@@ -356,7 +356,7 @@ impl Gateway {
                     let stats = Arc::clone(&self.stats);
                     let shutdown_flag = Arc::clone(&self.shutdown_flag);
                     let sessions = self.sessions.clone();
-                    
+
                     let connection_limiter = Arc::clone(&self.connection_limiter);
                     let buffer_pool = Arc::clone(&self.buffer_pool);
                     let inference_pool = Arc::clone(&self.inference_pool);
@@ -552,7 +552,10 @@ impl Gateway {
     }
 
     /// 分发请求到处理器
-    async fn dispatch_request(request: Request, inference_pool: &Arc<AsyncInferencePool>) -> Result<Response> {
+    async fn dispatch_request(
+        request: Request,
+        inference_pool: &Arc<AsyncInferencePool>,
+    ) -> Result<Response> {
         match request.request_type {
             RequestType::Chat => Self::handle_chat_request(request, inference_pool).await,
             RequestType::ImageUnderstanding => {
@@ -588,7 +591,11 @@ impl Gateway {
         };
 
         match inference_pool.submit(task).await {
-            Ok(result) => Ok(Response::new(session_id, Bytes::from(result.text), result.finished)),
+            Ok(result) => Ok(Response::new(
+                session_id,
+                Bytes::from(result.text),
+                result.finished,
+            )),
             Err(e) => Ok(Response::with_error(session_id, e)),
         }
     }
@@ -610,7 +617,11 @@ impl Gateway {
         };
 
         match inference_pool.submit(task).await {
-            Ok(result) => Ok(Response::new(session_id, Bytes::from(result.text), result.finished)),
+            Ok(result) => Ok(Response::new(
+                session_id,
+                Bytes::from(result.text),
+                result.finished,
+            )),
             Err(e) => Ok(Response::with_error(session_id, e)),
         }
     }
@@ -745,7 +756,9 @@ impl BufferPool {
     }
 
     fn acquire(&self) -> BytesMut {
-        self.free_list.lock().unwrap_or_else(|e| e.into_inner())
+        self.free_list
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .pop()
             .unwrap_or_else(|| BytesMut::with_capacity(self.buffer_size))
     }

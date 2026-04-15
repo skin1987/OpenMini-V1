@@ -3,16 +3,4 @@
 /**
  * 视觉编码器配置
  */
-export type VisionSettings = { 
-/**
- * 编码器类型: none | siglip
- */
-encoder: string, 
-/**
- * 图像尺寸
- */
-image_size: number, 
-/**
- * 图像token数量
- */
-num_image_tokens: number, };
+export type VisionSettings = {  };

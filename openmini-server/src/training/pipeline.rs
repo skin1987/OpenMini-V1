@@ -12,7 +12,7 @@
 //! TrainingPipeline
 //! ├── config: TrainingConfig14B      # 完整配置
 //! ├── model: MultimodalTransformer   # 14B模型 (Arc共享)
-//! ├── optimizer: Box<dyn Optimizer>  # 优化器 (trait object)
+//! ├── optimizer: Box<dyn PipelineOptimizer>  # 优化器 (trait object)
 //! ├── scheduler: LRScheduler         # 学习率调度器
 //! └── checkpoint_manager: CheckpointManager  # Checkpoint管理
 //! ```
@@ -21,12 +21,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::training::config::{
-    TrainingConfig14B, ExpansionStrategy, ConfigError,
-    Model14BConfig,
-};
-use crate::training::checkpoint::CheckpointManager;
 use crate::rl::GroupSample;
+use crate::training::checkpoint::CheckpointManager;
+use crate::training::config::{ConfigError, ExpansionStrategy, Model14BConfig, TrainingConfig14B};
 
 // ==================== 训练阶段枚举 ====================
 
@@ -73,11 +70,7 @@ pub struct TrainingBatch {
 
 impl TrainingBatch {
     /// 创建新的训练批次
-    pub fn new(
-        input_ids: Vec<u32>,
-        attention_mask: Vec<i8>,
-        labels: Option<Vec<u32>>,
-    ) -> Self {
+    pub fn new(input_ids: Vec<u32>, attention_mask: Vec<i8>, labels: Option<Vec<u32>>) -> Self {
         let num_tokens = input_ids.len();
         Self {
             input_ids,
@@ -112,7 +105,9 @@ impl TrainingBatch {
     /// 验证批次数据有效性
     pub fn validate(&self) -> Result<(), PipelineError> {
         if self.input_ids.is_empty() {
-            return Err(PipelineError::InvalidBatch("input_ids is empty".to_string()));
+            return Err(PipelineError::InvalidBatch(
+                "input_ids is empty".to_string(),
+            ));
         }
         if self.input_ids.len() != self.attention_mask.len() {
             return Err(PipelineError::InvalidBatch(format!(
@@ -160,11 +155,7 @@ impl TrainingMetrics {
     pub fn format(&self) -> String {
         format!(
             "Step {} | Loss: {:.4} | LR: {:.2e} | Grad Norm: {:.4} | {:.0} tok/s",
-            self.global_step,
-            self.loss,
-            self.learning_rate,
-            self.grad_norm,
-            self.tokens_per_second
+            self.global_step, self.loss, self.learning_rate, self.grad_norm, self.tokens_per_second
         )
     }
 }
@@ -189,10 +180,7 @@ impl EvalMetrics {
     pub fn format(&self) -> String {
         format!(
             "Eval Loss: {:.4} | PPL: {:.2} | Samples: {} | Time: {:.1}s",
-            self.val_loss,
-            self.perplexity,
-            self.eval_samples,
-            self.eval_time_secs
+            self.val_loss, self.perplexity, self.eval_samples, self.eval_time_secs
         )
     }
 }
@@ -259,7 +247,10 @@ impl LRScheduler {
         match self.scheduler_type.as_str() {
             "cosine" => {
                 // Cosine annealing
-                min_lr + 0.5 * (self.peak_lr - min_lr) * (1.0 + (std::f64::consts::PI * progress).cos())
+                min_lr
+                    + 0.5
+                        * (self.peak_lr - min_lr)
+                        * (1.0 + (std::f64::consts::PI * progress).cos())
             }
             "linear" => {
                 // Linear decay
@@ -295,10 +286,11 @@ impl LRScheduler {
 
 // ==================== 优化器 Trait ====================
 
-/// 优化器 trait
+/// Pipeline 内部优化器 trait（轻量级，使用原始切片）
 ///
-/// 定义优化器的统一接口，支持 AdamW、SGD 等不同优化算法。
-pub trait Optimizer: Send + Sync {
+/// 与 `optimizer::Optimizer` 的区别：本 trait 使用 `&mut [f32]` 原始切片，
+/// 适用于 pipeline 内部的简单优化场景。完整版优化器请使用 `crate::training::optimizer::Optimizer`。
+pub trait PipelineOptimizer: Send + Sync {
     /// 执行一步参数更新
     fn step(&mut self, params: &mut [f32], gradients: &[f32]) -> Result<f64, PipelineError>;
     /// 清零梯度
@@ -326,12 +318,7 @@ pub struct AdamWOptimizer {
 
 impl AdamWOptimizer {
     /// 创建新的 AdamW 优化器
-    pub fn new(
-        learning_rate: f64,
-        betas: (f64, f64),
-        epsilon: f64,
-        weight_decay: f64,
-    ) -> Self {
+    pub fn new(learning_rate: f64, betas: (f64, f64), epsilon: f64, weight_decay: f64) -> Self {
         Self {
             learning_rate,
             beta1: betas.0,
@@ -345,7 +332,7 @@ impl AdamWOptimizer {
     }
 }
 
-impl Optimizer for AdamWOptimizer {
+impl PipelineOptimizer for AdamWOptimizer {
     fn step(&mut self, params: &mut [f32], gradients: &[f32]) -> Result<f64, PipelineError> {
         if params.is_empty() || gradients.is_empty() {
             return Ok(0.0);
@@ -377,10 +364,11 @@ impl Optimizer for AdamWOptimizer {
 
             // AdamW 更新（权重衰减独立于梯度）
             params[i] -= ((self.learning_rate * (m_hat / (v_hat.sqrt() + self.epsilon)))
-                + self.learning_rate * self.weight_decay * params[i] as f64) as f32;
+                + self.learning_rate * self.weight_decay * params[i] as f64)
+                as f32;
         }
 
-        Ok(grad_norm_sq.sqrt() as f64)
+        Ok(grad_norm_sq.sqrt())
     }
 
     fn zero_grad(&mut self) {
@@ -452,7 +440,10 @@ impl MultimodalTransformer {
         base_params: &[f32],
         strategy: ExpansionStrategy,
     ) -> Result<Self, PipelineError> {
-        println!("[Model] Expanding from 7B to 14B using strategy: {:?}", strategy);
+        println!(
+            "[Model] Expanding from 7B to 14B using strategy: {:?}",
+            strategy
+        );
 
         let target_params = target_config.estimate_parameters();
         let base_param_count = base_params.len();
@@ -465,7 +456,8 @@ impl MultimodalTransformer {
                 let mut rng = rand::thread_rng();
                 let additional = (target_params as usize).saturating_sub(base_param_count);
 
-                for _ in 0..additional.min(500) { // 限制大小
+                for _ in 0..additional.min(500) {
+                    // 限制大小
                     new_params.push(rng.gen_range(-0.02..0.02)); // 小范围初始化
                 }
                 new_params
@@ -474,13 +466,15 @@ impl MultimodalTransformer {
                 // 按比例复制并缩放
                 let scale_factor =
                     (target_config.hidden_size as f64 / base_config.hidden_size as f64).sqrt();
-                base_params.iter()
+                base_params
+                    .iter()
                     .map(|p| (*p as f64 * scale_factor) as f32)
                     .collect()
             }
             ExpansionStrategy::Interpolation => {
                 // 插值初始化（简化版）
-                base_params.iter()
+                base_params
+                    .iter()
                     .flat_map(|p| vec![*p, *p]) // 双倍复制后可插值
                     .collect()
             }
@@ -544,11 +538,15 @@ pub enum PipelineError {
 }
 
 impl From<ConfigError> for PipelineError {
-    fn from(err: ConfigError) -> Self { Self::Config(err) }
+    fn from(err: ConfigError) -> Self {
+        Self::Config(err)
+    }
 }
 
 impl From<std::io::Error> for PipelineError {
-    fn from(err: std::io::Error) -> Self { Self::Io(err) }
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
 }
 
 impl std::fmt::Display for PipelineError {
@@ -598,7 +596,7 @@ pub struct TrainingPipeline {
     /// 14B 模型（Arc 共享）
     model: Arc<MultimodalTransformer>,
     /// 优化器
-    optimizer: Box<dyn Optimizer>,
+    optimizer: Box<dyn PipelineOptimizer>,
     /// 学习率调度器
     scheduler: LRScheduler,
     /// Checkpoint 管理器
@@ -618,7 +616,7 @@ pub struct TrainingPipeline {
     /// 开始时间
     start_time: Instant,
     /// GRPO 优化器（可选）
-    grpo_optimizer: Option<Box<dyn Optimizer>>,
+    grpo_optimizer: Option<Box<dyn PipelineOptimizer>>,
 }
 
 impl TrainingPipeline {
@@ -633,10 +631,10 @@ impl TrainingPipeline {
         let model = Arc::new(MultimodalTransformer::new(config.model.clone()));
 
         // 创建优化器
-        let optimizer: Box<dyn Optimizer> = Box::new(AdamWOptimizer::new(
+        let optimizer: Box<dyn PipelineOptimizer> = Box::new(AdamWOptimizer::new(
             config.training.learning_rate,
-            (0.9, 0.999),  // beta1, beta2
-            1e-8,           // epsilon
+            (0.9, 0.999), // beta1, beta2
+            1e-8,         // epsilon
             config.training.weight_decay,
         ));
 
@@ -654,7 +652,10 @@ impl TrainingPipeline {
             config.checkpoint.output_dir.clone(),
             crate::training::checkpoint::SaveStrategy::Steps(config.training.save_steps as u64),
             config.checkpoint.save_total_limit,
-        ).map_err(|e| PipelineError::Checkpoint(format!("Failed to create checkpoint manager: {}", e)))?;
+        )
+        .map_err(|e| {
+            PipelineError::Checkpoint(format!("Failed to create checkpoint manager: {}", e))
+        })?;
 
         Ok(Self {
             config,
@@ -683,11 +684,14 @@ impl TrainingPipeline {
         let config = TrainingConfig14B::default();
 
         // 加载 7B checkpoint（模拟）
-        println!("[Pipeline] Loading base checkpoint from: {:?}", checkpoint_path);
+        println!(
+            "[Pipeline] Loading base checkpoint from: {:?}",
+            checkpoint_path
+        );
 
         // 模拟加载 7B 参数
         let base_config_7b = Model14BConfig {
-            hidden_size: 4096,       // 7B: 4096
+            hidden_size: 4096, // 7B: 4096
             intermediate_size: 11008,
             num_hidden_layers: 32,
             num_attention_heads: 32,
@@ -711,7 +715,7 @@ impl TrainingPipeline {
         );
 
         // 创建优化器
-        let optimizer: Box<dyn Optimizer> = Box::new(AdamWOptimizer::new(
+        let optimizer: Box<dyn PipelineOptimizer> = Box::new(AdamWOptimizer::new(
             config.training.learning_rate,
             (0.9, 0.999),
             1e-8,
@@ -732,7 +736,8 @@ impl TrainingPipeline {
             config.checkpoint.output_dir.clone(),
             crate::training::checkpoint::SaveStrategy::Steps(config.training.save_steps as u64),
             config.checkpoint.save_total_limit,
-        ).map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
+        )
+        .map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
 
         Ok(Self {
             config,
@@ -759,12 +764,13 @@ impl TrainingPipeline {
         match phase {
             TrainingPhase::SFT => {
                 // SFT 阶段：降低学习率
-                self.optimizer.set_learning_rate(self.config.sft.learning_rate);
+                self.optimizer
+                    .set_learning_rate(self.config.sft.learning_rate);
                 self.scheduler = LRScheduler::new(
                     "cosine",
                     self.config.sft.learning_rate,
                     0.1,
-                    100, // SFT warmup 较短
+                    100,                                     // SFT warmup 较短
                     (self.config.sft.epochs * 10000) as u64, // 估算总步数
                 );
             }
@@ -772,12 +778,18 @@ impl TrainingPipeline {
                 // GRPO 阶段：初始化 GRPO 优化器
                 let grpo_config = self.config.grpo.to_grpo_config();
                 let grpo_lr = grpo_config.learning_rate;
-                self.grpo_optimizer = Some(Box::new(AdamWOptimizer::new(grpo_config.learning_rate, (0.9, 0.999), 1e-8, 0.01)));
+                self.grpo_optimizer = Some(Box::new(AdamWOptimizer::new(
+                    grpo_config.learning_rate,
+                    (0.9, 0.999),
+                    1e-8,
+                    0.01,
+                )));
                 self.optimizer.set_learning_rate(grpo_lr);
             }
             TrainingPhase::Pretrain => {
                 // 回到预训练配置
-                self.optimizer.set_learning_rate(self.config.training.learning_rate);
+                self.optimizer
+                    .set_learning_rate(self.config.training.learning_rate);
                 self.scheduler = LRScheduler::new(
                     &self.config.training.lr_scheduler_type,
                     self.config.training.learning_rate,
@@ -861,15 +873,17 @@ impl TrainingPipeline {
     ) -> Result<TrainingMetrics, PipelineError> {
         if self.current_phase != TrainingPhase::GRPO {
             return Err(PipelineError::InvalidPhase(
-                "GRPO training requires GRPO phase".to_string()
+                "GRPO training requires GRPO phase".to_string(),
             ));
         }
 
-        let _grpo_opt = self.grpo_optimizer.as_ref()
-            .ok_or_else(|| PipelineError::NotInitialized)?;
+        let _grpo_opt = self
+            .grpo_optimizer
+            .as_ref()
+            .ok_or(PipelineError::NotInitialized)?;
 
         let grpo_config = self.config.grpo.to_grpo_config();
-        
+
         let metrics = TrainingMetrics {
             loss: 0.5,
             learning_rate: grpo_config.learning_rate as f32,
@@ -905,7 +919,10 @@ impl TrainingPipeline {
 
     /// 保存 Checkpoint
     pub fn save_checkpoint(&self, path: &Path) -> Result<(), PipelineError> {
-        println!("[Pipeline] Saving checkpoint at step {} to {:?}", self.global_step, path);
+        println!(
+            "[Pipeline] Saving checkpoint at step {} to {:?}",
+            self.global_step, path
+        );
 
         let state_data = crate::training::checkpoint::CheckpointData {
             epoch: self.epoch,
@@ -916,8 +933,7 @@ impl TrainingPipeline {
 
         // 如果提供了具体路径，使用临时管理器保存
         if path != Path::new("") {
-            std::fs::create_dir_all(path)
-                .map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
+            std::fs::create_dir_all(path).map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
 
             let json = serde_json::to_string_pretty(&state_data)
                 .map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
@@ -936,14 +952,16 @@ impl TrainingPipeline {
 
         let state_file = path.join("training_state.json");
         if !state_file.exists() {
-            return Err(PipelineError::Checkpoint(format!("Checkpoint not found: {:?}", path)));
+            return Err(PipelineError::Checkpoint(format!(
+                "Checkpoint not found: {:?}",
+                path
+            )));
         }
 
-        let content = std::fs::read_to_string(&state_file)
-            .map_err(|e| PipelineError::Io(e))?;
+        let content = std::fs::read_to_string(&state_file).map_err(PipelineError::Io)?;
 
-        let state_data: crate::training::checkpoint::CheckpointData = serde_json::from_str(&content)
-            .map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
+        let state_data: crate::training::checkpoint::CheckpointData =
+            serde_json::from_str(&content).map_err(|e| PipelineError::Checkpoint(e.to_string()))?;
 
         self.epoch = state_data.epoch;
         self.global_step = state_data.global_step;
@@ -965,11 +983,11 @@ impl TrainingPipeline {
         // 实际实现中这里会调用模型的完整前向传播
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        
+
         // 损失随训练逐渐下降（添加噪声）
         let base_loss = 3.0 * (-(self.global_step as i64) as f64 / 100000.0).exp() as f32;
         let noise: f32 = rng.gen_range(-0.05..0.05);
-        
+
         Ok((base_loss + noise).max(0.1))
     }
 
@@ -1005,9 +1023,10 @@ impl TrainingPipeline {
         };
 
         // 更新参数
-        let model = Arc::get_mut(&mut self.model)
-            .ok_or_else(|| PipelineError::ModelForward("Failed to get mutable model reference".to_string()))?;
-        
+        let model = Arc::get_mut(&mut self.model).ok_or(PipelineError::ModelForward(
+            "Failed to get mutable model reference".to_string(),
+        ))?;
+
         let params = model.parameters_mut();
         let actual_grad_norm = self.optimizer.step(params, &clipped_gradients)?;
 
@@ -1075,6 +1094,11 @@ impl EvalDataset {
     /// 获取样本数量
     pub fn len(&self) -> usize {
         self.samples
+    }
+
+    /// 检查数据集是否为空
+    pub fn is_empty(&self) -> bool {
+        self.samples == 0
     }
 }
 

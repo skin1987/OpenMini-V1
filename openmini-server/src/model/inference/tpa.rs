@@ -171,10 +171,7 @@ impl LinearLayer {
             (rand::random::<f32>() * 2.0 - 1.0) * scale
         });
 
-        Ok(Self {
-            weight,
-            bias: None,
-        })
+        Ok(Self { weight, bias: None })
     }
 
     /// 前向传播: y = xW^T + b
@@ -184,15 +181,11 @@ impl LinearLayer {
 
         if let Some(ref bias) = self.bias {
             let mut result = output.clone();
-            result
-                .axis_iter_mut(Axis(0))
-                .for_each(|mut row| {
-                    row.iter_mut()
-                        .zip(bias.iter())
-                        .for_each(|(val, &b)| {
-                            *val += b;
-                        });
+            result.axis_iter_mut(Axis(0)).for_each(|mut row| {
+                row.iter_mut().zip(bias.iter()).for_each(|(val, &b)| {
+                    *val += b;
                 });
+            });
             Ok(result)
         } else {
             Ok(output)
@@ -537,9 +530,7 @@ impl TensorProductAttention {
                 let attn_output = matmul(&attn_weights, &v_head)?; // [seq_len, head_dim]
 
                 // 存储到输出
-                output
-                    .slice_mut(s![b, .., start..end])
-                    .assign(&attn_output);
+                output.slice_mut(s![b, .., start..end]).assign(&attn_output);
             }
         }
 
@@ -940,9 +931,7 @@ mod tests {
 
     #[test]
     fn test_tpa_config_validate_mismatch_dims() {
-        let config = TPAConfig::new()
-            .with_hidden_dim(100)
-            .with_heads(4, 32); // 4*32=128 != 100
+        let config = TPAConfig::new().with_hidden_dim(100).with_heads(4, 32); // 4*32=128 != 100
         assert!(config.validate().is_err());
     }
 
@@ -1054,7 +1043,10 @@ mod tests {
 
         let info = tpa.complexity_analysis(16384, 64);
         // 长序列应该有更显著的减少比例
-        assert!(info.reduction_ratio > 0.5, "Expected >50% reduction for long sequences");
+        assert!(
+            info.reduction_ratio > 0.5,
+            "Expected >50% reduction for long sequences"
+        );
     }
 
     #[test]
@@ -1092,18 +1084,18 @@ mod tests {
     #[test]
     fn test_softmax_stability() {
         // 测试 softmax 的数值稳定性
-        let scores = Array2::from_shape_vec(
-            (2, 3),
-            vec![1000.0, 1001.0, 1002.0, 1.0, 2.0, 3.0],
-        )
-        .unwrap();
+        let scores =
+            Array2::from_shape_vec((2, 3), vec![1000.0, 1001.0, 1002.0, 1.0, 2.0, 3.0]).unwrap();
         let probs = softmax_2d(&scores);
 
         // 检查概率和为 1
         for row in 0..2 {
             let _sum: f32 = scores.slice(s![row, ..]).iter().sum(); // 原始分数和（用于验证）
             let prob_sum: f32 = probs.slice(s![row, ..]).iter().sum();
-            assert!((prob_sum - 1.0).abs() < 1e-5, "Probabilities should sum to 1");
+            assert!(
+                (prob_sum - 1.0).abs() < 1e-5,
+                "Probabilities should sum to 1"
+            );
         }
 
         // 检查概率都是正数
@@ -1115,11 +1107,9 @@ mod tests {
 
     #[test]
     fn test_causal_mask() {
-        let scores = Array2::from_shape_vec(
-            (3, 3),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
-        )
-        .unwrap();
+        let scores =
+            Array2::from_shape_vec((3, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+                .unwrap();
 
         let masked = apply_causal_mask(&scores, 3).unwrap();
 
@@ -1144,14 +1134,15 @@ mod tests {
 
         let c = matmul(&a, &b).unwrap();
         assert_eq!(c.dim(), (2, 2));
-        assert!((c[[0, 0]] - 58.0).abs() < 1e-5);   // 1*7 + 2*9 + 3*11
-        assert!((c[[0, 1]] - 64.0).abs() < 1e-5);   // 1*8 + 2*10 + 3*12
+        assert!((c[[0, 0]] - 58.0).abs() < 1e-5); // 1*7 + 2*9 + 3*11
+        assert!((c[[0, 1]] - 64.0).abs() < 1e-5); // 1*8 + 2*10 + 3*12
     }
 
     #[test]
     fn test_matmul_dimension_mismatch() {
         let a = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
-        let b = Array2::from_shape_vec((4, 2), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
+        let b =
+            Array2::from_shape_vec((4, 2), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
 
         let result = matmul(&a, &b);
         assert!(result.is_err());
@@ -1191,7 +1182,9 @@ mod tests {
         println!("  Standard FLOPS: {}", info.standard_flops);
         println!("  TPA FLOPS: {}", info.tpa_flops);
         println!("  Reduction ratio: {:.2}%", info.reduction_ratio * 100.0);
-        println!("  Memory saving: {:.2}%",
-                 (1.0 - info.memory_tpa as f32 / info.memory_standard as f32) * 100.0);
+        println!(
+            "  Memory saving: {:.2}%",
+            (1.0 - info.memory_tpa as f32 / info.memory_standard as f32) * 100.0
+        );
     }
 }

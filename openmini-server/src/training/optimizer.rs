@@ -42,7 +42,11 @@ pub struct ParamState {
 /// 优化器 trait
 pub trait Optimizer {
     /// 执行一步参数更新
-    fn step(&mut self, params: &mut [ParamState], gradients: &[ArrayD<f32>]) -> Result<f64, OptimizerError>;
+    fn step(
+        &mut self,
+        params: &mut [ParamState],
+        gradients: &[ArrayD<f32>],
+    ) -> Result<f64, OptimizerError>;
 
     /// 清零所有梯度
     fn zero_grad(&self, params: &mut [ParamState]);
@@ -121,7 +125,11 @@ impl AdamW {
 }
 
 impl Optimizer for AdamW {
-    fn step(&mut self, params: &mut [ParamState], gradients: &[ArrayD<f32>]) -> Result<f64, OptimizerError> {
+    fn step(
+        &mut self,
+        params: &mut [ParamState],
+        gradients: &[ArrayD<f32>],
+    ) -> Result<f64, OptimizerError> {
         if params.len() != gradients.len() {
             return Err(OptimizerError::GradientMismatch {
                 expected: params.len(),
@@ -144,8 +152,8 @@ impl Optimizer for AdamW {
             self.exp_avg[i] = &self.exp_avg[i] * self.betas.0 + &g_f64 * (1.0 - self.betas.0);
 
             // 更新二阶矩 v_t = β₂ * v_{t-1} + (1 - β₂) * g²
-            self.exp_avg_sq[i] = &self.exp_avg_sq[i] * self.betas.1
-                + &g_f64.mapv(|x| x * x) * (1.0 - self.betas.1);
+            self.exp_avg_sq[i] =
+                &self.exp_avg_sq[i] * self.betas.1 + &g_f64.mapv(|x| x * x) * (1.0 - self.betas.1);
 
             // Bias correction
             let bias_correction1 = 1.0 - self.betas.0.powi(self.steps as i32);
@@ -216,8 +224,20 @@ impl Optimizer for AdamW {
                 .as_ref()
                 .ok_or(OptimizerError::BufferNotInitialized)?;
 
-            self.exp_avg.push(ArrayD::from_shape_vec(ndarray::IxDyn(&[avg.len()]), avg.iter().map(|&x| x as f64).collect()).expect("Invalid shape for exp_avg"));
-            self.exp_avg_sq.push(ArrayD::from_shape_vec(ndarray::IxDyn(&[avg_sq.len()]), avg_sq.iter().map(|&x| x as f64).collect()).expect("Invalid shape for exp_avg_sq"));
+            self.exp_avg.push(
+                ArrayD::from_shape_vec(
+                    ndarray::IxDyn(&[avg.len()]),
+                    avg.iter().map(|&x| x as f64).collect(),
+                )
+                .expect("Invalid shape for exp_avg"),
+            );
+            self.exp_avg_sq.push(
+                ArrayD::from_shape_vec(
+                    ndarray::IxDyn(&[avg_sq.len()]),
+                    avg_sq.iter().map(|&x| x as f64).collect(),
+                )
+                .expect("Invalid shape for exp_avg_sq"),
+            );
         }
 
         Ok(())
@@ -282,7 +302,11 @@ impl SGD {
 }
 
 impl Optimizer for SGD {
-    fn step(&mut self, params: &mut [ParamState], gradients: &[ArrayD<f32>]) -> Result<f64, OptimizerError> {
+    fn step(
+        &mut self,
+        params: &mut [ParamState],
+        gradients: &[ArrayD<f32>],
+    ) -> Result<f64, OptimizerError> {
         if params.len() != gradients.len() {
             return Err(OptimizerError::GradientMismatch {
                 expected: params.len(),
@@ -368,10 +392,13 @@ impl Optimizer for SGD {
 
         for ps in &state.param_states {
             if let Some(mom_buf) = &ps.momentum_buf {
-                self.buf.push(ArrayD::from_shape_vec(
-                    ndarray::IxDyn(&[mom_buf.len()]),
-                    mom_buf.iter().map(|&x| x as f64).collect(),
-                ).expect("Invalid shape for momentum buffer"));
+                self.buf.push(
+                    ArrayD::from_shape_vec(
+                        ndarray::IxDyn(&[mom_buf.len()]),
+                        mom_buf.iter().map(|&x| x as f64).collect(),
+                    )
+                    .expect("Invalid shape for momentum buffer"),
+                );
             } else {
                 return Err(OptimizerError::BufferNotInitialized);
             }
@@ -449,9 +476,12 @@ impl LrScheduler for CosineWithWarmupScheduler {
         if step < self.warmup_steps {
             self.target_lr * (step as f64 / self.warmup_steps.max(1) as f64)
         } else {
-            let progress =
-                (step - self.warmup_steps) as f64 / (self.total_steps - self.warmup_steps).max(1) as f64;
-            self.min_lr + 0.5 * (self.target_lr - self.min_lr) * (1.0 + (std::f64::consts::PI * progress).cos())
+            let progress = (step - self.warmup_steps) as f64
+                / (self.total_steps - self.warmup_steps).max(1) as f64;
+            self.min_lr
+                + 0.5
+                    * (self.target_lr - self.min_lr)
+                    * (1.0 + (std::f64::consts::PI * progress).cos())
         }
     }
 
@@ -496,7 +526,8 @@ impl LrScheduler for LinearWithWarmupScheduler {
         } else if step >= self.total_steps {
             self.min_lr
         } else {
-            let progress = (step - self.warmup_steps) as f64 / (self.total_steps - self.warmup_steps) as f64;
+            let progress =
+                (step - self.warmup_steps) as f64 / (self.total_steps - self.warmup_steps) as f64;
             self.target_lr - (self.target_lr - self.min_lr) * progress
         }
     }
@@ -620,10 +651,7 @@ mod tests {
         // 有动量时，第二步的变化幅度应该更大
         let change1 = (1.0 - step1_value).abs();
         let change2 = (step1_value - step2_value).abs();
-        assert!(
-            change2 > change1,
-            "动量应该使后续步子的变化幅度增大"
-        );
+        assert!(change2 > change1, "动量应该使后续步子的变化幅度增大");
     }
 
     #[test]
@@ -640,15 +668,15 @@ mod tests {
             lr_mid_warmup > lr_start && lr_mid_warmup < lr_end_warmup,
             "warmup 中间阶段应线性增长"
         );
-        assert!((lr_end_warmup - 1e-3).abs() < 1e-10, "warmup 结束时应达到目标学习率");
+        assert!(
+            (lr_end_warmup - 1e-3).abs() < 1e-10,
+            "warmup 结束时应达到目标学习率"
+        );
 
         // 验证 cosine decay 形状
         let lr_early_decay = scheduler.get_lr(200);
         let lr_late_decay = scheduler.get_lr(900);
-        assert!(
-            lr_early_decay > lr_late_decay,
-            "decay 阶段学习率应逐渐减小"
-        );
+        assert!(lr_early_decay > lr_late_decay, "decay 阶段学习率应逐渐减小");
 
         // 验证最终收敛到 min_lr
         let lr_final = scheduler.get_lr(1000);
@@ -666,7 +694,10 @@ mod tests {
         // 验证线性衰减
         let lr_mid = scheduler.get_lr(550); // (100+1000)/2
         let expected_mid = (1e-3 + 1e-6) / 2.0;
-        assert!((lr_mid - expected_mid).abs() < 1e-6, "中间点应在目标值和最小值的平均位置");
+        assert!(
+            (lr_mid - expected_mid).abs() < 1e-6,
+            "中间点应在目标值和最小值的平均位置"
+        );
 
         // 验证终点
         let lr_end = scheduler.get_lr(1000);
@@ -679,7 +710,10 @@ mod tests {
 
         for step in 0..100 {
             let lr = scheduler.get_lr(step);
-            assert!((lr - 1e-3).abs() < 1e-10, "Constant 调度器应始终返回相同学习率");
+            assert!(
+                (lr - 1e-3).abs() < 1e-10,
+                "Constant 调度器应始终返回相同学习率"
+            );
         }
 
         let mut mutable_scheduler = ConstantScheduler::new(1e-3);

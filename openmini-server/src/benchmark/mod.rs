@@ -35,9 +35,9 @@ pub mod ci {
     pub mod regression;
 }
 
+pub use ci::regression::*;
 pub use config::*;
 pub use export::*;
 pub use metrics::*;
 pub use runner::*;
 pub use scenarios::*;
-pub use ci::regression::*;

@@ -164,20 +164,12 @@ impl NgramVerifier {
     ///
     /// # 返回值
     /// 每个草稿token的置信度分数数组（0.0-1.0）
-    pub fn verify_with_ngram(
-        &self,
-        context: &[u32],
-        draft_tokens: &[u32],
-    ) -> Array1<f32> {
+    pub fn verify_with_ngram(&self, context: &[u32], draft_tokens: &[u32]) -> Array1<f32> {
         let mut confidences = Array1::<f32>::zeros(draft_tokens.len());
 
         for (i, &token) in draft_tokens.iter().enumerate() {
             // 构建当前n-gram的上下文窗口
-            let start_pos = if i >= self.n - 1 {
-                i - (self.n - 1)
-            } else {
-                0
-            };
+            let start_pos = i.saturating_sub(self.n - 1);
 
             // 从context和已验证的draft_tokens中提取上下文
             let mut ngram_context: Vec<u32> = Vec::with_capacity(self.n - 1);
@@ -210,11 +202,7 @@ impl NgramVerifier {
     /// 计算条件概率 P(token | context)
     ///
     /// 使用带Laplace平滑的最大似然估计
-    fn calculate_conditional_probability(
-        &self,
-        full_ngram: &[u32],
-        context: &[u32],
-    ) -> f32 {
+    fn calculate_conditional_probability(&self, full_ngram: &[u32], context: &[u32]) -> f32 {
         // 查询完整n-gram的出现次数
         let numerator = *self.ngram_counts.get(full_ngram).unwrap_or(&0) as f32;
 
@@ -351,12 +339,12 @@ impl TreeAttentionCache {
             self.evict_lru_entry();
         }
 
-        let entry_size = (key_cache.len() + value_cache.len()) * std::mem::size_of::<f32>() as usize;
+        let entry_size = (key_cache.len() + value_cache.len()) * std::mem::size_of::<f32>();
 
         // 如果已存在，先移除旧条目的内存占用
         if let Some(old_entry) = self.cache_entries.get(&path_id) {
-            let old_size =
-                (old_entry.key_cache.len() + old_entry.value_cache.len()) * std::mem::size_of::<f32>() as usize;
+            let old_size = (old_entry.key_cache.len() + old_entry.value_cache.len())
+                * std::mem::size_of::<f32>();
             self.memory_usage_bytes = self.memory_usage_bytes.saturating_sub(old_size as u64);
         } else {
             self.current_size += 1;
@@ -408,10 +396,7 @@ impl TreeAttentionCache {
     ///
     /// # 参数
     /// - `paths`: 待加载的路径列表 (path_id, key_cache, value_cache, depth)
-    pub fn batch_preload(
-        &mut self,
-        paths: Vec<(u64, Array1<f32>, Array1<f32>, usize)>,
-    ) {
+    pub fn batch_preload(&mut self, paths: Vec<(u64, Array1<f32>, Array1<f32>, usize)>) {
         for (path_id, key_cache, value_cache, depth) in paths {
             self.store(path_id, key_cache, value_cache, depth);
         }
@@ -421,7 +406,7 @@ impl TreeAttentionCache {
     pub fn invalidate(&mut self, path_id: u64) -> bool {
         if let Some(entry) = self.cache_entries.remove(&path_id) {
             let size =
-                (entry.key_cache.len() + entry.value_cache.len()) * std::mem::size_of::<f32>() as usize;
+                (entry.key_cache.len() + entry.value_cache.len()) * std::mem::size_of::<f32>();
             self.memory_usage_bytes = self.memory_usage_bytes.saturating_sub(size as u64);
             self.current_size -= 1;
             true
@@ -542,9 +527,9 @@ impl EnhancedSpeculativeState {
     pub fn with_defaults() -> Self {
         Self::new(
             SpeculativeDecodingV2Config::default(),
-            3,      // trigram
-            0.01,   // 低阈值
-            50,     // 缓存容量
+            3,    // trigram
+            0.01, // 低阈值
+            50,   // 缓存容量
         )
     }
 
@@ -584,7 +569,8 @@ impl EnhancedSpeculativeState {
             for (i, &conf) in ngram_confidences.iter().enumerate() {
                 if conf < self.ngram_confidence_threshold && i < standard_result.accept_length {
                     // 降低接受长度
-                    ngram_adjusted_result.accept_length = ngram_adjusted_result.accept_length.min(i);
+                    ngram_adjusted_result.accept_length =
+                        ngram_adjusted_result.accept_length.min(i);
                     ngram_adjusted_result.fully_accepted = false;
                     // 截断接受的tokens
                     ngram_adjusted_result.accepted_tokens.truncate(i);
@@ -607,7 +593,7 @@ impl EnhancedSpeculativeState {
             ngram_confidences: ngram_confidences.clone(), // 克隆以避免移动后借用
             cache_hit,
             used_ngram_verification: self.enable_ngram_verification
-                && ngram_confidences.len() > 0,
+                && !ngram_confidences.is_empty(),
             used_tree_cache: self.enable_tree_cache,
         })
     }
@@ -621,7 +607,8 @@ impl EnhancedSpeculativeState {
         depth: usize,
     ) {
         if self.enable_tree_cache {
-            self.tree_cache.store(path_id, key_cache, value_cache, depth);
+            self.tree_cache
+                .store(path_id, key_cache, value_cache, depth);
         }
     }
 
@@ -728,7 +715,7 @@ impl SpeculativeDecodingV2 {
 
         let mut all_candidates = Vec::with_capacity(draft_length);
 
-        for (_step, probs) in draft_probs.iter().enumerate() {
+        for probs in draft_probs.iter() {
             let _vocab_size = probs.len();
 
             // 选择top-k候选
@@ -1674,9 +1661,18 @@ mod tests {
             let tokens: Vec<u32> = (0..20).collect();
             verifier.train(&tokens);
 
-            let expected_ngrams = if tokens.len() >= n { tokens.len() - n + 1 } else { 0 };
-            assert_eq!(verifier.ngram_table_size(), expected_ngrams,
-                "Failed for n={}: expected {} ngrams", n, expected_ngrams);
+            let expected_ngrams = if tokens.len() >= n {
+                tokens.len() - n + 1
+            } else {
+                0
+            };
+            assert_eq!(
+                verifier.ngram_table_size(),
+                expected_ngrams,
+                "Failed for n={}: expected {} ngrams",
+                n,
+                expected_ngrams
+            );
         }
     }
 
@@ -1951,9 +1947,7 @@ mod tests {
 
         // 训练N-gram模型
         let training_data: Vec<u32> = vec![
-            100, 200, 300, 400, 500,
-            100, 200, 300, 400, 500,
-            100, 200, 300, 400, 500,
+            100, 200, 300, 400, 500, 100, 200, 300, 400, 500, 100, 200, 300, 400, 500,
         ];
         state.train_ngram_model(&training_data);
 
@@ -1999,7 +1993,7 @@ mod tests {
         // N-gram验证在非完全接受时使用，或者即使完全接受也可能使用（取决于实现）
         // 树形缓存总是被查询（如果启用）
         assert!(enhanced_result.used_tree_cache);
-        assert!(enhanced_result.standard_result.accept_length >= 0);
+        // accept_length is unsigned, always non-negative
     }
 
     #[test]

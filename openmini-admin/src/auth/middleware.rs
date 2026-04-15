@@ -1,14 +1,17 @@
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 use std::sync::Arc;
 
+use super::jwt::verify_token;
 use crate::error::AppError;
-use super::jwt::{create_token, verify_token};
 
-pub fn create_auth_middleware(jwt_secret: String) -> impl Clone + Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, AppError>> + Send>> {
+pub fn create_auth_middleware(
+    jwt_secret: String,
+) -> impl Clone
+       + Fn(
+    Request,
+    Next,
+)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, AppError>> + Send>> {
     let secret = Arc::new(jwt_secret);
     move |mut req: Request, next: Next| {
         let secret = secret.clone();
@@ -19,8 +22,8 @@ pub fn create_auth_middleware(jwt_secret: String) -> impl Clone + Fn(Request, Ne
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
 
-            let token = if auth_header.starts_with("Bearer ") {
-                &auth_header[7..]
+            let token = if let Some(stripped) = auth_header.strip_prefix("Bearer ") {
+                stripped
             } else {
                 return Err(AppError::Unauthorized);
             };
@@ -41,9 +44,10 @@ pub fn create_auth_middleware(jwt_secret: String) -> impl Clone + Fn(Request, Ne
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::jwt::create_token;
     use axum::{
         body::Body,
-        http::{StatusCode, Request as HttpRequest},
+        http::{Request as HttpRequest, StatusCode},
         routing::get,
         Router,
     };
@@ -53,7 +57,9 @@ mod tests {
     fn create_test_app(secret: &str) -> Router {
         Router::new()
             .route("/protected", get(|| async { "protected data" }))
-            .layer(axum::middleware::from_fn(create_auth_middleware(secret.to_string())))
+            .layer(axum::middleware::from_fn(create_auth_middleware(
+                secret.to_string(),
+            )))
     }
 
     #[tokio::test]
@@ -100,8 +106,8 @@ mod tests {
         let app = create_test_app(secret);
 
         // 手动创建一个已过期的 token（通过设置过去的过期时间）
-        use jsonwebtoken::{encode, Header, EncodingKey};
         use chrono::{Duration, Utc};
+        use jsonwebtoken::{encode, EncodingKey, Header};
         use serde::Serialize;
 
         #[derive(Debug, Serialize, Clone)]
@@ -125,7 +131,8 @@ mod tests {
             &Header::default(),
             &expired_claims,
             &EncodingKey::from_secret(secret.as_bytes()),
-        ).unwrap();
+        )
+        .unwrap();
 
         let request = HttpRequest::builder()
             .uri("/protected")
@@ -162,7 +169,7 @@ mod tests {
         // 使用错误的认证方案（不是 Bearer）
         let request = HttpRequest::builder()
             .uri("/protected")
-            .header("authorization", "Basic dXNlcjpwYXNz")  // Basic Auth 而不是 Bearer
+            .header("authorization", "Basic dXNlcjpwYXNz") // Basic Auth 而不是 Bearer
             .body(Body::empty())
             .unwrap();
 
@@ -212,17 +219,22 @@ mod tests {
     async fn test_claims_inserted_into_extensions() {
         use crate::auth::jwt::Claims;
         let secret = "test_secret_123";
-        
+
         // 创建一个可以检查 claims 的路由
         let app = Router::new()
-            .route("/check-claims", get(|req: Request| async move {
-                // 尝试从 extensions 中获取 claims
-                match req.extensions().get::<Claims>() {
-                    Some(claims) => format!("user_id: {}, role: {}", claims.sub, claims.role),
-                    None => "no claims found".to_string()
-                }
-            }))
-            .layer(axum::middleware::from_fn(create_auth_middleware(secret.to_string())));
+            .route(
+                "/check-claims",
+                get(|req: Request| async move {
+                    // 尝试从 extensions 中获取 claims
+                    match req.extensions().get::<Claims>() {
+                        Some(claims) => format!("user_id: {}, role: {}", claims.sub, claims.role),
+                        None => "no claims found".to_string(),
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn(create_auth_middleware(
+                secret.to_string(),
+            )));
 
         let token = create_token(&42i64, "admin_user", "admin", secret, 1).unwrap();
 
@@ -233,14 +245,16 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
-        
+
         assert_eq!(response.status(), StatusCode::OK);
-        
+
         // 读取响应体
         use axum::body;
-        let body = body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let body_str = String::from_utf8(body.to_vec()).unwrap();
-        
+
         assert!(body_str.contains("user_id: 42"), "Should contain user ID");
         assert!(body_str.contains("role: admin"), "Should contain role");
     }

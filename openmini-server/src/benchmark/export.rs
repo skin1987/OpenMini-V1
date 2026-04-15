@@ -127,7 +127,9 @@ impl Exporter for PrometheusExporter {
             ));
         }
 
-        output.push_str("\n# HELP openmini_benchmark_tpot_ms Time per output token in milliseconds\n");
+        output.push_str(
+            "\n# HELP openmini_benchmark_tpot_ms Time per output token in milliseconds\n",
+        );
         output.push_str("# TYPE openmini_benchmark_tpot_ms gauge\n");
 
         for result in &results.results {
@@ -138,7 +140,9 @@ impl Exporter for PrometheusExporter {
             ));
         }
 
-        output.push_str("\n# HELP openmini_benchmark_throughput_tokens_s Tokens per second throughput\n");
+        output.push_str(
+            "\n# HELP openmini_benchmark_throughput_tokens_s Tokens per second throughput\n",
+        );
         output.push_str("# TYPE openmini_benchmark_throughput_tokens_s gauge\n");
 
         for result in &results.results {
@@ -193,11 +197,26 @@ impl Exporter for HumanExporter {
         output.push_str("║              OpenMini Benchmark Results                   ║\n");
         output.push_str("╠══════════════════════════════════════════════════════════╣\n");
         output.push_str(&format!("║ Benchmark ID: {:^44} ║\n", results.benchmark_id));
-        output.push_str(&format!("║ Timestamp:    {:^44} ║\n", results.timestamp.format("%Y-%m-%d %H:%M:%S UTC")));
-        output.push_str(&format!("║ Model:        {:^44} ║\n", results.config.model_name));
-        output.push_str(&format!("║ Quantization: {:^44} ║\n", results.config.quantization));
-        output.push_str(&format!("║ Device:       {:^44} ║\n", results.config.device));
-        output.push_str(&format!("║ Duration:     {:^43.2}s ║\n", results.total_duration_ms / 1000.0));
+        output.push_str(&format!(
+            "║ Timestamp:    {:^44} ║\n",
+            results.timestamp.format("%Y-%m-%d %H:%M:%S UTC")
+        ));
+        output.push_str(&format!(
+            "║ Model:        {:^44} ║\n",
+            results.config.model_name
+        ));
+        output.push_str(&format!(
+            "║ Quantization: {:^44} ║\n",
+            results.config.quantization
+        ));
+        output.push_str(&format!(
+            "║ Device:       {:^44} ║\n",
+            results.config.device
+        ));
+        output.push_str(&format!(
+            "║ Duration:     {:^43.2}s ║\n",
+            results.total_duration_ms / 1000.0
+        ));
         output.push_str("╚══════════════════════════════════════════════════════════╝\n\n");
 
         output.push_str("┌──────────────────┬────────┬─────────┬──────────┬──────────┬─────────────┬──────────┐\n");
@@ -220,7 +239,11 @@ impl Exporter for HumanExporter {
         output.push_str("└──────────────────┴────────┴─────────┴──────────┴──────────┴─────────────┴──────────┘\n");
 
         let success_count = results.results.iter().filter(|r| r.success).count();
-        output.push_str(&format!("\n✓ Successful: {}/{}\n", success_count, results.results.len()));
+        output.push_str(&format!(
+            "\n✓ Successful: {}/{}\n",
+            success_count,
+            results.results.len()
+        ));
 
         match path {
             Some(p) => {

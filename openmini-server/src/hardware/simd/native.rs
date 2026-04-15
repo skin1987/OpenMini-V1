@@ -9,6 +9,8 @@
 //! 龙芯 LSX/LASX 后端当前使用标量实现，因为 Rust 对 loongarch64 的
 //! `std::arch` SIMD 支持尚不完善。待 Rust 官方支持后可替换为真正的 SIMD 实现。
 
+#![allow(clippy::needless_range_loop)]
+
 use super::SimdOps;
 
 // ============================================================================
@@ -869,7 +871,8 @@ impl SimdOps for PhytiumOps {
                         let vsilu = vdivq_f32(vsum, vdenom);
                         vst1q_f32(output_row.as_mut_ptr().add(j), vsilu);
                     } else {
-                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate()
+                        {
                             let jj = j + jj;
                             let mut sum = 0.0f32;
                             #[allow(clippy::needless_range_loop)]
@@ -1263,8 +1266,8 @@ impl SimdOps for HygonOps {
             sum = temp[0] + temp[1] + temp[2] + temp[3];
         }
 
-        for i in (len - remainder)..len {
-            sum += a[i];
+        for &item in &a[(len - remainder)..] {
+            sum += item;
         }
 
         sum
@@ -1300,8 +1303,8 @@ impl SimdOps for HygonOps {
             max_val = arr[0].max(arr[1]).max(arr[2]).max(arr[3]);
         }
 
-        for i in (len - remainder)..len {
-            max_val = max_val.max(a[i]);
+        for &item in &a[(len - remainder)..] {
+            max_val = max_val.max(item);
         }
 
         max_val
@@ -1337,8 +1340,8 @@ impl SimdOps for HygonOps {
             min_val = arr[0].min(arr[1]).min(arr[2]).min(arr[3]);
         }
 
-        for i in (len - remainder)..len {
-            min_val = min_val.min(a[i]);
+        for &item in &a[(len - remainder)..] {
+            min_val = min_val.min(item);
         }
 
         min_val
@@ -1475,8 +1478,8 @@ impl SimdOps for HygonOps {
                         let mut vsum = _mm256_loadu_ps(bias.as_ptr().add(j));
 
                         #[allow(clippy::needless_range_loop)]
-                        for p in 0..k {
-                            let vinput = _mm256_set1_ps(input_row[p]);
+                        for (p, &input_val) in input_row.iter().enumerate().take(k) {
+                            let vinput = _mm256_set1_ps(input_val);
                             let vweight = _mm256_loadu_ps(weight.as_ptr().add(p * n + j));
                             let vprod = _mm256_mul_ps(vinput, vweight);
                             vsum = _mm256_add_ps(vsum, vprod);
@@ -1485,7 +1488,8 @@ impl SimdOps for HygonOps {
                         let vrelu = _mm256_max_ps(vsum, vzero);
                         _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vrelu);
                     } else {
-                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate()
+                        {
                             let jj = j + jj;
                             let mut sum = bias[jj];
                             #[allow(clippy::needless_range_loop)]
@@ -1598,7 +1602,8 @@ impl SimdOps for HygonOps {
                         let vresult = _mm256_add_ps(vsum, vresidual);
                         _mm256_storeu_ps(output_row.as_mut_ptr().add(j), vresult);
                     } else {
-                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate() {
+                        for (jj, output_val) in output_row[j..j + remaining].iter_mut().enumerate()
+                        {
                             let jj = j + jj;
                             let mut sum = 0.0f32;
                             #[allow(clippy::needless_range_loop)]
@@ -1651,8 +1656,8 @@ impl SimdOps for HygonOps {
                     if remaining == 8 {
                         let mut vscore = _mm256_setzero_ps();
 
-                        for p in 0..k {
-                            let vquery = _mm256_set1_ps(query_row[p]);
+                        for (p, &query_val) in query_row.iter().enumerate().take(k) {
+                            let vquery = _mm256_set1_ps(query_val);
                             let vkey = _mm256_loadu_ps(key.as_ptr().add(p * n + j));
                             let vprod = _mm256_mul_ps(vquery, vkey);
                             vscore = _mm256_add_ps(vscore, vprod);

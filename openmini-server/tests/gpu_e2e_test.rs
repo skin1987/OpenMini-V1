@@ -22,7 +22,10 @@ mod metal_tests {
                 // 注意：device_info() 方法尚未实现，此处仅验证创建成功
             }
             Err(e) => {
-                eprintln!("[metal-e2e] Metal backend creation failed (may be CI): {}", e);
+                eprintln!(
+                    "[metal-e2e] Metal backend creation failed (may be CI): {}",
+                    e
+                );
                 if !is_ci_environment() {
                     panic!("Metal backend should be available on macOS");
                 }
@@ -45,7 +48,9 @@ mod metal_tests {
         };
 
         // 注意：matmul() 方法尚未实现，此处仅验证 backend 创建成功
-        eprintln!("[metal-matmul] Metal backend created (matmul test skipped - method not implemented)");
+        eprintln!(
+            "[metal-matmul] Metal backend created (matmul test skipped - method not implemented)"
+        );
     }
 }
 
@@ -88,6 +93,5 @@ mod fallback_tests {
 }
 
 fn is_ci_environment() -> bool {
-    std::env::var("CI").is_ok()
-        || std::env::var("GITHUB_ACTIONS").is_ok()
+    std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok()
 }

@@ -44,12 +44,12 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use ndarray::{Array1, Array2};
 use anyhow::Result;
+use ndarray::{Array1, Array2};
 
 use super::error::{InferenceError, InferenceResult};
 use super::sampler::{GenerateParams, Sampler};
-use super::tokenizer::{Tokenizer, EOS_TOKEN_ID, BOS_TOKEN_ID};
+use super::tokenizer::{Tokenizer, BOS_TOKEN_ID, EOS_TOKEN_ID};
 
 // ============================================================================
 // 管线配置
@@ -225,7 +225,9 @@ impl PipelineStats {
 
         // tokens_per_second 应该 > 0（如果有生成的 token）
         if self.generated_tokens > 0 && self.tokens_per_second <= 0.0 {
-            return Err("tokens_per_second should be > 0 when there are generated tokens".to_string());
+            return Err(
+                "tokens_per_second should be > 0 when there are generated tokens".to_string(),
+            );
         }
 
         Ok(())
@@ -495,31 +497,59 @@ impl SyntheticModel {
                 SyntheticLayerWeights {
                     q_proj: Array2::from_shape_fn(
                         (config.hidden_size, config.hidden_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.01 + j as f32 * 0.02).sin() * layer_scale * 0.5),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.01 + j as f32 * 0.02).sin()
+                                * layer_scale
+                                * 0.5
+                        },
                     ),
                     k_proj: Array2::from_shape_fn(
                         (config.hidden_size, config.hidden_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.02 + j as f32 * 0.01).cos() * layer_scale * 0.5),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.02 + j as f32 * 0.01).cos()
+                                * layer_scale
+                                * 0.5
+                        },
                     ),
                     v_proj: Array2::from_shape_fn(
                         (config.hidden_size, config.hidden_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.015 + j as f32 * 0.015).sin() * layer_scale * 0.5),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.015 + j as f32 * 0.015).sin()
+                                * layer_scale
+                                * 0.5
+                        },
                     ),
                     o_proj: Array2::from_shape_fn(
                         (config.hidden_size, config.hidden_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.025 + j as f32 * 0.005).cos() * layer_scale * 0.5),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.025 + j as f32 * 0.005).cos()
+                                * layer_scale
+                                * 0.5
+                        },
                     ),
                     gate_proj: Array2::from_shape_fn(
                         (config.hidden_size, intermediate_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.01 + j as f32 * 0.03).sin() * layer_scale * 0.3),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.01 + j as f32 * 0.03).sin()
+                                * layer_scale
+                                * 0.3
+                        },
                     ),
                     up_proj: Array2::from_shape_fn(
                         (config.hidden_size, intermediate_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.03 + j as f32 * 0.01).cos() * layer_scale * 0.3),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.03 + j as f32 * 0.01).cos()
+                                * layer_scale
+                                * 0.3
+                        },
                     ),
                     down_proj: Array2::from_shape_fn(
                         (intermediate_size, config.hidden_size),
-                        |(i, j)| ((layer_idx as f32 + i as f32 * 0.02 + j as f32 * 0.02).sin() * layer_scale * 0.3),
+                        |(i, j)| {
+                            (layer_idx as f32 + i as f32 * 0.02 + j as f32 * 0.02).sin()
+                                * layer_scale
+                                * 0.3
+                        },
                     ),
                 }
             })
@@ -606,9 +636,11 @@ impl SyntheticModel {
         for pos in 0..seq_len {
             // 计算注意力分数
             let mut scores = Array1::zeros(seq_len);
-            for ctx_pos in 0..=pos { // 因果掩码
+            for ctx_pos in 0..=pos {
+                // 因果掩码
                 let mut dot_product = 0.0_f32;
-                for d in 0..hidden_size.min(64) { // 限制计算维度以提高速度
+                for d in 0..hidden_size.min(64) {
+                    // 限制计算维度以提高速度
                     dot_product += q[[pos, d]] * k[[ctx_pos, d]];
                 }
                 scores[ctx_pos] = dot_product / scale;
@@ -783,7 +815,8 @@ impl PipelineExecutor {
         let tokenizer = Tokenizer::new();
 
         // 检查是否使用合成模型模式
-        let synthetic_mode = !config.model_path.exists() || config.model_path.as_os_str().is_empty();
+        let synthetic_mode =
+            !config.model_path.exists() || config.model_path.as_os_str().is_empty();
 
         let synthetic_model = if synthetic_mode {
             // 使用默认配置创建合成模型
@@ -806,7 +839,10 @@ impl PipelineExecutor {
     /// 创建使用合成模式的管线执行器
     ///
     /// 专门用于测试的场景，确保无需真实模型文件即可运行。
-    pub fn new_synthetic(config: PipelineConfig, model_config: SyntheticModelConfig) -> InferenceResult<Self> {
+    pub fn new_synthetic(
+        config: PipelineConfig,
+        model_config: SyntheticModelConfig,
+    ) -> InferenceResult<Self> {
         let mut exec_config = config;
         exec_config.model_path = PathBuf::from(""); // 清空路径以强制使用合成模型
 
@@ -852,7 +888,9 @@ impl PipelineExecutor {
 
         // 步骤 1: 编码 prompt
         let prompt_start = Instant::now();
-        let mut prompt_tokens = self.tokenizer.encode(prompt)
+        let mut prompt_tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         // 添加 BOS token
@@ -876,12 +914,15 @@ impl PipelineExecutor {
         let mut finish_reason = FinishReason::Length;
 
         // 获取模型引用
-        let model = self.synthetic_model.as_ref()
+        let model = self
+            .synthetic_model
+            .as_ref()
             .ok_or_else(|| InferenceError::generation("No model loaded"))?;
 
         for _step in 0..self.config.max_new_tokens {
             // 前向传播
-            let logits = model.forward(&all_tokens)
+            let logits = model
+                .forward(&all_tokens)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
 
             // 获取最后一个位置的 logits
@@ -889,7 +930,9 @@ impl PipelineExecutor {
             let last_logits: Array1<f32> = logits.row(last_pos).into_owned();
 
             // 采样
-            let next_token_id = self.sampler.sample(&last_logits, &generated_tokens)
+            let next_token_id = self
+                .sampler
+                .sample(&last_logits, &generated_tokens)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
 
             // 检查 EOS
@@ -912,7 +955,9 @@ impl PipelineExecutor {
         let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
 
         // 步骤 5: 解码
-        let text = self.tokenizer.decode(&generated_tokens)
+        let text = self
+            .tokenizer
+            .decode(&generated_tokens)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         // 构建统计信息
@@ -969,7 +1014,9 @@ impl PipelineExecutor {
 
         // 编码 prompt
         let prompt_start = Instant::now();
-        let mut prompt_tokens = self.tokenizer.encode(prompt)
+        let mut prompt_tokens = self
+            .tokenizer
+            .encode(prompt)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         if !prompt_tokens.is_empty() {
@@ -981,7 +1028,8 @@ impl PipelineExecutor {
         callback(PipelineEvent::PromptProcessed {
             token_count: prompt_tokens.len(),
             processing_time_ms: prompt_processing_time_ms,
-        }).map_err(|e| InferenceError::generation(e.to_string()))?;
+        })
+        .map_err(|e| InferenceError::generation(e.to_string()))?;
 
         // 长度检查
         if prompt_tokens.len() > self.config.max_context_length {
@@ -991,7 +1039,9 @@ impl PipelineExecutor {
         self.status = PipelineStatus::Generating;
 
         // 获取模型
-        let model = self.synthetic_model.as_ref()
+        let model = self
+            .synthetic_model
+            .as_ref()
             .ok_or_else(|| InferenceError::generation("No model loaded"))?;
 
         let gen_start = Instant::now();
@@ -1001,14 +1051,17 @@ impl PipelineExecutor {
 
         for _step in 0..self.config.max_new_tokens {
             // 前向传播
-            let logits = model.forward(&all_tokens)
+            let logits = model
+                .forward(&all_tokens)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
 
             let last_pos = all_tokens.len() - 1;
             let last_logits: Array1<f32> = logits.row(last_pos).into_owned();
 
             // 采样
-            let next_token_id = self.sampler.sample(&last_logits, &generated_tokens)
+            let next_token_id = self
+                .sampler
+                .sample(&last_logits, &generated_tokens)
                 .map_err(|e| InferenceError::generation(e.to_string()))?;
 
             // 计算概率（近似值）
@@ -1022,7 +1075,9 @@ impl PipelineExecutor {
             }
 
             // 尝试解码单个 token
-            let token_text = self.tokenizer.decode(&[next_token_id as u32])
+            let token_text = self
+                .tokenizer
+                .decode(&[next_token_id as u32])
                 .unwrap_or_else(|_| format!("<token:{}>", next_token_id));
 
             // 发送 TokenGenerated 事件
@@ -1030,7 +1085,8 @@ impl PipelineExecutor {
                 token: token_text,
                 token_id: next_token_id as u32,
                 probability,
-            }).map_err(|e| InferenceError::generation(format!("Stream interrupted: {}", e)))?;
+            })
+            .map_err(|e| InferenceError::generation(format!("Stream interrupted: {}", e)))?;
 
             generated_tokens.push(next_token_id as u32);
             all_tokens.push(next_token_id as u32);
@@ -1044,7 +1100,9 @@ impl PipelineExecutor {
         let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
 
         // 解码最终文本
-        let text = self.tokenizer.decode(&generated_tokens)
+        let text = self
+            .tokenizer
+            .decode(&generated_tokens)
             .map_err(|e| InferenceError::tokenization(e.to_string()))?;
 
         // 构建统计和输出
@@ -1054,7 +1112,11 @@ impl PipelineExecutor {
             total_time_ms: total_time,
             prompt_tokens: prompt_tokens.len(),
             generated_tokens: generated_tokens.len(),
-            cache_hit_rate: if self.config.use_cache && !self.kv_cache.is_empty() { 0.8 } else { 0.0 },
+            cache_hit_rate: if self.config.use_cache && !self.kv_cache.is_empty() {
+                0.8
+            } else {
+                0.0
+            },
             memory_usage_mb: self.estimate_memory_usage(),
             ..Default::default()
         };
@@ -1109,11 +1171,13 @@ impl PipelineExecutor {
             let embedding_bytes = cfg.vocab_size * cfg.hidden_size * 4;
             let lm_head_bytes = cfg.hidden_size * cfg.vocab_size * 4;
             let inter_size = cfg.intermediate_size();
-            let layer_bytes = cfg.num_layers * (
-                cfg.hidden_size * cfg.hidden_size * 4 + // Q,K,V,O
+            let layer_bytes = cfg.num_layers
+                * (
+                    cfg.hidden_size * cfg.hidden_size * 4 + // Q,K,V,O
                 cfg.hidden_size * inter_size * 4 * 2 + // gate, up
-                inter_size * cfg.hidden_size * 4 // down
-            );
+                inter_size * cfg.hidden_size * 4
+                    // down
+                );
             (embedding_bytes + lm_head_bytes + layer_bytes) as f64 / (1024.0 * 1024.0)
         } else {
             0.0
@@ -1121,7 +1185,8 @@ impl PipelineExecutor {
 
         // KV Cache 内存
         let cache_memory = if self.config.use_cache {
-            self.kv_cache.len() as f64 * self.config.max_context_length as f32 as f64 * 4.0 / (1024.0 * 1024.0)
+            self.kv_cache.len() as f64 * self.config.max_context_length as f32 as f64 * 4.0
+                / (1024.0 * 1024.0)
         } else {
             0.0
         };
@@ -1179,7 +1244,8 @@ impl ValidationResult {
     pub fn with_check(mut self, check: ValidationCheck) -> Self {
         if !check.passed {
             self.is_valid = false;
-            self.errors.push(format!("{}: {}", check.name, check.detail));
+            self.errors
+                .push(format!("{}: {}", check.name, check.detail));
         }
         self.checks.push(check);
         self
@@ -1204,7 +1270,10 @@ pub fn validate_output(output: &PipelineOutput) -> ValidationResult {
         detail: if has_content {
             "Output has appropriate content".to_string()
         } else {
-            format!("Text is empty but {} tokens were generated", output.tokens.len())
+            format!(
+                "Text is empty but {} tokens were generated",
+                output.tokens.len()
+            )
         },
     });
 
@@ -1241,9 +1310,9 @@ pub fn validate_output(output: &PipelineOutput) -> ValidationResult {
     });
 
     // 检查 5: 时间合理性
-    let time_valid = output.stats.total_time_ms >= 0.0 &&
-        output.stats.prompt_processing_time_ms >= 0.0 &&
-        output.stats.generation_time_ms >= 0.0;
+    let time_valid = output.stats.total_time_ms >= 0.0
+        && output.stats.prompt_processing_time_ms >= 0.0
+        && output.stats.generation_time_ms >= 0.0;
     result = result.with_check(ValidationCheck {
         name: "Time validity".to_string(),
         passed: time_valid,
@@ -1487,7 +1556,11 @@ mod tests {
         let model = create_synthetic_model(&config);
 
         let result = model.validate_weights();
-        assert!(result.is_ok(), "Weight validation failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Weight validation failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -1506,7 +1579,10 @@ mod tests {
                 assert!(
                     (output1[[i, j]] - output2[[i, j]]).abs() < 1e-6,
                     "Output not deterministic at [{},{}]: {} vs {}",
-                    i, j, output1[[i, j]], output2[[i, j]]
+                    i,
+                    j,
+                    output1[[i, j]],
+                    output2[[i, j]]
                 );
             }
         }
@@ -1547,7 +1623,8 @@ mod tests {
 
         // 两个独立创建的模型实例，相同输入应产生相同输出
         assert_eq!(output1.dim(), output2.dim());
-        for i in 0..output1.nrows().min(10) { // 只检查前10行以加快测试
+        for i in 0..output1.nrows().min(10) {
+            // 只检查前10行以加快测试
             for j in 0..output1.ncols().min(10) {
                 assert!(
                     (output1[[i, j]] - output2[[i, j]]).abs() < 1e-6,
@@ -1591,13 +1668,7 @@ mod tests {
         let tokenizer = Tokenizer::new();
 
         // 测试多语言文本（即使没有对应词汇也不应 panic）
-        let texts = vec![
-            "Hello",
-            "你好",
-            "こんにちは",
-            "안녕하세요",
-            "Привет",
-        ];
+        let texts = vec!["Hello", "你好", "こんにちは", "안녕하세요", "Привет"];
 
         for text in &texts {
             let result = tokenizer.encode(text);
@@ -1625,9 +1696,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_multi_turn_with_history() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
 
@@ -1663,9 +1732,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_empty_input() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
 
@@ -1673,7 +1740,8 @@ mod tests {
         let output = executor.execute("").unwrap();
 
         // 空输入可能产生空输出或极短输出
-        assert!(output.stats.prompt_tokens == 0 || output.stats.prompt_tokens == 1); // 可能有 BOS token
+        assert!(output.stats.prompt_tokens == 0 || output.stats.prompt_tokens == 1);
+        // 可能有 BOS token
     }
 
     #[test]
@@ -1693,9 +1761,7 @@ mod tests {
 
     #[test]
     fn test_stream_event_order() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
 
@@ -1708,22 +1774,32 @@ mod tests {
         assert!(result.is_ok());
 
         // 验证事件顺序
-        assert!(events.len() >= 2, "Should have at least PromptProcessed and GenerationComplete");
+        assert!(
+            events.len() >= 2,
+            "Should have at least PromptProcessed and GenerationComplete"
+        );
 
         // 第一个事件应该是 PromptProcessed
         assert!(matches!(&events[0], PipelineEvent::PromptProcessed { .. }));
 
         // 最后一个事件应该是 GenerationComplete
-        assert!(matches!(events.last(), Some(PipelineEvent::GenerationComplete { .. })));
+        assert!(matches!(
+            events.last(),
+            Some(PipelineEvent::GenerationComplete { .. })
+        ));
 
         // 中间应该有 TokenGenerated 事件
-        let token_events: Vec<_> = events.iter()
+        let token_events: Vec<_> = events
+            .iter()
             .filter_map(|e| match e {
                 PipelineEvent::TokenGenerated { .. } => Some(()),
                 _ => None,
             })
             .collect();
-        assert!(!token_events.is_empty(), "Should have at least one TokenGenerated event");
+        assert!(
+            !token_events.is_empty(),
+            "Should have at least one TokenGenerated event"
+        );
     }
 
     #[test]
@@ -1767,12 +1843,14 @@ mod tests {
 
         // 流式执行
         let mut stream_output: Option<PipelineOutput> = None;
-        executor2.execute_stream("Hello", |event| {
-            if let PipelineEvent::GenerationComplete { output } = event {
-                stream_output = Some(output);
-            }
-            Ok(())
-        }).unwrap();
+        executor2
+            .execute_stream("Hello", |event| {
+                if let PipelineEvent::GenerationComplete { output } = event {
+                    stream_output = Some(output);
+                }
+                Ok(())
+            })
+            .unwrap();
 
         // 两种方式的输出应该有相同数量的 token
         let stream_out = stream_output.expect("Should have received GenerationComplete");
@@ -1813,16 +1891,15 @@ mod tests {
 
         // total_time >= prompt_time + generation_time (允许 1ms 的误差)
         assert!(
-            output.stats.total_time_ms >= output.stats.prompt_processing_time_ms + output.stats.generation_time_ms - 1.0,
+            output.stats.total_time_ms
+                >= output.stats.prompt_processing_time_ms + output.stats.generation_time_ms - 1.0,
             "Total time should be >= sum of parts"
         );
     }
 
     #[test]
     fn test_stats_memory_usage_positive() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
         let output = executor.execute("Test").unwrap();
@@ -1843,14 +1920,15 @@ mod tests {
             .with_seed(42);
 
         let executor = PipelineExecutor::new(config).unwrap();
-        assert!(executor.is_synthetic_mode(), "Should fall back to synthetic mode");
+        assert!(
+            executor.is_synthetic_mode(),
+            "Should fall back to synthetic mode"
+        );
     }
 
     #[test]
     fn test_empty_prompt_handling() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
         let result = executor.execute("");
@@ -1876,14 +1954,15 @@ mod tests {
         assert!(result.is_ok(), "Long input should be truncated, not fail");
 
         let output = result.unwrap();
-        assert!(output.stats.prompt_tokens <= 10, "Should truncate to max context");
+        assert!(
+            output.stats.prompt_tokens <= 10,
+            "Should truncate to max context"
+        );
     }
 
     #[test]
     fn test_reset_clears_state() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
 
@@ -1905,9 +1984,7 @@ mod tests {
 
     #[test]
     fn test_benchmark_different_prompt_lengths() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let prompts = vec!["Hi", "Hello world", "This is a longer prompt for testing"];
 
@@ -1921,17 +1998,21 @@ mod tests {
 
     #[test]
     fn test_benchmark_batch_throughput() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(3)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(3).with_seed(42);
 
         let prompts = vec!["A"; 5]; // 5 个相同的简单 prompt
 
         let result = run_benchmark(&config, &prompts, 1).unwrap();
 
         // 验证基准测试结果的完整性
-        assert!(result.avg_time_ms >= result.min_time_ms, "Avg should be >= min");
-        assert!(result.avg_time_ms <= result.max_time_ms, "Avg should be <= max");
+        assert!(
+            result.avg_time_ms >= result.min_time_ms,
+            "Avg should be >= min"
+        );
+        assert!(
+            result.avg_time_ms <= result.max_time_ms,
+            "Avg should be <= max"
+        );
         assert!(result.details.len() == 1, "Should have 1 iteration detail");
     }
 
@@ -1966,9 +2047,7 @@ mod tests {
 
     #[test]
     fn test_status_transitions() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(3)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(3).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
 
@@ -2005,23 +2084,22 @@ mod tests {
 
     #[test]
     fn test_validate_output_success() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
         let output = executor.execute("Test").unwrap();
 
         let result = validate_output(&output);
         // 大部分检查应该通过（除非有特殊情况）
-        assert!(result.checks.len() >= 4, "Should have multiple validation checks");
+        assert!(
+            result.checks.len() >= 4,
+            "Should have multiple validation checks"
+        );
     }
 
     #[test]
     fn test_compare_identical_outputs() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor1 = PipelineExecutor::new(config.clone()).unwrap();
         let mut executor2 = PipelineExecutor::new(config).unwrap();
@@ -2031,8 +2109,10 @@ mod tests {
 
         let comparison = compare_pipeline_outputs(&output1, &output2);
         // 使用相同种子，相同输入应该产生相同输出
-        assert!(comparison.is_identical || comparison.mismatched_items.is_empty(),
-            "Outputs with same seed should be identical");
+        assert!(
+            comparison.is_identical || comparison.mismatched_items.is_empty(),
+            "Outputs with same seed should be identical"
+        );
     }
 
     #[test]
@@ -2055,9 +2135,18 @@ mod tests {
 
         let comparison = compare_pipeline_outputs(&output1, &output2);
 
-        assert!(!comparison.is_identical, "Different outputs should not be identical");
-        assert!(!comparison.matched_items.is_empty(), "Some items should match");
-        assert!(!comparison.mismatched_items.is_empty(), "Some items should mismatch");
+        assert!(
+            !comparison.is_identical,
+            "Different outputs should not be identical"
+        );
+        assert!(
+            !comparison.matched_items.is_empty(),
+            "Some items should match"
+        );
+        assert!(
+            !comparison.mismatched_items.is_empty(),
+            "Some items should mismatch"
+        );
     }
 
     // ==================== 10. 合成模型配置测试 ====================
@@ -2112,7 +2201,10 @@ mod tests {
         let result = executor.execute("Test");
 
         // 温度为 0 应该使用贪婪解码，不应出错
-        assert!(result.is_ok(), "Zero temperature (greedy decoding) should work");
+        assert!(
+            result.is_ok(),
+            "Zero temperature (greedy decoding) should work"
+        );
     }
 
     #[test]
@@ -2131,21 +2223,20 @@ mod tests {
 
     #[test]
     fn test_single_token_generation() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(1)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(1).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
         let output = executor.execute("Hi").unwrap();
 
-        assert!(output.stats.generated_tokens <= 1, "Should generate at most 1 token");
+        assert!(
+            output.stats.generated_tokens <= 1,
+            "Should generate at most 1 token"
+        );
     }
 
     #[test]
     fn test_pipeline_output_total_tokens() {
-        let config = PipelineConfig::new("")
-            .with_max_new_tokens(5)
-            .with_seed(42);
+        let config = PipelineConfig::new("").with_max_new_tokens(5).with_seed(42);
 
         let mut executor = PipelineExecutor::new(config).unwrap();
         let output = executor.execute("Test").unwrap();
@@ -2168,7 +2259,10 @@ mod tests {
 
         // 结束原因应该是 Eos 或 Length
         assert!(
-            matches!(output.finish_reason, FinishReason::Eos | FinishReason::Length),
+            matches!(
+                output.finish_reason,
+                FinishReason::Eos | FinishReason::Length
+            ),
             "Finish reason should be Eos or Length"
         );
     }
@@ -2223,6 +2317,9 @@ mod tests {
         };
 
         let result = stats.validate();
-        assert!(result.is_err(), "Zero TPS with generated tokens should fail");
+        assert!(
+            result.is_err(),
+            "Zero TPS with generated tokens should fail"
+        );
     }
 }

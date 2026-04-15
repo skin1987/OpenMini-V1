@@ -1,9 +1,9 @@
 //! CheckpointManager - 训练检查点管理
 
-use std::fmt;
-use std::path::{Path, PathBuf};
-use std::fs;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// 检查点操作错误类型
 #[derive(Debug)]
@@ -99,7 +99,11 @@ impl CheckpointManager {
     /// # Returns
     ///
     /// 返回新的 CheckpointManager 实例或错误
-    pub fn new(output_dir: PathBuf, strategy: SaveStrategy, limit: usize) -> Result<Self, CheckpointError> {
+    pub fn new(
+        output_dir: PathBuf,
+        strategy: SaveStrategy,
+        limit: usize,
+    ) -> Result<Self, CheckpointError> {
         fs::create_dir_all(&output_dir)?;
         Ok(Self {
             output_dir,
@@ -119,7 +123,11 @@ impl CheckpointManager {
     /// # Returns
     ///
     /// 返回保存的检查点路径或错误
-    pub fn save(&mut self, state_data: &CheckpointData, val_loss: f64) -> Result<PathBuf, CheckpointError> {
+    pub fn save(
+        &mut self,
+        state_data: &CheckpointData,
+        val_loss: f64,
+    ) -> Result<PathBuf, CheckpointError> {
         let step = state_data.global_step;
         let epoch = state_data.epoch;
 
@@ -133,7 +141,10 @@ impl CheckpointManager {
         fs::write(dir_path.join("training_state.json"), state_json)?;
 
         // 保存优化器状态为二进制
-        fs::write(dir_path.join("optimizer_state.bin"), &state_data.optimizer_state_bytes)?;
+        fs::write(
+            dir_path.join("optimizer_state.bin"),
+            &state_data.optimizer_state_bytes,
+        )?;
 
         // 元数据
         let info = CheckpointInfo {
@@ -182,8 +193,7 @@ impl CheckpointManager {
             return Err(CheckpointError::NotFound(path.to_path_buf()));
         }
 
-        let content = fs::read_to_string(&state_file)
-            .map_err(CheckpointError::Io)?;
+        let content = fs::read_to_string(&state_file).map_err(CheckpointError::Io)?;
 
         let data: CheckpointData = serde_json::from_str(&content)
             .map_err(|e| CheckpointError::Serialization(e.to_string()))?;
@@ -216,7 +226,9 @@ impl CheckpointManager {
     ///
     /// 返回最佳检查点的信息引用，如果没有则返回 None
     pub fn best_checkpoint(&self) -> Option<&CheckpointInfo> {
-        self.checkpoints.iter().min_by(|a, b| a.val_loss.partial_cmp(&b.val_loss).unwrap())
+        self.checkpoints
+            .iter()
+            .min_by(|a, b| a.val_loss.partial_cmp(&b.val_loss).unwrap())
     }
 
     /// 列出所有检查点
@@ -245,7 +257,8 @@ mod tests {
     #[test]
     fn test_save_and_load() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
 
         let data = CheckpointData {
             epoch: 1,
@@ -265,7 +278,8 @@ mod tests {
     #[test]
     fn test_cleanup_old_checkpoints() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 2).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 2).unwrap();
 
         for i in 0..4 {
             let data = CheckpointData {
@@ -283,7 +297,8 @@ mod tests {
     #[test]
     fn test_load_nonexistent_checkpoint() {
         let tmp = TempDir::new().unwrap();
-        let mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
+        let mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
 
         // 尝试加载不存在的检查点
         let result = mgr.load_latest();
@@ -297,7 +312,8 @@ mod tests {
     #[test]
     fn test_save_load_roundtrip() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
 
         let original_data = CheckpointData {
             epoch: 42,
@@ -306,20 +322,26 @@ mod tests {
             optimizer_state_bytes: vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
         };
 
-        let path = mgr.save(&original_data, original_data.best_val_loss).unwrap();
+        let path = mgr
+            .save(&original_data, original_data.best_val_loss)
+            .unwrap();
 
         // 加载并验证数据完全一致
         let loaded_data = mgr.load(&path).unwrap();
         assert_eq!(loaded_data.epoch, original_data.epoch);
         assert_eq!(loaded_data.global_step, original_data.global_step);
         assert!((loaded_data.best_val_loss - original_data.best_val_loss).abs() < 1e-9);
-        assert_eq!(loaded_data.optimizer_state_bytes, original_data.optimizer_state_bytes);
+        assert_eq!(
+            loaded_data.optimizer_state_bytes,
+            original_data.optimizer_state_bytes
+        );
     }
 
     #[test]
     fn test_best_checkpoint_selection() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 10).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 10).unwrap();
 
         // 保存多个具有不同损失的检查点
         let losses = [1.5, 0.8, 2.3, 0.5, 1.2];
@@ -342,7 +364,8 @@ mod tests {
     #[test]
     fn test_multiple_saves_increments() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 10).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 10).unwrap();
 
         for step in [100, 200, 300, 400, 500].iter() {
             let data = CheckpointData {
@@ -365,7 +388,8 @@ mod tests {
     #[test]
     fn test_checkpoint_info_metadata() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Epoch(1), 5).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Epoch(1), 5).unwrap();
 
         let data = CheckpointData {
             epoch: 5,
@@ -391,7 +415,8 @@ mod tests {
     #[test]
     fn test_empty_optimizer_state() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 5).unwrap();
 
         let data = CheckpointData {
             epoch: 0,
@@ -410,7 +435,8 @@ mod tests {
     #[test]
     fn test_large_checkpoint_data() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Best, 3).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Best, 3).unwrap();
 
         // 模拟大型模型状态（1MB 数据）
         let large_data = vec![42u8; 1024 * 1024];
@@ -431,7 +457,8 @@ mod tests {
     #[test]
     fn test_cleanup_preserves_newest() {
         let tmp = TempDir::new().unwrap();
-        let mut mgr = CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 2).unwrap();
+        let mut mgr =
+            CheckpointManager::new(tmp.path().to_path_buf(), SaveStrategy::Steps(100), 2).unwrap();
 
         // 保存3个检查点，限制为2个
         for i in 0..3u64 {
@@ -456,7 +483,11 @@ mod tests {
     #[test]
     fn test_directory_creation() {
         let tmp = TempDir::new().unwrap();
-        let subdir = tmp.path().join("nested").join("directory").join("structure");
+        let subdir = tmp
+            .path()
+            .join("nested")
+            .join("directory")
+            .join("structure");
 
         // 目录应该被自动创建
         let mgr = CheckpointManager::new(subdir.clone(), SaveStrategy::Steps(100), 5);

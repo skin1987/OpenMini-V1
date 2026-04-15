@@ -97,9 +97,7 @@ fn bench_batch_throughput(c: &mut Criterion) {
 ///
 /// 测试 KV Cache 的内存分配/释放性能
 fn bench_kv_cache_allocation(c: &mut Criterion) {
-    use openmini_server::hardware::kv_cache::{
-        block_manager::BlockManager, block::KVCacheConfig,
-    };
+    use openmini_server::hardware::kv_cache::{block::KVCacheConfig, block_manager::BlockManager};
 
     let configs = [(64, 16), (256, 32), (1024, 64)]; // (num_blocks, block_size)
 
@@ -149,30 +147,21 @@ fn bench_tensor_operations(c: &mut Criterion) {
 
     // 张量创建
     for &size in &sizes {
-        group.bench_with_input(
-            BenchmarkId::new("create", size),
-            &size,
-            |b, &s| {
-                b.iter(|| {
-                    let arr: Vec<f32> = (0..s).map(|i| i as f32).collect();
-                    black_box(arr);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("create", size), &size, |b, &s| {
+            b.iter(|| {
+                let arr: Vec<f32> = (0..s).map(|i| i as f32).collect();
+                black_box(arr);
+            });
+        });
 
         // 张量运算
-        group.bench_with_input(
-            BenchmarkId::new("elementwise_ops", size),
-            &size,
-            |b, &s| {
-                let data: Vec<f32> = (0..s).map(|i| i as f32).collect();
-                b.iter(|| {
-                    let result: Vec<f32> =
-                        data.iter().map(|&x| x.sin().cos()).collect();
-                    black_box(result);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("elementwise_ops", size), &size, |b, &s| {
+            let data: Vec<f32> = (0..s).map(|i| i as f32).collect();
+            b.iter(|| {
+                let result: Vec<f32> = data.iter().map(|&x| x.sin().cos()).collect();
+                black_box(result);
+            });
+        });
     }
     group.finish();
 }
@@ -439,7 +428,7 @@ fn bench_channel_communication(c: &mut Criterion) {
 fn bench_dsa_computation(c: &mut Criterion) {
     use ndarray::Array2;
     use openmini_server::model::inference::dsa::{
-        DSATopKConfig, sparse_attention_forward, configure_rayon_pool,
+        configure_rayon_pool, sparse_attention_forward, DSATopKConfig,
     };
 
     let _ = configure_rayon_pool();
@@ -472,16 +461,86 @@ fn bench_dsa_computation(c: &mut Criterion) {
             short_seq_threshold: 512,
         };
 
-        group.bench_with_input(BenchmarkId::new("sparse_attention", name), &config, |b, cfg| {
-            b.iter(|| {
-                let result = sparse_attention_forward(
-                    &q, &k, &v, head_dim, cfg, false,
-                )
-                .unwrap();
-                black_box(result);
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("sparse_attention", name),
+            &config,
+            |b, cfg| {
+                b.iter(|| {
+                    let result =
+                        sparse_attention_forward(&q, &k, &v, head_dim, cfg, false).unwrap();
+                    black_box(result);
+                });
+            },
+        );
     }
+    group.finish();
+}
+
+/// 量化 SIMD 操作性能基准
+///
+/// 测试不同量化格式的反量化性能：
+/// - Q4_0, Q4_1, Q8_0 量化格式
+/// - 不同数据大小：1K, 4K, 16K, 64K 元素
+/// - SIMD 加速 vs 标量实现对比
+fn bench_quant_simd_performance(c: &mut Criterion) {
+    use openmini_server::model::inference::gguf::GgufTensorType;
+    use openmini_server::model::inference::quant_simd::{dequantize_simd, safe_dequantize};
+
+    // 测试的量化类型
+    let quant_types = [
+        ("Q4_0", GgufTensorType::Q4_0),
+        ("Q4_1", GgufTensorType::Q4_1),
+        ("Q8_0", GgufTensorType::Q8_0),
+    ];
+
+    // 测试数据大小（元素数量）
+    let data_sizes = [1024, 4096, 16384, 65536];
+
+    let mut group = c.benchmark_group("quant_simd_performance");
+    if is_ci_env() {
+        group.measurement_time(Duration::from_secs(3));
+        group.sample_size(10);
+    }
+
+    // 为每个量化类型和数据大小生成测试数据
+    for &(type_name, tensor_type) in &quant_types {
+        for &size in &data_sizes {
+            // 根据量化类型计算所需的字节数
+            let bytes_per_element = tensor_type.element_size();
+            let total_bytes = size * bytes_per_element;
+
+            // 生成随机测试数据
+            let mut test_data = vec![0u8; total_bytes];
+            for i in 0..total_bytes {
+                test_data[i] = (i % 256) as u8;
+            }
+
+            // 基准测试安全反量化函数
+            group.bench_with_input(
+                BenchmarkId::new(format!("safe_dequantize_{}", type_name), size),
+                &(test_data.clone(), tensor_type, size),
+                |b, (data, t_type, n)| {
+                    b.iter(|| {
+                        let result = safe_dequantize(black_box(data), *t_type, *n);
+                        black_box(result);
+                    });
+                },
+            );
+
+            // 基准测试直接 SIMD 反量化（无安全检查）
+            group.bench_with_input(
+                BenchmarkId::new(format!("dequantize_simd_{}", type_name), size),
+                &(test_data.clone(), tensor_type, size),
+                |b, (data, t_type, n)| {
+                    b.iter(|| {
+                        let result = dequantize_simd(black_box(data), *t_type, *n);
+                        black_box(result);
+                    });
+                },
+            );
+        }
+    }
+
     group.finish();
 }
 
@@ -515,8 +574,7 @@ fn simulate_inference(seq_len: usize) -> f64 {
 
 /// 检测是否在 CI 环境运行
 fn is_ci_env() -> bool {
-    std::env::var("CI").is_ok()
-        || std::env::var("GITHUB_ACTIONS").is_ok()
+    std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok()
 }
 
 // ============================================================================
@@ -539,6 +597,8 @@ criterion_group!(
     bench_channel_communication,
     // DSA 计算
     bench_dsa_computation,
+    // 量化 SIMD 性能
+    bench_quant_simd_performance,
 );
 
 criterion_main!(benches);

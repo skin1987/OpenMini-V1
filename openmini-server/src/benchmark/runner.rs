@@ -117,17 +117,17 @@ impl ModelBenchmark {
 
                 let config = config.clone();
                 let scenario = scenario.clone();
-                
+
                 async move {
                     let mut collector = MetricsCollector::new(scenario.default_sequence_length());
                     std::thread::sleep(Duration::from_millis(10));
                     collector.record_first_token();
-                    
+
                     for _ in 0..scenario.default_max_new_tokens() {
                         std::thread::sleep(Duration::from_micros(100));
                         collector.record_token();
                     }
-                    
+
                     Some(ScenarioResult {
                         scenario: scenario.clone(),
                         batch_size: config.batch_sizes.first().copied().unwrap_or(1),
@@ -138,7 +138,8 @@ impl ModelBenchmark {
                         success: true,
                         error_message: None,
                     })
-                }.await
+                }
+                .await
             }));
         }
 
@@ -306,8 +307,11 @@ mod tests {
             }
             Err(e) => {
                 // 如果错误不是配置验证错误，也是可接受的
-                assert!(!e.to_string().contains("Config validation failed"),
-                    "Should not fail on config validation: {}", e);
+                assert!(
+                    !e.to_string().contains("Config validation failed"),
+                    "Should not fail on config validation: {}",
+                    e
+                );
             }
         }
     }
@@ -333,12 +337,19 @@ mod tests {
         match result {
             Ok(results) => {
                 // 如果成功，验证返回了正确数量的场景结果
-                assert_eq!(results.results.len(), 4, "Should have results for all 4 standard scenarios");
+                assert_eq!(
+                    results.results.len(),
+                    4,
+                    "Should have results for all 4 standard scenarios"
+                );
             }
             Err(e) => {
                 // 如果错误不是配置验证错误，也是可接受的
-                assert!(!e.to_string().contains("Config validation failed"),
-                    "Should not fail on config validation: {}", e);
+                assert!(
+                    !e.to_string().contains("Config validation failed"),
+                    "Should not fail on config validation: {}",
+                    e
+                );
             }
         }
     }

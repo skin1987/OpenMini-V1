@@ -104,7 +104,7 @@ pub enum AppError {
     /// 硬件操作错误 (错误码前缀: HW)
     ///
     /// 涵盖 GPU 内存分配、CUDA/Metal 操作、SIMD 指令支持检测等硬件层错误。
-    /// **恢复建议**: 
+    /// **恢复建议**:
     /// - GPU 内存不足：减小 batch size 或启用 KV Cache 分页
     /// - SIMD 不支持：编译时禁用 SIMD 或更新 CPU
     /// - CUDA 错误：检查驱动版本和 CUDA toolkit 兼容性
@@ -122,7 +122,7 @@ pub enum AppError {
     ///
     /// 封装标准库 `std::io::Error`，涵盖文件读写、网络通信等。
     /// **恢复建议**: 检查文件权限、磁盘空间、网络连接状态。
-    /// 
+    ///
     /// **注意**: 此变体在 TypeScript 导出时被跳过，
     /// 因为 `std::io::Error` 不支持 ts-rs 序列化。
     #[error("IO error: {0}")]
@@ -303,6 +303,7 @@ pub enum WorkerError {
 /// 3. **内存不足** - 大 batch 或长序列导致 OOM
 #[derive(Debug, Error, TS)]
 #[ts(export)]
+#[allow(clippy::enum_variant_names)]
 pub enum TrainingError {
     /// 张量操作失败 (TRN001)
     ///

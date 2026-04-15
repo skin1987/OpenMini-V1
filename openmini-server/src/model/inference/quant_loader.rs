@@ -190,13 +190,25 @@ impl QuantizedWeightLoader {
         for expert_idx in 0..num_experts {
             let expert_prefix = format!("{}.experts.{}", prefix, expert_idx);
             let gate_proj = self
-                .load_tensor_with_fallback(&format!("{}.gate_proj", expert_prefix), layer_idx, expert_idx)
+                .load_tensor_with_fallback(
+                    &format!("{}.gate_proj", expert_prefix),
+                    layer_idx,
+                    expert_idx,
+                )
                 .map(|w| w.data)?;
             let up_proj = self
-                .load_tensor_with_fallback(&format!("{}.up_proj", expert_prefix), layer_idx, expert_idx)
+                .load_tensor_with_fallback(
+                    &format!("{}.up_proj", expert_prefix),
+                    layer_idx,
+                    expert_idx,
+                )
                 .map(|w| w.data)?;
             let down_proj = self
-                .load_tensor_with_fallback(&format!("{}.down_proj", expert_prefix), layer_idx, expert_idx)
+                .load_tensor_with_fallback(
+                    &format!("{}.down_proj", expert_prefix),
+                    layer_idx,
+                    expert_idx,
+                )
                 .map(|w| w.data)?;
             experts.push(FfnWeightArrays {
                 gate_proj,
@@ -227,16 +239,28 @@ impl QuantizedWeightLoader {
         }
 
         let fallback_names = vec![
-            format!("deepseek_v3.model.layers.{}.ffn.experts.{}.gate_proj", layer_idx, expert_idx),
-            format!("deepseek_v3.model.layers.{}.ffn.experts.{}.up_proj", layer_idx, expert_idx),
-            format!("deepseek_v3.model.layers.{}.ffn.experts.{}.down_proj", layer_idx, expert_idx),
-            format!("deepseek_v3.model.layers.{}.ffn.experts.{}", layer_idx, expert_idx),
+            format!(
+                "deepseek_v3.model.layers.{}.ffn.experts.{}.gate_proj",
+                layer_idx, expert_idx
+            ),
+            format!(
+                "deepseek_v3.model.layers.{}.ffn.experts.{}.up_proj",
+                layer_idx, expert_idx
+            ),
+            format!(
+                "deepseek_v3.model.layers.{}.ffn.experts.{}.down_proj",
+                layer_idx, expert_idx
+            ),
+            format!(
+                "deepseek_v3.model.layers.{}.ffn.experts.{}",
+                layer_idx, expert_idx
+            ),
         ];
 
         for fallback_name in &fallback_names {
-            if name.contains("gate_proj") && fallback_name.contains("gate_proj") ||
-               name.contains("up_proj") && fallback_name.contains("up_proj") ||
-               name.contains("down_proj") && fallback_name.contains("down_proj")
+            if name.contains("gate_proj") && fallback_name.contains("gate_proj")
+                || name.contains("up_proj") && fallback_name.contains("up_proj")
+                || name.contains("down_proj") && fallback_name.contains("down_proj")
             {
                 if let Ok(tensor) = self.load_tensor(fallback_name) {
                     return Ok(tensor);
@@ -530,8 +554,8 @@ impl QuantizedModelLoader {
     }
 
     /// 从加载的权重推断模型配置（当元数据不完整时使用）
+    #[allow(clippy::field_reassign_with_default)]
     pub fn infer_config(&self) -> ModelConfig {
-        #[allow(clippy::field_reassign_with_default)]
         let mut config = ModelConfig::default();
 
         config.num_hidden_layers = self.num_layers();

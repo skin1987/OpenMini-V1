@@ -139,7 +139,10 @@
 //! - **清理**: 服务关闭时自动释放（无需手动注销）
 //! - **线程安全**: 所有操作都是并发安全的（内部使用 Mutex 保护）
 
-use prometheus::{Gauge, IntCounterVec, HistogramVec, GaugeVec, opts, histogram_opts, register_int_counter_vec, register_histogram_vec, register_gauge_vec};
+use prometheus::{
+    histogram_opts, opts, register_gauge_vec, register_histogram_vec, register_int_counter_vec,
+    Gauge, GaugeVec, HistogramVec, IntCounterVec,
+};
 use std::sync::OnceLock;
 
 /// Token 吞吐量计数器 (Counter)
@@ -173,7 +176,10 @@ use std::sync::OnceLock;
 pub fn inference_tokens_total() -> &'static IntCounterVec {
     static INSTANCE: OnceLock<IntCounterVec> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        let opts = opts!("openmini_inference_tokens_total", "Total number of inference tokens generated");
+        let opts = opts!(
+            "openmini_inference_tokens_total",
+            "Total number of inference tokens generated"
+        );
         register_int_counter_vec!(opts, &["model", "status"]).unwrap()
     })
 }
@@ -218,8 +224,13 @@ pub fn inference_tokens_total() -> &'static IntCounterVec {
 pub fn request_duration_seconds() -> &'static HistogramVec {
     static INSTANCE: OnceLock<HistogramVec> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        let opts = histogram_opts!("openmini_request_duration_seconds", "Inference request duration in seconds")
-            .buckets(vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]);
+        let opts = histogram_opts!(
+            "openmini_request_duration_seconds",
+            "Inference request duration in seconds"
+        )
+        .buckets(vec![
+            0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+        ]);
         register_histogram_vec!(opts, &["endpoint", "method"]).unwrap()
     })
 }
@@ -262,7 +273,10 @@ pub fn request_duration_seconds() -> &'static HistogramVec {
 pub fn kv_cache_usage_bytes() -> &'static GaugeVec {
     static INSTANCE: OnceLock<GaugeVec> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        let opts = opts!("openmini_kv_cache_usage_bytes", "Current KV Cache memory usage in bytes");
+        let opts = opts!(
+            "openmini_kv_cache_usage_bytes",
+            "Current KV Cache memory usage in bytes"
+        );
         register_gauge_vec!(opts, &["layer"]).unwrap()
     })
 }
@@ -293,7 +307,10 @@ pub fn kv_cache_usage_bytes() -> &'static GaugeVec {
 pub fn worker_queue_length() -> &'static Gauge {
     static INSTANCE: OnceLock<Gauge> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        let opts = opts!("openmini_worker_queue_length", "Number of pending requests in worker queue");
+        let opts = opts!(
+            "openmini_worker_queue_length",
+            "Number of pending requests in worker queue"
+        );
         prometheus::register_gauge!(opts).unwrap()
     })
 }
@@ -317,7 +334,10 @@ pub fn worker_queue_length() -> &'static Gauge {
 pub fn active_connections() -> &'static Gauge {
     static INSTANCE: OnceLock<Gauge> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        let opts = opts!("openmini_active_connections", "Number of active client connections");
+        let opts = opts!(
+            "openmini_active_connections",
+            "Number of active client connections"
+        );
         prometheus::register_gauge!(opts).unwrap()
     })
 }
@@ -342,7 +362,10 @@ pub fn active_connections() -> &'static Gauge {
 pub fn model_loaded() -> &'static GaugeVec {
     static INSTANCE: OnceLock<GaugeVec> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        let opts = opts!("openmini_model_loaded", "Whether the model is currently loaded (1=yes, 0=no)");
+        let opts = opts!(
+            "openmini_model_loaded",
+            "Whether the model is currently loaded (1=yes, 0=no)"
+        );
         register_gauge_vec!(opts, &["model_name"]).unwrap()
     })
 }
@@ -372,7 +395,9 @@ pub fn model_loaded() -> &'static GaugeVec {
 /// 此函数是并发安全的，可从多个线程/协程同时调用。
 pub fn record_inference_completion(model: &str, token_count: u64, success: bool) {
     let status = if success { "success" } else { "error" };
-    inference_tokens_total().with_label_values(&[model, status]).inc_by(token_count);
+    inference_tokens_total()
+        .with_label_values(&[model, status])
+        .inc_by(token_count);
 }
 
 /// 记录请求耗时
@@ -435,7 +460,9 @@ pub fn observe_request_duration(endpoint: &str, method: &str, duration: std::tim
 /// update_kv_cache_usage(1, 512 * 1024 * 1024);
 /// ```
 pub fn update_kv_cache_usage(layer: usize, bytes: u64) {
-    kv_cache_usage_bytes().with_label_values(&[&layer.to_string()]).set(bytes as f64);
+    kv_cache_usage_bytes()
+        .with_label_values(&[&layer.to_string()])
+        .set(bytes as f64);
 }
 
 /// 更新 Worker 队列深度
@@ -511,5 +538,7 @@ pub fn update_active_connections(count: i64) {
 ///   severity: critical
 /// ```
 pub fn update_model_loaded(model_name: &str, loaded: bool) {
-    model_loaded().with_label_values(&[model_name]).set(if loaded { 1.0 } else { 0.0 });
+    model_loaded()
+        .with_label_values(&[model_name])
+        .set(if loaded { 1.0 } else { 0.0 });
 }

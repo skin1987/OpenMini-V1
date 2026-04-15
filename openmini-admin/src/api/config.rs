@@ -13,9 +13,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::db::models::ConfigHistory;
 use crate::error::AppError;
 use crate::AppState;
-use crate::db::models::ConfigHistory;
 
 // ==================== 数据结构定义 ====================
 
@@ -192,13 +192,13 @@ pub struct PartialGrpcUpdate {
 pub struct HistoryPageQuery {
     pub page: Option<u64>,
     pub page_size: Option<u64>,
-    pub section: Option<String>,  // 按配置节过滤
+    pub section: Option<String>, // 按配置节过滤
 }
 
 impl HistoryPageQuery {
     pub fn normalized(&self) -> (i64, i64) {
         let page = self.page.unwrap_or(1) as i64;
-        let page_size = self.page_size.unwrap_or(20).min(100).max(1) as i64;
+        let page_size = self.page_size.unwrap_or(20).clamp(1, 100) as i64;
         (page, page_size)
     }
 }
@@ -225,9 +225,7 @@ pub struct ConfigChangeDetail {
 ///
 /// 返回所有可配置项及其当前值。
 /// 敏感信息（如密码、密钥）会被脱敏处理。
-pub async fn get_config(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_config(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     // 返回完整的默认配置结构
     // 实际实现中应从内存中的配置对象或文件读取
     let config = ServerConfig {
@@ -336,9 +334,7 @@ pub async fn update_config(
 ///
 /// 不需要重启服务即可重新加载配置文件中的参数。
 /// 仅对支持热重载的配置项生效。
-pub async fn reload_config(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn reload_config(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     tracing::info!("开始重载配置文件");
 
     // 实际实现中：
@@ -395,7 +391,18 @@ pub async fn get_history(
         where_clause
     );
 
-    let mut query = sqlx::query_as::<_, (i64, Option<i64>, String, Option<String>, Option<String>, Option<String>, String)>(&query_str);
+    let mut query = sqlx::query_as::<
+        _,
+        (
+            i64,
+            Option<i64>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+        ),
+    >(&query_str);
     for value in &bind_values {
         query = query.bind(value);
     }
@@ -404,15 +411,18 @@ pub async fn get_history(
     let rows = query.fetch_all(&*state.pool).await?;
 
     // 构建历史记录列表
-    let history: Vec<ConfigHistory> = rows.into_iter().map(|row| ConfigHistory {
-        id: row.0,
-        changed_by: row.1,
-        section: row.2,
-        old_value: row.3,
-        new_value: row.4,
-        change_reason: row.5,
-        created_at: row.6,
-    }).collect();
+    let history: Vec<ConfigHistory> = rows
+        .into_iter()
+        .map(|row| ConfigHistory {
+            id: row.0,
+            changed_by: row.1,
+            section: row.2,
+            old_value: row.3,
+            new_value: row.4,
+            change_reason: row.5,
+            created_at: row.6,
+        })
+        .collect();
 
     // 查询总数
     let count_query = format!("SELECT COUNT(*) FROM config_history {}", where_clause);
@@ -423,24 +433,24 @@ pub async fn get_history(
     let (total,) = count_query_builder.fetch_one(&*state.pool).await?;
 
     // 扩展变更记录信息
-    let detailed_history: Vec<ConfigChangeDetail> = history.into_iter().map(|h| {
-        let requires_restart = matches!(
-            h.section.as_str(),
-            "server" | "grpc"
-        );
+    let detailed_history: Vec<ConfigChangeDetail> = history
+        .into_iter()
+        .map(|h| {
+            let requires_restart = matches!(h.section.as_str(), "server" | "grpc");
 
-        ConfigChangeDetail {
-            base: h.clone(),
-            username: None, // 已通过 LEFT JOIN 获取，但在映射时暂不处理
-            summary: format!(
-                "{}: {} -> {}",
-                h.section,
-                h.old_value.as_deref().unwrap_or("(空)"),
-                h.new_value.as_deref().unwrap_or("(空)")
-            ),
-            requires_restart,
-        }
-    }).collect();
+            ConfigChangeDetail {
+                base: h.clone(),
+                username: None, // 已通过 LEFT JOIN 获取，但在映射时暂不处理
+                summary: format!(
+                    "{}: {} -> {}",
+                    h.section,
+                    h.old_value.as_deref().unwrap_or("(空)"),
+                    h.new_value.as_deref().unwrap_or("(空)")
+                ),
+                requires_restart,
+            }
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({
         "items": detailed_history,
@@ -461,9 +471,7 @@ pub async fn get_history(
 /// # 注意
 /// 此操作会导致短暂的服务中断（通常 < 5 秒）。
 /// 建议在低峰期执行或提前通知用户。
-pub async fn apply_config_restart(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn apply_config_restart(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     tracing::warn!("收到配置生效重启请求");
 
     // 在实际实现中：
@@ -506,17 +514,14 @@ pub async fn validate_config(
     // 验证 server 配置
     if let Some(server) = config.get("server") {
         if let Some(port) = server.get("port").and_then(|v| v.as_u64()) {
-            if port < 1024 || port > 65535 {
+            if !(1024..=65535).contains(&port) {
                 errors.push(format!("无效的端口号: {} (范围: 1024-65535)", port));
             }
         }
 
         if let Some(max_conn) = server.get("max_connections").and_then(|v| v.as_u64()) {
-            if max_conn < 1 || max_conn > 100000 {
-                errors.push(format!(
-                    "无效的最大连接数: {} (范围: 1-100000)",
-                    max_conn
-                ));
+            if !(1..=100000).contains(&max_conn) {
+                errors.push(format!("无效的最大连接数: {} (范围: 1-100000)", max_conn));
             } else if max_conn > 10000 {
                 warnings.push(format!(
                     "最大连接数设置较大 ({})，请确保系统资源充足",
@@ -528,14 +533,26 @@ pub async fn validate_config(
 
     // 验证 memory 配置
     if let Some(memory) = config.get("memory") {
-        let max_mem = memory.get("max_memory_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let model_mem = memory.get("model_memory_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let cache_mem = memory.get("cache_memory_gb").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let max_mem = memory
+            .get("max_memory_gb")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let model_mem = memory
+            .get("model_memory_gb")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let cache_mem = memory
+            .get("cache_memory_gb")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
 
         if model_mem + cache_mem > max_mem {
             errors.push(format!(
                 "内存分配超限: model({}) + cache({}) = {} > total({})",
-                model_mem, cache_mem, model_mem + cache_mem, max_mem
+                model_mem,
+                cache_mem,
+                model_mem + cache_mem,
+                max_mem
             ));
         }
 
@@ -548,10 +565,7 @@ pub async fn validate_config(
     if let Some(pool) = config.get("thread_pool") {
         if let Some(size) = pool.get("size").and_then(|v| v.as_u64()) {
             if !(1u64..=256).contains(&size) {
-                errors.push(format!(
-                    "无效的线程池大小: {} (范围: 1-256)",
-                    size
-                ));
+                errors.push(format!("无效的线程池大小: {} (范围: 1-256)", size));
             } else if size > num_cpus::get() as u64 * 4 {
                 warnings.push(format!(
                     "线程池大小 ({}) 显著超过 CPU 核心数 ({}) 的 4 倍",
@@ -575,10 +589,7 @@ pub async fn validate_config(
 
         if let Some(temp) = model.get("default_temperature").and_then(|v| v.as_f64()) {
             if !(0.0f64..=2.0).contains(&temp) {
-                errors.push(format!(
-                    "无效的温度值: {} (范围: 0.0-2.0)",
-                    temp
-                ));
+                errors.push(format!("无效的温度值: {} (范围: 0.0-2.0)", temp));
             }
         }
     }
@@ -601,9 +612,7 @@ pub async fn validate_config(
 /// 导出当前配置为 TOML 格式
 ///
 /// 用于备份或迁移场景。
-pub async fn export_config(
-    State(_state): State<AppState>,
-) -> Result<Json<Value>, AppError> {
+pub async fn export_config(State(_state): State<AppState>) -> Result<Json<Value>, AppError> {
     // 获取当前配置
     let config_result = get_config(State(_state)).await?;
     let current_config = config_result.0;
@@ -708,10 +717,9 @@ fn detect_changes(partial: &PartialConfigUpdate) -> Vec<ConfigChangeRecord> {
 
 /// 判断是否需要重启才能生效
 fn needs_restart(changes: &[ConfigChangeRecord]) -> bool {
-    changes.iter().any(|c| {
-        c.section.starts_with("server.") ||
-        c.section.starts_with("grpc.")
-    })
+    changes
+        .iter()
+        .any(|c| c.section.starts_with("server.") || c.section.starts_with("grpc."))
 }
 
 /// 配置变更记录（内部使用）
@@ -740,7 +748,10 @@ mod tests {
                 request_timeout_secs: 120,
                 cors_enabled: true,
             },
-            thread_pool: ThreadPoolSection { size: 8, max_queue_size: 2048 },
+            thread_pool: ThreadPoolSection {
+                size: 8,
+                max_queue_size: 2048,
+            },
             memory: MemorySection {
                 max_memory_gb: 64.0,
                 model_memory_gb: 48.0,

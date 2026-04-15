@@ -33,7 +33,7 @@ fn test_text_generation_e2e() {
 
     let prompt = "Hello, world!";
     let tokens = tokenizer.encode(prompt).unwrap();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let max_new_tokens = 10;
     let generated = model.generate(&token_ids, max_new_tokens);
@@ -55,7 +55,7 @@ fn test_text_generation_with_stats() {
 
     let tokens = tokenizer.encode(prompt).unwrap();
     let prompt_tokens = tokens.len();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let generated = model.generate(&token_ids, 10).unwrap();
     let generated_tokens = generated.len();
@@ -77,7 +77,7 @@ fn test_multimodal_generation_e2e() {
 
     let prompt = "Describe this image";
     let tokens = tokenizer.encode(prompt).unwrap();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let generated = model.generate_multimodal(&token_ids, None, 10);
 
@@ -246,7 +246,7 @@ fn test_inference_latency() {
 
     let prompt = "Test prompt";
     let tokens = tokenizer.encode(prompt).unwrap();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let start = Instant::now();
     let _ = model.generate(&token_ids, 5);
@@ -267,7 +267,7 @@ fn test_batch_generation() {
 
     for prompt in prompts {
         let tokens = tokenizer.encode(prompt).unwrap();
-        let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+        let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
         let generated = model.generate(&token_ids, 5);
         results.push(generated);
     }
@@ -375,7 +375,7 @@ fn test_kv_cache_layer() {
 
     let k = ndarray::Array2::zeros((10, 64));
     let v = ndarray::Array2::zeros((10, 64));
-    layer.update(k, v);
+    let _ = layer.update(k, v);
 
     assert!(layer.get().is_some());
 
@@ -477,7 +477,7 @@ fn test_inference_engine_generate() {
 
     let prompt = "Hello, world!";
     let tokens = tokenizer.encode(prompt).unwrap();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let generated = model.generate(&token_ids, params.max_new_tokens);
     assert!(generated.is_ok());
@@ -494,7 +494,7 @@ fn test_inference_engine_generate_with_image() {
     let prompt = "Describe this";
     let tokenizer = Tokenizer::new();
     let tokens = tokenizer.encode(prompt).unwrap();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let generated = model.generate(&token_ids, params.max_new_tokens);
 
@@ -540,7 +540,7 @@ fn test_inference_performance_benchmark() {
 
     let prompt = "Performance test prompt";
     let tokens = tokenizer.encode(prompt).unwrap();
-    let token_ids: Vec<u32> = tokens.iter().map(|t| *t as u32).collect();
+    let token_ids: Vec<u32> = tokens.iter().map(|t| *t).collect();
 
     let iterations = 3;
     let mut total_time = Duration::ZERO;

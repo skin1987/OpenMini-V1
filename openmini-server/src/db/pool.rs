@@ -22,11 +22,12 @@ pub async fn create_pool(config: &DatabaseConfig) -> anyhow::Result<SqlitePool> 
     }
 
     // 配置 SQLite 连接选项
-    let options = SqliteConnectOptions::from_str(&format!("sqlite:{}?mode=rwc", config.path.display()))?
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        .busy_timeout(std::time::Duration::from_millis(config.busy_timeout_ms))
-        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-        .foreign_keys(true);
+    let options =
+        SqliteConnectOptions::from_str(&format!("sqlite:{}?mode=rwc", config.path.display()))?
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_millis(config.busy_timeout_ms))
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            .foreign_keys(true);
 
     // 创建连接池
     let pool = SqlitePoolOptions::new()

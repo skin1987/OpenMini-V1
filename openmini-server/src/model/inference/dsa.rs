@@ -374,8 +374,7 @@ where
 /// GPU Lightning Indexer 性能统计信息
 ///
 /// 记录每次 GPU 计算的详细时间分解，用于性能分析和优化。
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct GpuIndexerStats {
     /// 总耗时（微秒），包括数据传输 + GPU计算 + 结果读取
     pub total_time_us: u64,
@@ -409,7 +408,6 @@ impl std::fmt::Display for GpuIndexerStats {
         )
     }
 }
-
 
 // ============================================================================
 // 增强版 GPU Lightning Indexer
@@ -1622,7 +1620,8 @@ pub fn multihead_sparse_attention_3d(
 // DSA 内存池
 // ============================================================================
 
-/// DSA 临时缓冲区内存池
+// DSA 临时缓冲区内存池
+
 // ============================================================================
 // Phase 3: Memory Optimization — 内存池与缓冲区管理
 // ============================================================================
@@ -4473,9 +4472,15 @@ mod tests {
 
         assert_eq!(top_k.len(), 3);
         let results: Vec<f32> = top_k.iter().map(|&i| data[i]).collect();
-        assert!(results.contains(&f32::INFINITY), "Inf should be in top-k results");
+        assert!(
+            results.contains(&f32::INFINITY),
+            "Inf should be in top-k results"
+        );
         for &r in &results {
-            assert!(r.is_finite() || r.is_infinite(), "NaN should not be in results");
+            assert!(
+                r.is_finite() || r.is_infinite(),
+                "NaN should not be in results"
+            );
         }
     }
 
@@ -5155,7 +5160,7 @@ mod tests {
 
         // 验证统计信息有效
         assert!(!stats.algorithm.is_empty());
-        assert!(stats.total_time_us >= 0);
+        // total_time_us is u64, always non-negative
     }
 
     #[test]
@@ -5660,10 +5665,7 @@ mod tests {
             final_stats.hit_count, final_stats.miss_count, final_stats.free_buffers_count
         );
 
-        // 统计计数器应该是合理的正数
-        assert!(final_stats.hit_count >= 0);
-        assert!(final_stats.miss_count >= 0);
-        assert!(final_stats.free_buffers_count >= 0);
+        // 统计计数器应该是合理的正数 (counters are unsigned, always non-negative)
     }
 
     /// 端到端优化版性能对比基准测试（单元测试内嵌）

@@ -1,15 +1,12 @@
-use axum::{
-    extract::State,
-    Json,
-};
-use serde::{Deserialize, Serialize};
+use axum::{extract::State, Json};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+use crate::auth::jwt::create_token;
+use crate::db::models::User;
 use crate::error::AppError;
 use crate::AppState;
-use crate::db::models::User;
-use crate::auth::jwt::create_token;
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -51,18 +48,15 @@ pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
-    let row = sqlx::query(
-        "SELECT * FROM users WHERE username = ? AND is_active = 1"
-    )
-    .bind(&req.username)
-    .fetch_optional(&*state.pool)
-    .await?
-    .ok_or_else(|| AppError::BadRequest("用户名或密码错误".into()))?;
-    
+    let row = sqlx::query("SELECT * FROM users WHERE username = ? AND is_active = 1")
+        .bind(&req.username)
+        .fetch_optional(&*state.pool)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("用户名或密码错误".into()))?;
+
     let user = row_to_user(row);
 
-    let valid = bcrypt::verify(&req.password, &user.password_hash)
-        .unwrap_or(false);
+    let valid = bcrypt::verify(&req.password, &user.password_hash).unwrap_or(false);
 
     if !valid {
         return Err(AppError::BadRequest("用户名或密码错误".into()));
@@ -77,7 +71,13 @@ pub async fn login(
 
     let secret = &state.config.jwt.secret;
     let hours = state.config.jwt.expiration_hours;
-    let token = create_token(&user.id, &user.username, &user.role.to_string(), secret, hours)?;
+    let token = create_token(
+        &user.id,
+        &user.username,
+        &user.role.to_string(),
+        secret,
+        hours,
+    )?;
 
     Ok(Json(LoginResponse {
         access_token: token,

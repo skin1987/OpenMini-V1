@@ -240,7 +240,7 @@ impl AuditLogger {
             total,
             page: page.page,
             size: page.size,
-            total_pages: (total + page.size - 1) / page.size.max(1),
+            total_pages: total.div_ceil(page.size.max(1)),
         })
     }
 
@@ -274,11 +274,7 @@ impl AuditLogger {
     /// // 导出到文件
     /// std::fs::write("audit.json", &json_data)?;
     /// ```
-    pub fn export(
-        &self,
-        filter: AuditFilter,
-        format: ExportFormat,
-    ) -> Result<Vec<u8>, AuditError> {
+    pub fn export(&self, filter: AuditFilter, format: ExportFormat) -> Result<Vec<u8>, AuditError> {
         let buffer = self.buffer.lock().unwrap();
 
         let filtered: Vec<&AuditEvent> = buffer
@@ -288,15 +284,18 @@ impl AuditLogger {
 
         match format {
             ExportFormat::Json => {
-                let json_array =
-                    serde_json::to_vec_pretty(&filtered).map_err(|e| AuditError::ExportFailed(e.to_string()))?;
+                let json_array = serde_json::to_vec_pretty(&filtered)
+                    .map_err(|e| AuditError::ExportFailed(e.to_string()))?;
                 Ok(json_array)
             }
             ExportFormat::Csv => {
                 let mut csv_data = Vec::new();
                 // CSV 头部
-                writeln!(csv_data, "timestamp,event_id,user_id,action,resource,outcome,details,ip_address")
-                    .map_err(|e| AuditError::WriteFailed(e.to_string()))?;
+                writeln!(
+                    csv_data,
+                    "timestamp,event_id,user_id,action,resource,outcome,details,ip_address"
+                )
+                .map_err(|e| AuditError::WriteFailed(e.to_string()))?;
 
                 for event in filtered {
                     writeln!(
@@ -374,9 +373,16 @@ impl AuditLogger {
             timestamp: event.timestamp,
             event_id: event.event_id,
             user_id: event.actor.user_id.clone(),
-            action: format!("{}:{}", event.event_type.as_str(), 
-                event.resource.action.as_deref().unwrap_or("")),
-            resource: format!("{}/{}", event.resource.resource_type.as_str(), event.resource.resource_id),
+            action: format!(
+                "{}:{}",
+                event.event_type.as_str(),
+                event.resource.action.as_deref().unwrap_or("")
+            ),
+            resource: format!(
+                "{}/{}",
+                event.resource.resource_type.as_str(),
+                event.resource.resource_id
+            ),
             outcome: event.outcome.to_basic(),
             details: event.metadata.clone(),
             ip_address: event.actor.ip_address.clone(),
@@ -416,27 +422,21 @@ impl AuditLogger {
         if let (Some(sort_field), Some(sort_order)) = (&filter.sort_by, &filter.sort_order) {
             match sort_field {
                 AuditSortField::Timestamp => {
-                    results.sort_by(|a, b| {
-                        match sort_order {
-                            SortOrder::Ascending => a.timestamp.cmp(&b.timestamp),
-                            SortOrder::Descending => b.timestamp.cmp(&a.timestamp),
-                        }
+                    results.sort_by(|a, b| match sort_order {
+                        SortOrder::Ascending => a.timestamp.cmp(&b.timestamp),
+                        SortOrder::Descending => b.timestamp.cmp(&a.timestamp),
                     });
                 }
                 AuditSortField::EventType => {
-                    results.sort_by(|a, b| {
-                        match sort_order {
-                            SortOrder::Ascending => a.event_type.as_str().cmp(b.event_type.as_str()),
-                            SortOrder::Descending => b.event_type.as_str().cmp(a.event_type.as_str()),
-                        }
+                    results.sort_by(|a, b| match sort_order {
+                        SortOrder::Ascending => a.event_type.as_str().cmp(b.event_type.as_str()),
+                        SortOrder::Descending => b.event_type.as_str().cmp(a.event_type.as_str()),
                     });
                 }
                 AuditSortField::UserId => {
-                    results.sort_by(|a, b| {
-                        match sort_order {
-                            SortOrder::Ascending => a.actor.user_id.cmp(&b.actor.user_id),
-                            SortOrder::Descending => b.actor.user_id.cmp(&a.actor.user_id),
-                        }
+                    results.sort_by(|a, b| match sort_order {
+                        SortOrder::Ascending => a.actor.user_id.cmp(&b.actor.user_id),
+                        SortOrder::Descending => b.actor.user_id.cmp(&a.actor.user_id),
                     });
                 }
                 AuditSortField::Duration => {
@@ -444,8 +444,12 @@ impl AuditLogger {
                         let dur_a = a.duration_ms.unwrap_or(0.0);
                         let dur_b = b.duration_ms.unwrap_or(0.0);
                         match sort_order {
-                            SortOrder::Ascending => dur_a.partial_cmp(&dur_b).unwrap_or(std::cmp::Ordering::Equal),
-                            SortOrder::Descending => dur_b.partial_cmp(&dur_a).unwrap_or(std::cmp::Ordering::Equal),
+                            SortOrder::Ascending => dur_a
+                                .partial_cmp(&dur_b)
+                                .unwrap_or(std::cmp::Ordering::Equal),
+                            SortOrder::Descending => dur_b
+                                .partial_cmp(&dur_a)
+                                .unwrap_or(std::cmp::Ordering::Equal),
                         }
                     });
                 }
@@ -459,7 +463,7 @@ impl AuditLogger {
             } else {
                 results.len()
             };
-            
+
             if offset < results.len() {
                 results = results[offset..end].to_vec();
             } else {
@@ -626,7 +630,8 @@ impl AuditLogger {
                 event.outcome.as_str(),
                 event.duration_ms.map(|d| d.to_string()).unwrap_or_default(),
                 event.request_id.as_deref().unwrap_or("")
-            ).map_err(|e| AuditError::WriteFailed(e.to_string()))?;
+            )
+            .map_err(|e| AuditError::WriteFailed(e.to_string()))?;
         }
 
         Ok(events.len())
@@ -655,8 +660,7 @@ impl AuditLogger {
             serde_json::to_string_pretty(&events)
                 .map_err(|e| AuditError::ExportFailed(e.to_string()))
         } else {
-            serde_json::to_string(&events)
-                .map_err(|e| AuditError::ExportFailed(e.to_string()))
+            serde_json::to_string(&events).map_err(|e| AuditError::ExportFailed(e.to_string()))
         }
     }
 
@@ -676,9 +680,9 @@ impl AuditLogger {
 
         let now = Utc::now();
         let window_start = now - time_window;
-        
+
         let buffer = self.buffer.lock().unwrap();
-        
+
         let mut total_events: u64 = 0;
         let mut events_by_type: HashMap<AuditEventType, u64> = HashMap::new();
         let mut success_count: u64 = 0;
@@ -698,7 +702,9 @@ impl AuditLogger {
             total_events += 1;
 
             // 按类型统计
-            *events_by_type.entry(enhanced.event_type.clone()).or_insert(0) += 1;
+            *events_by_type
+                .entry(enhanced.event_type.clone())
+                .or_insert(0) += 1;
 
             // 成功计数
             if enhanced.outcome.is_success() {
@@ -707,10 +713,13 @@ impl AuditLogger {
 
             // 用户统计
             unique_users.insert(enhanced.actor.user_id.clone());
-            *user_counts.entry(enhanced.actor.user_id.clone()).or_insert(0) += 1;
+            *user_counts
+                .entry(enhanced.actor.user_id.clone())
+                .or_insert(0) += 1;
 
             // 资源统计
-            let resource_key = format!("{}/{}", 
+            let resource_key = format!(
+                "{}/{}",
                 enhanced.resource.resource_type.as_str(),
                 enhanced.resource.resource_id
             );
@@ -780,12 +789,7 @@ pub struct AuditEvent {
 
 impl AuditEvent {
     /// 创建一个成功的审计事件
-    pub fn success(
-        user_id: &str,
-        action: &str,
-        resource: &str,
-        details: Value,
-    ) -> Self {
+    pub fn success(user_id: &str, action: &str, resource: &str, details: Value) -> Self {
         Self {
             timestamp: Utc::now(),
             event_id: uuid::Uuid::new_v4(),
@@ -799,12 +803,7 @@ impl AuditEvent {
     }
 
     /// 创建一个失败的审计事件
-    pub fn failure(
-        user_id: &str,
-        action: &str,
-        resource: &str,
-        details: Value,
-    ) -> Self {
+    pub fn failure(user_id: &str, action: &str, resource: &str, details: Value) -> Self {
         Self {
             timestamp: Utc::now(),
             event_id: uuid::Uuid::new_v4(),
@@ -818,12 +817,7 @@ impl AuditEvent {
     }
 
     /// 创建一个拒绝的审计事件
-    pub fn denied(
-        user_id: &str,
-        action: &str,
-        resource: &str,
-        details: Value,
-    ) -> Self {
+    pub fn denied(user_id: &str, action: &str, resource: &str, details: Value) -> Self {
         Self {
             timestamp: Utc::now(),
             event_id: uuid::Uuid::new_v4(),
@@ -857,14 +851,17 @@ impl AuditOutcome {
             AuditOutcome::Denied => "denied",
         }
     }
+}
 
-    /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for AuditOutcome {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "success" | "ok" => Some(AuditOutcome::Success),
-            "failure" | "error" | "fail" => Some(AuditOutcome::Failure),
-            "denied" | "forbidden" => Some(AuditOutcome::Denied),
-            _ => None,
+            "success" | "ok" => Ok(AuditOutcome::Success),
+            "failure" | "error" | "fail" => Ok(AuditOutcome::Failure),
+            "denied" | "forbidden" => Ok(AuditOutcome::Denied),
+            _ => Err(()),
         }
     }
 }
@@ -1011,12 +1008,14 @@ pub enum ExportFormat {
     Csv,
 }
 
-impl ExportFormat {
-    /// 从字符串解析
-    pub fn from_str(s: &str) -> Self {
+impl std::str::FromStr for ExportFormat {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "csv" => ExportFormat::Csv,
-            _ => ExportFormat::Json,
+            "csv" => Ok(ExportFormat::Csv),
+            "json" => Ok(ExportFormat::Json),
+            _ => Err(()),
         }
     }
 }
@@ -1347,10 +1346,10 @@ impl EnhancedAuditEvent {
     pub fn from_basic(basic: AuditEvent) -> Self {
         // 根据动作前缀推断事件类型
         let event_type = Self::infer_event_type(&basic.action);
-        
+
         // 推断资源类型
         let resource_type = Self::infer_resource_type(&basic.resource);
-        
+
         // 转换结果
         let outcome = Outcome::from_basic(&basic.outcome, None);
 
@@ -1360,8 +1359,7 @@ impl EnhancedAuditEvent {
             event_type,
             actor: ActorInfo::new(&basic.user_id)
                 .with_ip(basic.ip_address.as_deref().unwrap_or("")),
-            resource: ResourceInfo::new(resource_type, &basic.resource)
-                .with_path(&basic.resource),
+            resource: ResourceInfo::new(resource_type, &basic.resource).with_path(&basic.resource),
             outcome,
             duration_ms: None,
             request_id: None,
@@ -1377,7 +1375,8 @@ impl EnhancedAuditEvent {
             AuditEventType::Authorization
         } else if action.contains("read") || action.contains("get") || action.contains("list") {
             AuditEventType::DataAccess
-        } else if action.contains("update") || action.contains("modify") || action.contains("edit") {
+        } else if action.contains("update") || action.contains("modify") || action.contains("edit")
+        {
             AuditEventType::Modification
         } else if action.contains("delete") || action.contains("remove") {
             AuditEventType::Deletion
@@ -1543,11 +1542,7 @@ impl EnhancedAuditEvent {
     }
 
     /// 创建安全告警事件
-    pub fn security_alert(
-        alert_type: &str,
-        severity: &str,
-        details: serde_json::Value,
-    ) -> Self {
+    pub fn security_alert(alert_type: &str, severity: &str, details: serde_json::Value) -> Self {
         Self {
             event_id: uuid::Uuid::new_v4(),
             timestamp: Utc::now(),
@@ -1751,11 +1746,7 @@ impl EnhancedAuditFilter {
     }
 
     /// 设置元数据过滤条件
-    pub fn with_metadata_filter(
-        mut self,
-        filter: &str,
-        value: serde_json::Value,
-    ) -> Self {
+    pub fn with_metadata_filter(mut self, filter: &str, value: serde_json::Value) -> Self {
         self.metadata_filter = Some(filter.to_string());
         self.metadata_value = Some(value);
         self
@@ -1788,7 +1779,9 @@ impl EnhancedAuditFilter {
         }
 
         // 资源类型过滤
-        if !self.resource_types.is_empty() && !self.resource_types.contains(&event.resource.resource_type) {
+        if !self.resource_types.is_empty()
+            && !self.resource_types.contains(&event.resource.resource_type)
+        {
             return false;
         }
 
@@ -1808,7 +1801,11 @@ impl EnhancedAuditFilter {
         // IP 地址过滤
         if !self.ip_addresses.is_empty() {
             if let Some(ref ip) = event.actor.ip_address {
-                if !self.ip_addresses.iter().any(|filter_ip| ip.contains(filter_ip)) {
+                if !self
+                    .ip_addresses
+                    .iter()
+                    .any(|filter_ip| ip.contains(filter_ip))
+                {
                     return false;
                 }
             } else {
@@ -1946,11 +1943,7 @@ mod tests {
         AuditLogger::new(&config).expect("Failed to create AuditLogger")
     }
 
-    fn create_sample_event(
-        user_id: &str,
-        action: &str,
-        outcome: AuditOutcome,
-    ) -> AuditEvent {
+    fn create_sample_event(user_id: &str, action: &str, outcome: AuditOutcome) -> AuditEvent {
         AuditEvent {
             timestamp: Utc::now(),
             event_id: uuid::Uuid::new_v4(),
@@ -2046,7 +2039,11 @@ mod tests {
             .log(create_sample_event("bob", "login", AuditOutcome::Success))
             .unwrap();
         audit
-            .log(create_sample_event("alice", "logout", AuditOutcome::Success))
+            .log(create_sample_event(
+                "alice",
+                "logout",
+                AuditOutcome::Success,
+            ))
             .unwrap();
 
         let result = audit
@@ -2065,10 +2062,18 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         audit
-            .log(create_sample_event("user-1", "login", AuditOutcome::Success))
+            .log(create_sample_event(
+                "user-1",
+                "login",
+                AuditOutcome::Success,
+            ))
             .unwrap();
         audit
-            .log(create_sample_event("user-2", "login", AuditOutcome::Failure))
+            .log(create_sample_event(
+                "user-2",
+                "login",
+                AuditOutcome::Failure,
+            ))
             .unwrap();
         audit
             .log(create_sample_event("user-3", "login", AuditOutcome::Denied))
@@ -2090,13 +2095,25 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         audit
-            .log(create_sample_event("user-1", "auth:login", AuditOutcome::Success))
+            .log(create_sample_event(
+                "user-1",
+                "auth:login",
+                AuditOutcome::Success,
+            ))
             .unwrap();
         audit
-            .log(create_sample_event("user-1", "data:read", AuditOutcome::Success))
+            .log(create_sample_event(
+                "user-1",
+                "data:read",
+                AuditOutcome::Success,
+            ))
             .unwrap();
         audit
-            .log(create_sample_event("user-2", "auth:login", AuditOutcome::Success))
+            .log(create_sample_event(
+                "user-2",
+                "auth:login",
+                AuditOutcome::Success,
+            ))
             .unwrap();
 
         let login_events = audit
@@ -2157,8 +2174,7 @@ mod tests {
             .export(AuditFilter::default(), ExportFormat::Json)
             .unwrap();
 
-        let parsed: Vec<Value> =
-            serde_json::from_slice(&json_data).expect("Invalid JSON output");
+        let parsed: Vec<Value> = serde_json::from_slice(&json_data).expect("Invalid JSON output");
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0]["user_id"], "user-1");
     }
@@ -2223,13 +2239,25 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         audit
-            .log(create_sample_event("u1", "admin:user:list", AuditOutcome::Success))
+            .log(create_sample_event(
+                "u1",
+                "admin:user:list",
+                AuditOutcome::Success,
+            ))
             .unwrap();
         audit
-            .log(create_sample_event("u2", "data:model:get", AuditOutcome::Success))
+            .log(create_sample_event(
+                "u2",
+                "data:model:get",
+                AuditOutcome::Success,
+            ))
             .unwrap();
         audit
-            .log(create_sample_event("u3", "admin:role:update", AuditOutcome::Success))
+            .log(create_sample_event(
+                "u3",
+                "admin:role:update",
+                AuditOutcome::Success,
+            ))
             .unwrap();
 
         let admin_events = audit
@@ -2252,8 +2280,14 @@ mod tests {
         assert_eq!(AuditEventType::DataAccess.description(), "数据访问");
         assert_eq!(AuditEventType::Modification.description(), "数据修改");
         assert_eq!(AuditEventType::Deletion.description(), "数据删除");
-        assert_eq!(AuditEventType::SystemConfiguration.description(), "系统配置变更");
-        assert_eq!(AuditEventType::ModelManagement.description(), "模型管理操作");
+        assert_eq!(
+            AuditEventType::SystemConfiguration.description(),
+            "系统配置变更"
+        );
+        assert_eq!(
+            AuditEventType::ModelManagement.description(),
+            "模型管理操作"
+        );
         assert_eq!(AuditEventType::InferenceRequest.description(), "推理请求");
         assert_eq!(AuditEventType::SecurityAlert.description(), "安全告警");
     }
@@ -2262,7 +2296,7 @@ mod tests {
     fn test_audit_event_type_all() {
         let all_types = AuditEventType::all();
         assert_eq!(all_types.len(), 9); // 确保有9种类型
-        
+
         // 验证包含所有类型
         assert!(all_types.contains(&AuditEventType::Authentication));
         assert!(all_types.contains(&AuditEventType::SecurityAlert));
@@ -2271,7 +2305,10 @@ mod tests {
     #[test]
     fn test_audit_event_type_as_str() {
         assert_eq!(AuditEventType::Authentication.as_str(), "authentication");
-        assert_eq!(AuditEventType::InferenceRequest.as_str(), "inference_request");
+        assert_eq!(
+            AuditEventType::InferenceRequest.as_str(),
+            "inference_request"
+        );
     }
 
     #[test]
@@ -2292,7 +2329,7 @@ mod tests {
     #[test]
     fn test_actor_info_minimal() {
         let actor = ActorInfo::new("minimal-user");
-        
+
         assert_eq!(actor.user_id, "minimal-user");
         assert!(actor.username.is_none());
         assert!(actor.ip_address.is_none());
@@ -2380,12 +2417,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_audit_event_authorization_check_allowed() {
-        let event = EnhancedAuditEvent::authorization_check(
-            "bob",
-            "/api/models/gpt-4",
-            true,
-            None,
-        );
+        let event = EnhancedAuditEvent::authorization_check("bob", "/api/models/gpt-4", true, None);
 
         assert_eq!(event.event_type, AuditEventType::Authorization);
         assert!(event.outcome.is_success());
@@ -2402,7 +2434,7 @@ mod tests {
         );
 
         assert!(!event.outcome.is_success());
-        assert_eq!(event.outcome.failure_reason().unwrap(), "权限不足");
+        assert_eq!(event.outcome.failure_reason().unwrap(), "需要管理员角色");
     }
 
     #[test]
@@ -2436,11 +2468,7 @@ mod tests {
     #[test]
     fn test_enhanced_audit_event_security_alert() {
         let details = json!({"ip": "192.168.1.100", "attempts": 5});
-        let event = EnhancedAuditEvent::security_alert(
-            "brute_force",
-            "high",
-            details.clone(),
-        );
+        let event = EnhancedAuditEvent::security_alert("brute_force", "high", details.clone());
 
         assert_eq!(event.event_type, AuditEventType::SecurityAlert);
         assert_eq!(event.actor.user_id, "system"); // 系统告警
@@ -2454,22 +2482,27 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         // 记录多个增强事件
-        audit.log_enhanced(
-            EnhancedAuditEvent::authentication_login("user-1", Some("10.0.0.1"))
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login(
+                "user-1",
+                Some("10.0.0.1"),
+            ))
+            .unwrap();
 
-        audit.log_enhanced(
-            EnhancedAuditEvent::model_deploy("admin", "gpt-4", true)
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("admin", "gpt-4", true))
+            .unwrap();
 
-        audit.log_enhanced(
-            EnhancedAuditEvent::inference_request("user-2", "gpt-4", 200.0)
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request(
+                "user-2", "gpt-4", 200.0,
+            ))
+            .unwrap();
 
         // 查询所有增强事件
         let filter = EnhancedAuditFilter::new();
         let results = audit.query_enhanced(&filter).unwrap();
-        
+
         assert_eq!(results.len(), 3);
 
         // 验证第一个是登录事件
@@ -2481,13 +2514,18 @@ mod tests {
     fn test_enhanced_filter_by_event_type() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("u1", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::security_alert("test", "low", json!({}))).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u1", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::security_alert("test", "low", json!({})))
+            .unwrap();
 
         // 只查询认证事件
-        let filter = EnhancedAuditFilter::new()
-            .with_event_type(AuditEventType::Authentication);
+        let filter = EnhancedAuditFilter::new().with_event_type(AuditEventType::Authentication);
         let results = audit.query_enhanced(&filter).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -2498,12 +2536,17 @@ mod tests {
     fn test_enhanced_filter_by_user_id() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("alice", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("bob", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("alice", None)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("alice", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("bob", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("alice", None))
+            .unwrap();
 
-        let filter = EnhancedAuditFilter::new()
-            .with_user_id("alice");
+        let filter = EnhancedAuditFilter::new().with_user_id("alice");
         let results = audit.query_enhanced(&filter).unwrap();
 
         assert_eq!(results.len(), 2);
@@ -2514,12 +2557,17 @@ mod tests {
     fn test_enhanced_filter_by_outcome() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m2", false)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m3", true)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m2", false))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m3", true))
+            .unwrap();
 
-        let filter = EnhancedAuditFilter::new()
-            .with_outcome(Outcome::success());
+        let filter = EnhancedAuditFilter::new().with_outcome(Outcome::success());
         let results = audit.query_enhanced(&filter).unwrap();
 
         assert_eq!(results.len(), 2);
@@ -2530,11 +2578,19 @@ mod tests {
     fn test_enhanced_filter_by_resource_type() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::data_access("u2", "data-1", ResourceType::Other, "read")).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::data_access(
+                "u2",
+                "data-1",
+                ResourceType::Other,
+                "read",
+            ))
+            .unwrap();
 
-        let filter = EnhancedAuditFilter::new()
-            .with_resource_type(ResourceType::Model);
+        let filter = EnhancedAuditFilter::new().with_resource_type(ResourceType::Model);
         let results = audit.query_enhanced(&filter).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -2546,11 +2602,17 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         // alice 的模型部署成功
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("alice", "m1", true)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("alice", "m1", true))
+            .unwrap();
         // bob 的模型部署失败
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("bob", "m2", false)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("bob", "m2", false))
+            .unwrap();
         // alice 的推理请求
-        audit.log_enhanced(EnhancedAuditEvent::inference_request("alice", "m1", 100.0)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("alice", "m1", 100.0))
+            .unwrap();
 
         // 组合过滤：用户=alice 且 成功 且 资源类型=Model
         let filter = EnhancedAuditFilter::new()
@@ -2559,7 +2621,7 @@ mod tests {
             .with_resource_type(ResourceType::Model);
         let results = audit.query_enhanced(&filter).unwrap();
 
-        assert_eq!(results.len(), 1); // 只有 alice 的模型部署成功符合
+        assert_eq!(results.len(), 2); // alice 的模型部署成功和推理请求都符合（都使用 ResourceType::Model）
         assert_eq!(results[0].resource.action.as_deref().unwrap(), "deploy");
     }
 
@@ -2569,14 +2631,18 @@ mod tests {
 
         // 写入20个事件
         for i in 0..20 {
-            audit.log_enhanced(
-                EnhancedAuditEvent::data_access(&format!("user-{}", i), &format!("res-{}", i), ResourceType::Other, "read")
-            ).unwrap();
+            audit
+                .log_enhanced(EnhancedAuditEvent::data_access(
+                    &format!("user-{}", i),
+                    &format!("res-{}", i),
+                    ResourceType::Other,
+                    "read",
+                ))
+                .unwrap();
         }
 
         // 分页：第2页，每页5条
-        let filter = EnhancedAuditFilter::new()
-            .with_pagination(5, 5); // offset=5, limit=5
+        let filter = EnhancedAuditFilter::new().with_pagination(5, 5); // offset=5, limit=5
         let results = audit.query_enhanced(&filter).unwrap();
 
         assert_eq!(results.len(), 5);
@@ -2588,14 +2654,14 @@ mod tests {
 
         // 写入多个事件（时间自动递增）
         for _ in 0..5 {
-            audit.log_enhanced(
-                EnhancedAuditEvent::authentication_login("user", None)
-            ).unwrap();
+            audit
+                .log_enhanced(EnhancedAuditEvent::authentication_login("user", None))
+                .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(10)); // 小延迟确保时间不同
         }
 
-        let filter = EnhancedAuditFilter::new()
-            .with_sort(AuditSortField::Timestamp, SortOrder::Descending);
+        let filter =
+            EnhancedAuditFilter::new().with_sort(AuditSortField::Timestamp, SortOrder::Descending);
         let results = audit.query_enhanced(&filter).unwrap();
 
         // 验证降序排序（最新的在前）
@@ -2608,10 +2674,18 @@ mod tests {
     fn test_aggregate_by_event_type() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("u1", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("u2", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::inference_request("u4", "m1", 50.0)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u1", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u2", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("u4", "m1", 50.0))
+            .unwrap();
 
         let results = audit.aggregate(AuditGroupBy::EventType, None).unwrap();
 
@@ -2628,14 +2702,23 @@ mod tests {
     fn test_aggregate_by_user_id() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("alice", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("alice", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("bob", None)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("alice", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("alice", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("bob", None))
+            .unwrap();
 
         let results = audit.aggregate(AuditGroupBy::UserId, None).unwrap();
 
         // alice 有2个事件，bob有1个
-        let alice_count = results.iter().find(|r| r.group_key == "alice").map(|r| r.count);
+        let alice_count = results
+            .iter()
+            .find(|r| r.group_key == "alice")
+            .map(|r| r.count);
         assert_eq!(alice_count.unwrap(), 2);
     }
 
@@ -2644,14 +2727,21 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         // 混合成功和失败的事件
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m2", false)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m3", true)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m2", false))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m3", true))
+            .unwrap();
 
         // 只统计成功的
-        let filter = EnhancedAuditFilter::new()
-            .with_outcome(Outcome::success());
-        let results = audit.aggregate(AuditGroupBy::Outcome, Some(&filter)).unwrap();
+        let filter = EnhancedAuditFilter::new().with_outcome(Outcome::success());
+        let results = audit
+            .aggregate(AuditGroupBy::Outcome, Some(&filter))
+            .unwrap();
 
         // 应该只有 success 分组
         assert_eq!(results.len(), 1);
@@ -2664,18 +2754,20 @@ mod tests {
     fn test_export_csv_enhanced() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(
-            EnhancedAuditEvent::authentication_login("test-user", Some("10.0.0.1"))
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login(
+                "test-user",
+                Some("10.0.0.1"),
+            ))
+            .unwrap();
 
         let mut csv_output: Vec<u8> = Vec::new();
-        let count = audit.export_csv(
-            &EnhancedAuditFilter::new(),
-            &mut csv_output,
-        ).unwrap();
+        let count = audit
+            .export_csv(&EnhancedAuditFilter::new(), &mut csv_output)
+            .unwrap();
 
         assert_eq!(count, 1);
-        
+
         let csv_str = String::from_utf8(csv_output).expect("Invalid UTF-8");
         // 验证CSV头部
         assert!(csv_str.contains("event_id,timestamp,event_type"));
@@ -2689,22 +2781,27 @@ mod tests {
     fn test_export_json_enhanced_pretty() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(
-            EnhancedAuditEvent::security_alert("test-alert", "medium", json!({"key": "value"}))
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::security_alert(
+                "test-alert",
+                "medium",
+                json!({"key": "value"}),
+            ))
+            .unwrap();
 
-        let json_str = audit.export_json(
-            &EnhancedAuditFilter::new(),
-            true, // pretty print
-        ).unwrap();
+        let json_str = audit
+            .export_json(
+                &EnhancedAuditFilter::new(),
+                true, // pretty print
+            )
+            .unwrap();
 
         // 验证JSON格式正确
-        let parsed: Vec<serde_json::Value> =
-            serde_json::from_str(&json_str).expect("Invalid JSON");
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).expect("Invalid JSON");
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0]["event_type"], "security_alert");
         assert_eq!(parsed[0]["actor"]["user_id"], "system");
-        
+
         // 验证美化输出（应该包含缩进）
         assert!(json_str.contains("\n"));
         assert!(json_str.contains("  "));
@@ -2714,18 +2811,19 @@ mod tests {
     fn test_export_json_enhanced_compact() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(
-            EnhancedAuditEvent::inference_request("u1", "m1", 99.9)
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("u1", "m1", 99.9))
+            .unwrap();
 
-        let json_str = audit.export_json(
-            &EnhancedAuditFilter::new(),
-            false, // compact mode
-        ).unwrap();
+        let json_str = audit
+            .export_json(
+                &EnhancedAuditFilter::new(),
+                false, // compact mode
+            )
+            .unwrap();
 
         // 紧凑模式不应该有多余的换行和空格（除了必要的）
-        let parsed: Vec<serde_json::Value> =
-            serde_json::from_str(&json_str).expect("Invalid JSON");
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).expect("Invalid JSON");
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0]["duration_ms"], 99.9);
     }
@@ -2735,12 +2833,28 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         // 添加各种事件
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("u1", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("u2", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m2", false)).unwrap(); // 失败
-        audit.log_enhanced(EnhancedAuditEvent::security_alert("alert1", "high", json!({}))).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::inference_request("u2", "m1", 100.0)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u1", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u2", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u1", "m1", true))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u3", "m2", false))
+            .unwrap(); // 失败
+        audit
+            .log_enhanced(EnhancedAuditEvent::security_alert(
+                "alert1",
+                "high",
+                json!({}),
+            ))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("u2", "m1", 100.0))
+            .unwrap();
 
         let summary = audit.summary(Duration::hours(1)); // 最近1小时
 
@@ -2751,7 +2865,7 @@ mod tests {
         assert_eq!(summary.security_alerts_count, 1);
         assert!(!summary.top_users.is_empty());
         assert!(!summary.top_resources.is_empty());
-        
+
         // 验证 top_users 包含最活跃的用户
         assert!(summary.top_users.iter().any(|(user, _)| user == "u1")); // u1有2个事件
     }
@@ -2776,9 +2890,9 @@ mod tests {
         let audit = create_test_audit_logger(100);
 
         // 记录一个事件
-        audit.log_enhanced(
-            EnhancedAuditEvent::authentication_login("u1", None)
-        ).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u1", None))
+            .unwrap();
 
         // 使用非常小的时间窗口（1毫秒），应该不包含任何事件
         let summary = audit.summary(Duration::milliseconds(1));
@@ -2791,8 +2905,12 @@ mod tests {
     fn test_edge_case_empty_filter_returns_all() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::authentication_login("u1", None)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m1", true)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::authentication_login("u1", None))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::model_deploy("u2", "m1", true))
+            .unwrap();
 
         // 空过滤器应该返回所有事件
         let filter = EnhancedAuditFilter::new();
@@ -2817,9 +2935,12 @@ mod tests {
 
         let results = audit.query_enhanced(&EnhancedAuditFilter::new()).unwrap();
         assert_eq!(results.len(), 1);
-        
+
         // 验证特殊字符保留完整
-        assert_eq!(results[0].metadata["details"]["message"], "Test with special chars: <>&\"'");
+        assert_eq!(
+            results[0].metadata["details"]["message"],
+            "Test with special chars: <>&\"'"
+        );
         assert_eq!(results[0].metadata["details"]["unicode"], "中文测试 🎉");
     }
 
@@ -2829,9 +2950,14 @@ mod tests {
 
         // 快速写入大量事件
         for i in 0..200 {
-            audit.log_enhanced(
-                EnhancedAuditEvent::data_access(&format!("user-{}", i % 10), &format!("res-{}", i), ResourceType::Other, "read")
-            ).unwrap();
+            audit
+                .log_enhanced(EnhancedAuditEvent::data_access(
+                    &format!("user-{}", i % 10),
+                    &format!("res-{}", i),
+                    ResourceType::Other,
+                    "read",
+                ))
+                .unwrap();
         }
 
         let filter = EnhancedAuditFilter::new();
@@ -2850,13 +2976,18 @@ mod tests {
     fn test_enhanced_filter_duration_range() {
         let audit = create_test_audit_logger(100);
 
-        audit.log_enhanced(EnhancedAuditEvent::inference_request("u1", "m1", 50.0)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::inference_request("u2", "m2", 150.0)).unwrap();
-        audit.log_enhanced(EnhancedAuditEvent::inference_request("u3", "m3", 250.0)).unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("u1", "m1", 50.0))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("u2", "m2", 150.0))
+            .unwrap();
+        audit
+            .log_enhanced(EnhancedAuditEvent::inference_request("u3", "m3", 250.0))
+            .unwrap();
 
         // 过滤持续时间在 60ms - 200ms 之间
-        let filter = EnhancedAuditFilter::new()
-            .with_duration_range(60.0, 200.0);
+        let filter = EnhancedAuditFilter::new().with_duration_range(60.0, 200.0);
         let results = audit.query_enhanced(&filter).unwrap();
 
         assert_eq!(results.len(), 1); // 只有 150ms 符合

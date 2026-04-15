@@ -37,7 +37,7 @@ fn test_parallelism() {
     let parallelism = scheduler.recommended_parallelism();
 
     println!("Parallelism: {}", parallelism);
-    assert!(parallelism >= 0.0 && parallelism <= 1.0);
+    assert!((0.0..=1.0).contains(&parallelism));
 }
 
 #[test]

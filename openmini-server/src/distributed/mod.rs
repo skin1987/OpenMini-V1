@@ -50,34 +50,44 @@
 //! - **完整测试覆盖**: 单元测试+集成测试
 
 // 模块声明
-pub mod config;
 pub mod communication;
+pub mod config;
+pub mod discovery;
+pub mod exo_communication;
+pub mod exo_dynamic_adjuster;
+pub mod exo_parallel_strategy;
 pub mod router;
 pub mod tp;
 
 // 公共导出
-pub use config::{
-    CommBackend,
-    DistributedConfig,
-    DistributedError,
-};
-pub use communication::{
-    CollectiveOps,
-    LocalComm,
-    ReduceOp,
-};
+pub use communication::{CollectiveOps, LocalComm, ReduceOp};
+pub use config::{CommBackend, DistributedConfig, DistributedError};
 pub use router::{
-    DistributedRouter,
-    InferenceRequest,
-    InferenceResponse,
-    LoadBalancingPolicy,
-    WorkerHealth,
-    WorkerId,
-    WorkerStatus,
+    DistributedRouter, InferenceRequest, InferenceResponse, LoadBalancingPolicy, WorkerHealth,
+    WorkerId, WorkerStatus,
 };
-pub use tp::{
-    ParallelType,
-    TensorParallelManager,
+pub use tp::{ParallelType, TensorParallelManager};
+
+pub use exo_communication::{
+    CommunicationConfig, CommunicationError, CommunicationLatencyStats, CommunicationTuningParams,
+    DeviceCapabilities, DeviceType, ExoBackendType, ExoCommunicationBackend,
+    ExoCommunicationManager, LinkType, NetworkDevice, NetworkLink, NetworkTopology,
+    PerformanceStats,
+};
+
+pub use discovery::{
+    DeviceInfo, DeviceResources, DeviceState, DeviceVersion, DiscoveryBackend,
+    DiscoveryBackendType, DiscoveryConfig, DiscoveryError, DiscoveryEvent, DiscoveryStats,
+    ExoDeviceDiscovery, PeerRegistry, TopologyManager,
+};
+
+pub use exo_parallel_strategy::{
+    DeviceRole, DeviceTopology, ExoParallelStrategyEngine, ParallelStrategyDecision,
+    StrategyConfig, StrategyError,
+};
+
+pub use exo_dynamic_adjuster::{
+    AdjustmentDecision, BottleneckType, ExoDynamicAdjuster, PerformanceMetrics,
 };
 
 #[cfg(test)]
@@ -101,8 +111,7 @@ mod integration_tests {
         assert_eq!(tp.world_size(), 2);
 
         // 创建输入和权重
-        let input: Array2<f32> =
-            Array::from_shape_fn((4, 8), |(i, j)| ((i * 8 + j) as f32) * 0.1);
+        let input: Array2<f32> = Array::from_shape_fn((4, 8), |(i, j)| ((i * 8 + j) as f32) * 0.1);
         let weight: Array2<f32> =
             Array::from_shape_fn((8, 16), |(i, j)| (i * 16 + j) as f32 * 0.01);
 
@@ -204,19 +213,12 @@ mod integration_tests {
         // RoundRobin策略
         let mut rr_router = DistributedRouter::new(num_workers, LoadBalancingPolicy::RoundRobin);
         let rr_selections: Vec<WorkerId> = (0..8)
-            .map(|_| {
-                rr_router
-                    .dispatch(create_test_request())
-                    .unwrap()
-            })
+            .map(|_| rr_router.dispatch(create_test_request()).unwrap())
             .collect();
 
         // 验证轮询分布
         for i in 0..8 {
-            assert_eq!(
-                rr_selections[i],
-                WorkerId(i % num_workers)
-            );
+            assert_eq!(rr_selections[i], WorkerId(i % num_workers));
         }
 
         // LeastLoaded策略
@@ -309,10 +311,7 @@ mod integration_tests {
         comm0.all_gather(&local_data, &mut global_data).unwrap();
 
         // 验证gather结果
-        assert_eq!(
-            global_data,
-            vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
-        );
+        assert_eq!(global_data, vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
     }
 
     /// 辅助函数：创建测试请求
@@ -321,11 +320,7 @@ mod integration_tests {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        InferenceRequest::new(
-            format!("test_{}", id),
-            vec![1, 2, 3],
-            100,
-        )
+        InferenceRequest::new(format!("test_{}", id), vec![1, 2, 3], 100)
     }
 
     /// 测试错误处理的完整性
@@ -353,7 +348,9 @@ mod integration_tests {
 
         // 测试all_gather大小不匹配
         let mut wrong_size_global = vec![0.0f32; 99]; // 错误的大小
-        assert!(comm.all_gather(&[1.0, 2.0], &mut wrong_size_global).is_err());
+        assert!(comm
+            .all_gather(&[1.0, 2.0], &mut wrong_size_global)
+            .is_err());
     }
 
     /// 测试边界条件和极端情况
@@ -377,11 +374,8 @@ mod integration_tests {
         let empty_input: Array2<f32> = Array::from_shape_vec((0, 4), vec![]).unwrap();
         let empty_weight: Array2<f32> = Array::from_shape_vec((4, 0), vec![]).unwrap();
         // 空输入/权重的行为取决于实现，这里仅确保不panic
-        let _empty_result = single_tp.parallel_forward(
-            &empty_input,
-            &empty_weight,
-            ParallelType::ColumnParallel,
-        );
+        let _empty_result =
+            single_tp.parallel_forward(&empty_input, &empty_weight, ParallelType::ColumnParallel);
 
         // Router最小配置（1 worker）
         let mut single_router = DistributedRouter::new(1, LoadBalancingPolicy::RoundRobin);

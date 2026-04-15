@@ -47,6 +47,7 @@ pub struct GpuDeviceInfo {
 }
 
 /// GPU 操作 trait
+#[allow(unused_variables)]
 pub trait GpuOps: Send + Sync {
     /// 获取设备信息
     fn device_info(&self) -> &GpuDeviceInfo;
@@ -123,6 +124,53 @@ pub enum GpuBackend {
 impl GpuBackend {
     /// 检测并创建最优 GPU 后端
     pub fn detect() -> Option<Self> {
+        Self::from_target_device("auto")
+    }
+
+    /// 根据目标设备配置创建 GPU 后端
+    ///
+    /// # 参数
+    ///
+    /// - `target_device`: 目标设备字符串，支持 "auto", "cpu", "cuda", "metal", "vulkan"
+    ///
+    /// # 返回值
+    ///
+    /// - `Some(GpuBackend)`: 成功创建后端
+    /// - `None`: 无可用后端或配置为 "cpu"
+    pub fn from_target_device(target_device: &str) -> Option<Self> {
+        match target_device {
+            "cpu" => return None,
+            "cuda" => {
+                #[cfg(feature = "cuda")]
+                {
+                    if let Ok(cuda) = crate::hardware::gpu::cuda::CudaBackend::new() {
+                        return Some(GpuBackend::Cuda(cuda));
+                    }
+                }
+                return None;
+            }
+            "metal" => {
+                #[cfg(all(target_os = "macos", feature = "metal"))]
+                {
+                    if let Ok(metal) = crate::hardware::gpu::metal::MetalBackend::new() {
+                        return Some(GpuBackend::Metal(metal));
+                    }
+                }
+                return None;
+            }
+            "vulkan" => {
+                #[cfg(feature = "vulkan")]
+                {
+                    if let Ok(vulkan) = crate::hardware::gpu::vulkan::VulkanBackend::new() {
+                        return Some(GpuBackend::Vulkan(vulkan));
+                    }
+                }
+                return None;
+            }
+            _ => {} // "auto" 或其他值，继续自动检测
+        }
+
+        // 自动检测逻辑
         #[cfg(all(target_os = "macos", feature = "metal"))]
         {
             if let Ok(metal) = crate::hardware::gpu::metal::MetalBackend::new() {
@@ -166,6 +214,7 @@ impl GpuBackend {
     }
 }
 
+#[allow(unused_variables)]
 impl GpuOps for GpuBackend {
     fn device_info(&self) -> &GpuDeviceInfo {
         match self {
@@ -405,16 +454,24 @@ mod tests {
     fn test_create_gpu_ops_returns_option() {
         // 测试create_gpu_ops工厂方法
         let result = create_gpu_ops();
+        // 注意：测试环境可能没有 GPU，所以结果可能是 None
+        // 这里仅验证函数不 panic
+        let _ = result;
+    }
 
-        // 应该返回Option，不panic
-        match result {
-            Some(_ops) => {
-                // 成功创建GPU操作实例
-            }
-            None => {
-                // 没有可用GPU也是合法的
-            }
-        }
+    #[test]
+    fn test_from_target_device() {
+        // 测试各种目标设备配置
+        let result = GpuBackend::from_target_device("cpu");
+        assert!(result.is_none(), "cpu 配置应该返回 None");
+
+        // 测试auto配置（应该尝试检测所有可用后端）
+        let _auto_result = GpuBackend::from_target_device("auto");
+        // 不检查具体值，因为测试环境可能没有GPU
+
+        // 测试无效配置
+        let _invalid_result = GpuBackend::from_target_device("invalid");
+        // 无效配置应该回退到自动检测
     }
 
     // ==================== 新增测试开始 ====================

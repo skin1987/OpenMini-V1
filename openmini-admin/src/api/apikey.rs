@@ -1,13 +1,16 @@
-use axum::{extract::{Path, Query, State}, Json};
-use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
-use rand::{Rng, thread_rng};
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use chrono::Utc;
+use rand::{thread_rng, Rng};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::Row;
 
+use crate::db::models::ApiKey;
 use crate::error::AppError;
 use crate::AppState;
-use crate::db::models::ApiKey;
 
 #[derive(Deserialize)]
 pub struct PaginatedQuery {
@@ -25,13 +28,20 @@ pub struct PaginatedResponse<T: Serialize> {
 
 fn generate_key() -> (String, String) {
     let mut rng = thread_rng();
-    let raw: String = (0..32).map(|_| {
-        let b = rng.gen::<u8>();
-        if b < 26 { (b'a' + b) as char }
-        else if b < 52 { (b'A' + (b - 26)) as char }
-        else if b < 62 { (b'0' + (b - 52)) as char }
-        else { '_' }
-    }).collect();
+    let raw: String = (0..32)
+        .map(|_| {
+            let b = rng.gen::<u8>();
+            if b < 26 {
+                (b'a' + b) as char
+            } else if b < 52 {
+                (b'A' + (b - 26)) as char
+            } else if b < 62 {
+                (b'0' + (b - 52)) as char
+            } else {
+                '_'
+            }
+        })
+        .collect();
     let _prefix = format!("om-sk_{}", &raw[..8]);
     let hash = Sha256::digest(&raw);
     let hash_hex = hex::encode(hash);
@@ -64,13 +74,11 @@ pub async fn list_apikeys(
     let page = q.page.unwrap_or(1) as i64;
     let size = q.page_size.unwrap_or(20) as i64;
 
-    let rows = sqlx::query(
-        "SELECT * FROM api_keys ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    )
-    .bind(size)
-    .bind((page - 1) * size)
-    .fetch_all(&*state.pool)
-    .await?;
+    let rows = sqlx::query("SELECT * FROM api_keys ORDER BY created_at DESC LIMIT ? OFFSET ?")
+        .bind(size)
+        .bind((page - 1) * size)
+        .fetch_all(&*state.pool)
+        .await?;
 
     let keys: Vec<ApiKey> = rows.into_iter().map(row_to_apikey).collect();
 
@@ -90,7 +98,10 @@ pub async fn create_apikey(
     State(state): State<AppState>,
     Json(req): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let name = req.get("name").and_then(|v| v.as_str()).unwrap_or("default");
+    let name = req
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
     let owner_id = req.get("owner_id").and_then(|v| v.as_i64()).unwrap_or(1);
     let quota_daily = req.get("quota_daily_requests").and_then(|v| v.as_i64());
     let quota_monthly = req.get("quota_monthly_tokens").and_then(|v| v.as_i64());
@@ -119,7 +130,10 @@ pub async fn create_apikey(
     })))
 }
 
-pub async fn delete_apikey(Path(id): Path<i64>, State(state): State<AppState>) -> Result<axum::http::StatusCode, AppError> {
+pub async fn delete_apikey(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<axum::http::StatusCode, AppError> {
     let now = Utc::now().to_rfc3339();
     sqlx::query("UPDATE api_keys SET is_active = 0, revoked_at = ? WHERE id = ?")
         .bind(now)
@@ -129,7 +143,10 @@ pub async fn delete_apikey(Path(id): Path<i64>, State(state): State<AppState>) -
     Ok(axum::http::StatusCode::OK)
 }
 
-pub async fn toggle_apikey(Path(id): Path<i64>, State(state): State<AppState>) -> Result<Json<ApiKey>, AppError> {
+pub async fn toggle_apikey(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<Json<ApiKey>, AppError> {
     let row = sqlx::query(
         "UPDATE api_keys SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ? RETURNING *"
     )
@@ -139,13 +156,16 @@ pub async fn toggle_apikey(Path(id): Path<i64>, State(state): State<AppState>) -
     Ok(Json(row_to_apikey(row)))
 }
 
-pub async fn get_usage(Path(id): Path<i64>, State(state): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+pub async fn get_usage(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
     let row = sqlx::query("SELECT * FROM api_keys WHERE id = ?")
         .bind(id)
         .fetch_optional(&*state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("API Key 不存在".into()))?;
-    
+
     let key = row_to_apikey(row);
 
     Ok(Json(serde_json::json!({
@@ -220,7 +240,10 @@ mod tests {
     async fn create_test_state(pool: &sqlx::SqlitePool) -> AppState {
         AppState {
             pool: Arc::new(pool.clone()),
-            proxy: Arc::new(crate::services::UpstreamProxy::new("http://localhost:8080", 30)),
+            proxy: Arc::new(crate::services::UpstreamProxy::new(
+                "http://localhost:8080",
+                30,
+            )),
             config: crate::config::AdminConfig::default(),
         }
     }
@@ -229,7 +252,7 @@ mod tests {
     async fn create_test_user(pool: &sqlx::SqlitePool) -> i64 {
         let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
         let result = sqlx::query(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)"
+            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
         )
         .bind("testuser")
         .bind("test@test.com")
@@ -250,8 +273,12 @@ mod tests {
 
         let response = list_apikeys(
             State(state),
-            Query(PaginatedQuery { page: Some(1), page_size: Some(20) })
-        ).await;
+            Query(PaginatedQuery {
+                page: Some(1),
+                page_size: Some(20),
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -263,11 +290,11 @@ mod tests {
     async fn test_list_apikeys_with_data() {
         let pool = init_test_pool().await;
         let owner_id = create_test_user(&pool).await;
-        
+
         // 插入几个 API keys
         for i in 0..3 {
             sqlx::query(
-                "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)"
+                "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)",
             )
             .bind(format!("om-sk_test{}", i))
             .bind(format!("hash_{}", i))
@@ -281,8 +308,12 @@ mod tests {
         let state = create_test_state(&pool).await;
         let response = list_apikeys(
             State(state),
-            Query(PaginatedQuery { page: Some(1), page_size: Some(20) })
-        ).await;
+            Query(PaginatedQuery {
+                page: Some(1),
+                page_size: Some(20),
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -298,7 +329,7 @@ mod tests {
         // 插入 5 个 API keys
         for i in 0..5 {
             sqlx::query(
-                "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)"
+                "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)",
             )
             .bind(format!("om-sk_page{}", i))
             .bind(format!("page_hash_{}", i))
@@ -313,8 +344,12 @@ mod tests {
         let state = create_test_state(&pool).await;
         let response = list_apikeys(
             State(state),
-            Query(PaginatedQuery { page: Some(1), page_size: Some(2) })
-        ).await;
+            Query(PaginatedQuery {
+                page: Some(1),
+                page_size: Some(2),
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -330,7 +365,7 @@ mod tests {
 
         // 只插入 1 个 key
         sqlx::query(
-            "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)"
+            "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)",
         )
         .bind("om-sk_single")
         .bind("single_hash")
@@ -344,8 +379,12 @@ mod tests {
         let state = create_test_state(&pool).await;
         let response = list_apikeys(
             State(state),
-            Query(PaginatedQuery { page: Some(100), page_size: Some(20) })
-        ).await;
+            Query(PaginatedQuery {
+                page: Some(100),
+                page_size: Some(20),
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
@@ -361,13 +400,17 @@ mod tests {
         // 使用默认参数（None）
         let response = list_apikeys(
             State(state),
-            Query(PaginatedQuery { page: None, page_size: None })
-        ).await;
+            Query(PaginatedQuery {
+                page: None,
+                page_size: None,
+            }),
+        )
+        .await;
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert_eq!(json.page, 1);  // 默认第 1 页
-        assert_eq!(json.page_size, 20);  // 默认每页 20 条
+        assert_eq!(json.page, 1); // 默认第 1 页
+        assert_eq!(json.page_size, 20); // 默认每页 20 条
     }
 
     // ==================== create_apikey 测试 ====================
@@ -389,10 +432,13 @@ mod tests {
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("test-api-key"));
-        assert!(json.get("key").is_some());  // 应该返回完整的密钥
+        assert_eq!(
+            json.get("name").and_then(|v| v.as_str()),
+            Some("test-api-key")
+        );
+        assert!(json.get("key").is_some()); // 应该返回完整的密钥
         assert!(json.get("prefix").is_some());
-        
+
         // 验证密钥格式
         if let Some(key) = json.get("key").and_then(|v| v.as_str()) {
             assert!(key.starts_with("om-sk_"), "Key should start with om-sk_");
@@ -413,7 +459,7 @@ mod tests {
 
         assert!(response.is_ok());
         let json = response.unwrap();
-        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("default"));  // 默认名称
+        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("default")); // 默认名称
     }
 
     #[tokio::test]
@@ -458,7 +504,10 @@ mod tests {
 
         // 第二次创建也应该成功（因为每次生成的 key 是唯一的）
         let response2 = create_apikey(State(state), Json(request)).await;
-        assert!(response2.is_ok(), "Should be able to create multiple keys with same name");
+        assert!(
+            response2.is_ok(),
+            "Should be able to create multiple keys with same name"
+        );
     }
 
     // ==================== delete_apikey 测试 ====================
@@ -470,7 +519,7 @@ mod tests {
 
         // 先创建一个 API key
         let result = sqlx::query(
-            "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)"
+            "INSERT INTO api_keys (key_prefix, key_hash, name, owner_id) VALUES (?, ?, ?, ?)",
         )
         .bind("om-sk_todelete")
         .bind("delete_hash")
@@ -592,10 +641,19 @@ mod tests {
         assert!(response.is_ok());
         let json = response.unwrap();
         assert_eq!(json.get("key_id").and_then(|v| v.as_i64()), Some(key_id));
-        assert_eq!(json.get("used_today_requests").and_then(|v| v.as_i64()), Some(50));
-        assert_eq!(json.get("used_month_tokens").and_then(|v| v.as_i64()), Some(5000));
+        assert_eq!(
+            json.get("used_today_requests").and_then(|v| v.as_i64()),
+            Some(50)
+        );
+        assert_eq!(
+            json.get("used_month_tokens").and_then(|v| v.as_i64()),
+            Some(5000)
+        );
         assert_eq!(json.get("quota_daily").and_then(|v| v.as_i64()), Some(1000));
-        assert_eq!(json.get("quota_monthly").and_then(|v| v.as_i64()), Some(100000));
+        assert_eq!(
+            json.get("quota_monthly").and_then(|v| v.as_i64()),
+            Some(100000)
+        );
     }
 
     #[tokio::test]
@@ -619,12 +677,15 @@ mod tests {
         let (raw_key, hash) = generate_key();
 
         // 验证 raw key 格式
-        assert!(raw_key.starts_with("om-sk_"), "Raw key should start with om-sk_");
+        assert!(
+            raw_key.starts_with("om-sk_"),
+            "Raw key should start with om-sk_"
+        );
         assert!(raw_key.len() > 10, "Raw key should be sufficiently long");
 
         // 验证 hash 格式（SHA256 hex 编码应该是 64 字符）
         assert_eq!(hash.len(), 64, "Hash should be 64 characters (SHA256 hex)");
-        
+
         // 验证 hash 只包含十六进制字符
         for c in hash.chars() {
             assert!(
@@ -650,7 +711,7 @@ mod tests {
 
         // prefix 应该是 raw_key 的前缀 + 前 8 个字符
         let _expected_prefix = format!("om-sk_{}", &raw_key[7..15]); // 跳过 "om-sk_" 后取 8 字符
-        
+
         // 从代码逻辑看，prefix 格式是 "om-sk_" + raw_key[8..16]（跳过 "om-sk_" 后的前 8 个字符）
         // 实际上根据代码：let prefix = format!("om-sk_{}", &raw_key[..8]);
         // 这里 raw_key 已经包含 "om-sk_" 前缀，所以 &raw_key[..8] 就是 "om-sk_ab"
@@ -670,22 +731,25 @@ mod tests {
         for i in 0..5 {
             let pool_clone = pool.clone();
             let handle = tokio::spawn(async move {
-                let state = create_test_state(&pool_clone).await;
+                let _state = create_test_state(&pool_clone).await;
                 let request = serde_json::json!({
                     "name": format!("concurrent-key-{}", i),
                     "owner_id": owner_id
                 });
-                
+
                 // 由于并发可能导致竞争条件，我们用 retry 机制
                 let mut attempts = 0;
-                    loop {
-                        attempts += 1;
-                        let state_inner = create_test_state(&pool_clone).await;
+                loop {
+                    attempts += 1;
+                    let state_inner = create_test_state(&pool_clone).await;
                     match create_apikey(State(state_inner), Json(request.clone())).await {
                         Ok(_) => return true,
                         Err(e) => {
                             if attempts > 3 {
-                                panic!("Failed to create API key after {} attempts: {:?}", attempts, e);
+                                panic!(
+                                    "Failed to create API key after {} attempts: {:?}",
+                                    attempts, e
+                                );
                             }
                             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                         }

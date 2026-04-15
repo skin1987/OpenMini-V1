@@ -1,4 +1,3 @@
-
 /// 监控模块集成测试
 ///
 /// 验证 Prometheus 指标导出、Health Check 端点、敏感数据脱敏等功能。
@@ -9,8 +8,8 @@
 
 #[cfg(test)]
 mod prometheus_metrics_tests {
-    use std::time::Duration;
     use openmini_server::monitoring::business_metrics::*;
+    use std::time::Duration;
 
     #[test]
     fn test_inference_tokens_total_counter_exists() {
@@ -28,7 +27,10 @@ mod prometheus_metrics_tests {
         let counter = inference_tokens_total();
         let labeled_counter = counter.with_label_values(&["test-model", "success"]);
         let value = labeled_counter.get();
-        assert_eq!(value, 100, "Should record 100 tokens for successful inference");
+        assert_eq!(
+            value, 100,
+            "Should record 100 tokens for successful inference"
+        );
     }
 
     #[test]
@@ -103,10 +105,7 @@ mod sensitive_data_filter_tests {
         let input = "api_key=sk-proj-abcdefghijklmnopqrstuvwxyz123456";
         let output = mask_sensitive_data(input);
 
-        assert!(
-            !output.contains("sk-proj"),
-            "API key should be masked"
-        );
+        assert!(!output.contains("sk-proj"), "API key should be masked");
         assert!(
             output.contains("***MASKED***"),
             "Should contain masked placeholder"
@@ -126,7 +125,10 @@ mod sensitive_data_filter_tests {
         let input = "{\"password\": \"my_secret_password\"}";
         let output = mask_sensitive_data(input);
 
-        assert!(!output.contains("my_secret_password"), "Password should be masked");
+        assert!(
+            !output.contains("my_secret_password"),
+            "Password should be masked"
+        );
     }
 
     #[test]
@@ -134,7 +136,10 @@ mod sensitive_data_filter_tests {
         let input = "card_number=4111111111111111";
         let output = mask_sensitive_data(input);
 
-        assert!(!output.contains("4111111111111111"), "Credit card should be masked");
+        assert!(
+            !output.contains("4111111111111111"),
+            "Credit card should be masked"
+        );
     }
 
     #[test]

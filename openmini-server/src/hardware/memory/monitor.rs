@@ -202,8 +202,18 @@ impl MemoryMonitor {
 
     pub fn check_pressure(&self) -> MemoryPressure {
         let percent = self.usage_percent();
-        let critical = self.critical_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_CRITICAL_THRESHOLD);
-        let warning = self.warning_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_WARNING_THRESHOLD);
+        let critical = self
+            .critical_threshold
+            .read()
+            .ok()
+            .map(|r| *r)
+            .unwrap_or(DEFAULT_CRITICAL_THRESHOLD);
+        let warning = self
+            .warning_threshold
+            .read()
+            .ok()
+            .map(|r| *r)
+            .unwrap_or(DEFAULT_WARNING_THRESHOLD);
 
         if percent >= critical {
             MemoryPressure::Critical
@@ -227,7 +237,12 @@ impl MemoryMonitor {
 
     fn trigger_callbacks(&self, old_usage: usize, new_usage: usize) {
         let current_percent = self.usage_percent();
-        let warning = self.warning_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_WARNING_THRESHOLD);
+        let warning = self
+            .warning_threshold
+            .read()
+            .ok()
+            .map(|r| *r)
+            .unwrap_or(DEFAULT_WARNING_THRESHOLD);
 
         if current_percent >= warning {
             if let Ok(callbacks) = self.callbacks.read() {
@@ -263,7 +278,10 @@ impl MemoryMonitor {
         let avg_percent: f64 = history.iter().sum::<f64>() / history.len() as f64;
         let max_percent = history.iter().cloned().fold(0.0_f64, f64::max);
 
-        if let (Ok(mut warning), Ok(mut critical)) = (self.warning_threshold.write(), self.critical_threshold.write()) {
+        if let (Ok(mut warning), Ok(mut critical)) = (
+            self.warning_threshold.write(),
+            self.critical_threshold.write(),
+        ) {
             if avg_percent > 60.0 {
                 *warning = (avg_percent + 10.0).min(85.0);
                 *critical = (max_percent + 5.0).min(95.0);
@@ -275,7 +293,11 @@ impl MemoryMonitor {
     }
 
     pub fn warning_threshold(&self) -> f64 {
-        self.warning_threshold.read().ok().map(|r| *r).unwrap_or(DEFAULT_WARNING_THRESHOLD)
+        self.warning_threshold
+            .read()
+            .ok()
+            .map(|r| *r)
+            .unwrap_or(DEFAULT_WARNING_THRESHOLD)
     }
 
     pub fn critical_threshold(&self) -> f64 {

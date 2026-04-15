@@ -14,12 +14,12 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
-use crate::training::config::TrainingConfig14B;
 use crate::training::checkpoint::{
-    CheckpointManager, CheckpointData, SaveStrategy, CheckpointError,
+    CheckpointData, CheckpointError, CheckpointManager, SaveStrategy,
 };
+use crate::training::config::TrainingConfig14B;
 use crate::training::pipeline::{TrainingMetrics, TrainingPhase};
+use serde::{Deserialize, Serialize};
 
 // ==================== Step 级别指标 ====================
 
@@ -237,9 +237,13 @@ impl<T: Clone> RingBuffer<T> {
         result
     }
 
-    fn len(&self) -> usize { self.count }
+    fn len(&self) -> usize {
+        self.count
+    }
 
-    fn is_empty(&self) -> bool { self.count == 0 }
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
 }
 
 // ==================== 主监控器结构 ====================
@@ -306,7 +310,10 @@ impl TrainingMonitor14B {
     /// # 参数
     /// - `config`: 14B 完整训练配置
     /// - `history_capacity`: 历史记录最大容量
-    pub fn new(config: TrainingConfig14B, history_capacity: usize) -> Result<Self, CheckpointError> {
+    pub fn new(
+        config: TrainingConfig14B,
+        history_capacity: usize,
+    ) -> Result<Self, CheckpointError> {
         let checkpoint_manager = CheckpointManager::new(
             config.checkpoint.output_dir.clone(),
             match config.checkpoint.save_strategy.as_str() {
@@ -315,7 +322,8 @@ impl TrainingMonitor14B {
                 _ => SaveStrategy::Steps(config.training.save_steps as u64),
             },
             config.checkpoint.save_total_limit,
-        ).ok(); // 允许创建失败（延迟初始化）
+        )
+        .ok(); // 允许创建失败（延迟初始化）
 
         Ok(Self {
             history: RingBuffer::new(history_capacity),
@@ -370,9 +378,7 @@ impl TrainingMonitor14B {
         };
 
         // 计算当前损失
-        let current_loss = recent.last()
-            .map(|m| m.loss as f32)
-            .unwrap_or(0.0);
+        let current_loss = recent.last().map(|m| m.loss as f32).unwrap_or(0.0);
 
         // 计算平均吞吐量
         let avg_throughput = if recent.is_empty() {
@@ -382,7 +388,8 @@ impl TrainingMonitor14B {
         };
 
         // 计算当前学习率
-        let current_lr = recent.last()
+        let current_lr = recent
+            .last()
             .map(|m| m.learning_rate as f32)
             .unwrap_or(self.config.training.learning_rate as f32);
 
@@ -476,9 +483,11 @@ impl TrainingMonitor14B {
         let sum_loss: f64 = records.iter().map(|r| r.loss).sum();
         let mean_loss = sum_loss / n;
 
-        let var_loss: f64 = records.iter()
+        let var_loss: f64 = records
+            .iter()
             .map(|r| (r.loss - mean_loss).powi(2))
-            .sum::<f64>() / n;
+            .sum::<f64>()
+            / n;
         let std_loss = var_loss.sqrt();
 
         let mean_lr: f64 = records.iter().map(|r| r.learning_rate).sum::<f64>() / n;
@@ -486,19 +495,32 @@ impl TrainingMonitor14B {
         let mean_throughput: f64 = records.iter().map(|r| r.tokens_per_sec).sum::<f64>() / n;
 
         let min_loss = records.iter().map(|r| r.loss).fold(f64::INFINITY, f64::min);
-        let max_loss = records.iter().map(|r| r.loss).fold(f64::NEG_INFINITY, f64::max);
+        let max_loss = records
+            .iter()
+            .map(|r| r.loss)
+            .fold(f64::NEG_INFINITY, f64::max);
 
         // 趋势检测
         let trend = if records.len() >= 2 {
-            let first_half_mean: f64 = records[..records.len()/2].iter()
-                .map(|r| r.loss).sum::<f64>() / (records.len()/2) as f64;
-            let second_half_mean: f64 = records[records.len()/2..].iter()
-                .map(|r| r.loss).sum::<f64>() / records.len().div_ceil(2) as f64;
+            let first_half_mean: f64 = records[..records.len() / 2]
+                .iter()
+                .map(|r| r.loss)
+                .sum::<f64>()
+                / (records.len() / 2) as f64;
+            let second_half_mean: f64 = records[records.len() / 2..]
+                .iter()
+                .map(|r| r.loss)
+                .sum::<f64>()
+                / records.len().div_ceil(2) as f64;
 
             let diff = first_half_mean - second_half_mean;
-            if diff > 0.01 { TrendDirection::Decreasing }
-            else if diff < -0.01 { TrendDirection::Increasing }
-            else { TrendDirection::Stable }
+            if diff > 0.01 {
+                TrendDirection::Decreasing
+            } else if diff < -0.01 {
+                TrendDirection::Increasing
+            } else {
+                TrendDirection::Stable
+            }
         } else {
             TrendDirection::Stable
         };
@@ -532,12 +554,11 @@ impl TrainingMonitor14B {
             return None;
         }
 
-        let avg_time: f64 = recent.iter()
-            .map(|r| r.step_time_ms)
-            .sum::<f64>() / recent.len() as f64;
+        let avg_time: f64 =
+            recent.iter().map(|r| r.step_time_ms).sum::<f64>() / recent.len() as f64;
 
         let latest_step = recent.last()?.global_step;
-        let remaining = (self.total_steps as u64).saturating_sub(latest_step as u64);
+        let remaining = (self.total_steps as u64).saturating_sub(latest_step);
         Some(avg_time * remaining as f64 / 1000.0)
     }
 
@@ -620,10 +641,7 @@ impl TrainingMonitor14B {
     }
 
     /// 保存 Checkpoint 数据
-    pub fn save_checkpoint_data(
-        &mut self,
-        val_loss: f64,
-    ) -> Result<PathBuf, CheckpointError> {
+    pub fn save_checkpoint_data(&mut self, val_loss: f64) -> Result<PathBuf, CheckpointError> {
         if let Some(ref mut mgr) = self.checkpoint_manager {
             let data = CheckpointData {
                 epoch: self.current_epoch,
@@ -636,7 +654,9 @@ impl TrainingMonitor14B {
             self.mark_checkpoint_saved();
             Ok(path)
         } else {
-            Err(CheckpointError::Other("Checkpoint manager not initialized".to_string()))
+            Err(CheckpointError::Other(
+                "Checkpoint manager not initialized".to_string(),
+            ))
         }
     }
 
@@ -651,7 +671,6 @@ impl TrainingMonitor14B {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn create_sample_metrics(step: u64) -> StepMetrics {
         StepMetrics {
@@ -673,12 +692,12 @@ mod tests {
     #[test]
     fn test_ring_buffer_basic_operations() {
         let mut buf: RingBuffer<i32> = RingBuffer::new(3);
-        
+
         buf.push(1);
         buf.push(2);
         buf.push(3);
         buf.push(4); // 应该覆盖第一个元素
-        
+
         assert_eq!(buf.len(), 3);
         let latest = buf.latest(2);
         assert_eq!(latest, vec![4, 3]); // 最新的在前

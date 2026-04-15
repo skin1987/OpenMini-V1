@@ -391,7 +391,11 @@ impl LongCatMoE {
     /// ```ignore
     /// let output = longcat.forward(&input, 8192)?;
     /// ```
-    pub fn forward(&mut self, hidden_states: &Array2<f32>, seq_len: usize) -> InferenceResult<Array2<f32>> {
+    pub fn forward(
+        &mut self,
+        hidden_states: &Array2<f32>,
+        seq_len: usize,
+    ) -> InferenceResult<Array2<f32>> {
         let batch_size = hidden_states.shape()[0];
         let is_long_context = seq_len >= self.config.long_context_threshold;
 
@@ -418,17 +422,15 @@ impl LongCatMoE {
                     base_alpha,
                     base_beta,
                     max_ratio,
-                } => {
-                    let adaptive_weights =
-                        self.adaptive_fusion_weights(seq_len, *base_alpha, *base_beta, *max_ratio);
-                    adaptive_weights
-                }
+                } => self.adaptive_fusion_weights(seq_len, *base_alpha, *base_beta, *max_ratio),
                 FusionStrategy::Learned { gate_hidden_dim } => {
                     self.learned_fusion_weights(hidden_states, *gate_hidden_dim)?
                 }
             };
 
-            let fused_output = self.fusion_layer.fuse(&main_output, &aux_output, Some(alpha), Some(beta))?;
+            let fused_output =
+                self.fusion_layer
+                    .fuse(&main_output, &aux_output, Some(alpha), Some(beta))?;
             self.stats.fusion_time_us += start_fusion.elapsed().as_micros() as u64;
 
             Ok(fused_output)
@@ -530,14 +532,15 @@ impl LongCatMoE {
 
         // 初始化主分支专家
         for (i, weights) in expert_weights.iter().enumerate().take(config.num_experts) {
-            longcat
-                .main_branch
-                .set_expert_weights(i, weights.clone())?;
+            longcat.main_branch.set_expert_weights(i, weights.clone())?;
         }
 
         // 辅助分支使用部分主分支权重的子集（简化处理）
-        for i in 0..config.aux_num_experts.min(config.num_experts) {
-            let main_weights = &expert_weights[i];
+        for (i, main_weights) in expert_weights
+            .iter()
+            .enumerate()
+            .take(config.aux_num_experts.min(config.num_experts))
+        {
             let aux_weights = ExpertWeights {
                 gate_proj: main_weights.gate_proj.clone(),
                 up_proj: main_weights.up_proj.clone(),
@@ -720,7 +723,8 @@ impl MainBranch {
                 let mut expert_scores: Vec<(usize, f32)> =
                     logits.iter().copied().enumerate().collect();
 
-                expert_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                expert_scores
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 // 取 Top-K 并应用 softmax
                 let topk_scores: Vec<f32> = expert_scores.iter().take(k).map(|(_, s)| *s).collect();
@@ -797,7 +801,8 @@ impl MainBranch {
                 }
 
                 // 构建专家输入
-                let mut expert_input = Array2::<f32>::zeros((tokens_for_expert.len(), x.shape()[1]));
+                let mut expert_input =
+                    Array2::<f32>::zeros((tokens_for_expert.len(), x.shape()[1]));
                 for (i, &(token_idx, _)) in tokens_for_expert.iter().enumerate() {
                     expert_input.row_mut(i).assign(&x.row(token_idx));
                 }
@@ -833,7 +838,11 @@ impl MainBranch {
     }
 
     /// 设置指定专家的权重
-    pub fn set_expert_weights(&mut self, expert_idx: usize, weights: ExpertWeights) -> InferenceResult<()> {
+    pub fn set_expert_weights(
+        &mut self,
+        expert_idx: usize,
+        weights: ExpertWeights,
+    ) -> InferenceResult<()> {
         if expert_idx >= self.experts.len() {
             return Err(InferenceError::config(format!(
                 "Expert index {} out of range (0-{})",
@@ -985,7 +994,7 @@ impl AuxiliaryBranch {
                 if expert_idx < self.experts.len() {
                     expert_token_groups
                         .entry(expert_idx)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(token_idx);
                 }
             }
@@ -1014,7 +1023,9 @@ impl AuxiliaryBranch {
             if let Some(expert_output) = expert_outputs.get(&expert_idx) {
                 for (local_idx, &token_idx) in token_indices.iter().enumerate() {
                     if local_idx < expert_output.shape()[0] {
-                        output.row_mut(token_idx).assign(&expert_output.row(local_idx));
+                        output
+                            .row_mut(token_idx)
+                            .assign(&expert_output.row(local_idx));
                     }
                 }
             }
@@ -1024,7 +1035,11 @@ impl AuxiliaryBranch {
     }
 
     /// 设置指定专家的权重
-    pub fn set_expert_weights(&mut self, expert_idx: usize, weights: ExpertWeights) -> InferenceResult<()> {
+    pub fn set_expert_weights(
+        &mut self,
+        expert_idx: usize,
+        weights: ExpertWeights,
+    ) -> InferenceResult<()> {
         if expert_idx >= self.experts.len() {
             return Err(InferenceError::config(format!(
                 "Auxiliary expert index {} out of range (0-{})",
@@ -1092,9 +1107,7 @@ impl ExpertFFN {
     /// 创建新的标准专家
     pub fn new(hidden_dim: usize, ffn_dim: usize) -> InferenceResult<Self> {
         if hidden_dim == 0 || ffn_dim == 0 {
-            return Err(InferenceError::config(
-                "Expert dimensions must be positive",
-            ));
+            return Err(InferenceError::config("Expert dimensions must be positive"));
         }
 
         // Xavier 初始化
@@ -1504,15 +1517,11 @@ impl LinearLayer {
 
         if let Some(ref bias) = self.bias {
             let mut biased = output;
-            biased
-                .axis_iter_mut(Axis(0))
-                .for_each(|mut row| {
-                    row.iter_mut()
-                        .zip(bias.iter())
-                        .for_each(|(val, &b)| {
-                            *val += b;
-                        });
+            biased.axis_iter_mut(Axis(0)).for_each(|mut row| {
+                row.iter_mut().zip(bias.iter()).for_each(|(val, &b)| {
+                    *val += b;
                 });
+            });
             Ok(biased)
         } else {
             Ok(output)
@@ -1583,7 +1592,10 @@ fn sigmoid(x: f32) -> f32 {
 /// 矩阵乘法: C = A @ B^T
 ///
 /// A: [M, K], B: [N, K] -> C: [M, N]
-fn matmul<S1, S2>(a: &ndarray::ArrayBase<S1, ndarray::Ix2>, b: &ndarray::ArrayBase<S2, ndarray::Ix2>) -> InferenceResult<Array2<f32>>
+fn matmul<S1, S2>(
+    a: &ndarray::ArrayBase<S1, ndarray::Ix2>,
+    b: &ndarray::ArrayBase<S2, ndarray::Ix2>,
+) -> InferenceResult<Array2<f32>>
 where
     S1: ndarray::Data<Elem = f32>,
     S2: ndarray::Data<Elem = f32>,
@@ -1603,17 +1615,15 @@ where
     c.axis_iter_mut(Axis(0))
         .enumerate()
         .for_each(|(i, mut row)| {
-            row.iter_mut()
-                .enumerate()
-                .for_each(|(j, val)| {
-                    let dot_product: f32 = a
-                        .row(i)
-                        .iter()
-                        .zip(b.row(j).iter())
-                        .map(|(a_val, b_val)| a_val * b_val)
-                        .sum();
-                    *val = dot_product;
-                });
+            row.iter_mut().enumerate().for_each(|(j, val)| {
+                let dot_product: f32 = a
+                    .row(i)
+                    .iter()
+                    .zip(b.row(j).iter())
+                    .map(|(a_val, b_val)| a_val * b_val)
+                    .sum();
+                *val = dot_product;
+            });
         });
 
     Ok(c)
@@ -1624,9 +1634,7 @@ fn random_matrix(rows: usize, cols: usize, scale: f32) -> Array2<f32> {
     use rand::Rng;
     let mut rng = rand::thread_rng();
 
-    Array2::from_shape_fn((rows, cols), |_| {
-        rng.gen_range(-scale..scale) as f32
-    })
+    Array2::from_shape_fn((rows, cols), |_| rng.gen_range(-scale..scale) as f32)
 }
 
 // ============================================================================
@@ -1842,14 +1850,21 @@ mod tests {
 
         // 权重和应该接近 1.0
         let sum = alpha + beta;
-        assert!((sum - 1.0).abs() < 0.01, "Weights should sum to ~1.0, got {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 0.01,
+            "Weights should sum to ~1.0, got {}",
+            sum
+        );
     }
 
     // ==================== 融合策略测试 ====================
 
     #[test]
     fn test_fixed_fusion_strategy() {
-        let strategy = FusionStrategy::Fixed { alpha: 0.7, beta: 0.3 };
+        let strategy = FusionStrategy::Fixed {
+            alpha: 0.7,
+            beta: 0.3,
+        };
         let display = format!("{}", strategy);
         assert!(display.contains("Fixed"));
         assert!(display.contains("alpha=0.70"));
@@ -1868,7 +1883,9 @@ mod tests {
 
     #[test]
     fn test_learned_fusion_strategy_display() {
-        let strategy = FusionStrategy::Learned { gate_hidden_dim: 256 };
+        let strategy = FusionStrategy::Learned {
+            gate_hidden_dim: 256,
+        };
         let display = format!("{}", strategy);
         assert!(display.contains("Learned"));
     }
@@ -2301,10 +2318,10 @@ mod tests {
         let c = matmul(&a, &b).unwrap();
 
         assert_eq!(c.dim(), (2, 2));
-        assert!((c[[0, 0]] - 1.0).abs() < 1e-5);   // [1,2,3]·[1,0,0] = 1
-        assert!((c[[0, 1]] - 2.0).abs() < 1e-5);   // [1,2,3]·[0,1,0] = 2
-        assert!((c[[1, 0]] - 4.0).abs() < 1e-5);   // [4,5,6]·[1,0,0] = 4
-        assert!((c[[1, 1]] - 5.0).abs() < 1e-5);   // [4,5,6]·[0,1,0] = 5
+        assert!((c[[0, 0]] - 1.0).abs() < 1e-5); // [1,2,3]·[1,0,0] = 1
+        assert!((c[[0, 1]] - 2.0).abs() < 1e-5); // [1,2,3]·[0,1,0] = 2
+        assert!((c[[1, 0]] - 4.0).abs() < 1e-5); // [4,5,6]·[1,0,0] = 4
+        assert!((c[[1, 1]] - 5.0).abs() < 1e-5); // [4,5,6]·[0,1,0] = 5
     }
 
     #[test]
@@ -2347,9 +2364,7 @@ mod benchmarks {
     }
 
     fn create_bench_input(batch: usize, dim: usize) -> Array2<f32> {
-        Array2::from_shape_fn((batch, dim), |(i, j)| {
-            ((i * dim + j) as f32 * 0.001).sin()
-        })
+        Array2::from_shape_fn((batch, dim), |(i, j)| ((i * dim + j) as f32 * 0.001).sin())
     }
 
     #[test]
@@ -2431,13 +2446,14 @@ mod benchmarks {
              - Long sequence (512): {:?}\n\
              - Overhead ratio: {:.2}x\n\
              - Target: <1.02x for short, efficient for long",
-            time_short,
-            time_long,
-            overhead_ratio
+            time_short, time_long, overhead_ratio
         );
 
         // 长序列不应该有显著的额外开销（相对于计算量增加是合理的）
-        assert!(overhead_ratio < 5.0, "Long sequence should not have extreme overhead");
+        assert!(
+            overhead_ratio < 5.0,
+            "Long sequence should not have extreme overhead"
+        );
     }
 
     #[test]
@@ -2457,10 +2473,7 @@ mod benchmarks {
              - Total params: {}\n\
              - Memory overhead: {:.1}%\n\
              - Target: <15%",
-            main_params,
-            aux_params,
-            total_params,
-            overhead_pct
+            main_params, aux_params, total_params, overhead_pct
         );
 
         assert!(
@@ -2494,7 +2507,10 @@ mod benchmarks {
             let elapsed = start.elapsed();
 
             let avg_ms = elapsed.as_secs_f64() * 1000.0 / iterations as f64;
-            println!("  - {} (batch={}, seq={}): {:.3} ms", label, batch, seq_len, avg_ms);
+            println!(
+                "  - {} (batch={}, seq={}): {:.3} ms",
+                label, batch, seq_len, avg_ms
+            );
         }
     }
 }

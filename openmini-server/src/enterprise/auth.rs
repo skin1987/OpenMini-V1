@@ -125,7 +125,7 @@ impl AuthManager {
     /// ```
     pub fn new(config: &AuthConfig) -> Result<Self, AuthError> {
         let provider = if let Some(discovery_url) = &config.oidc_discovery_url {
-            AuthProvider::OIDC {
+            AuthProvider::Oidc {
                 discovery_url: discovery_url.clone(),
                 client_id: config.client_id.clone(),
             }
@@ -218,7 +218,11 @@ impl AuthManager {
         let provider = self.provider.read().unwrap();
 
         match &*provider {
-            AuthProvider::OAuth2 { client_id, issuer_url, .. } => {
+            AuthProvider::OAuth2 {
+                client_id,
+                issuer_url,
+                ..
+            } => {
                 format!(
                     "{}/authorize?response_type=code&client_id={}&redirect_uri=/callback&scope=openid+profile+email&state={}",
                     issuer_url,
@@ -226,7 +230,10 @@ impl AuthManager {
                     urlencoding::encode(state)
                 )
             }
-            AuthProvider::OIDC { discovery_url, client_id } => {
+            AuthProvider::Oidc {
+                discovery_url,
+                client_id,
+            } => {
                 format!(
                     "{}/auth?client_id={}&response_type=code&scope=openid+profile+email&redirect_uri=/callback&state={}",
                     discovery_url,
@@ -272,11 +279,10 @@ impl AuthManager {
         code: &str,
         _state: &str, // TODO: 实际实现中需要验证 state 参数（从 session 中取出并比较）
     ) -> Result<AuthToken, AuthError> {
-
         let provider = self.provider.read().unwrap();
 
         match &*provider {
-            AuthProvider::OAuth2 { .. } | AuthProvider::OIDC { .. } => {
+            AuthProvider::OAuth2 { .. } | AuthProvider::Oidc { .. } => {
                 // TODO: 实际实现需要向 token endpoint 发送 POST 请求
                 // 交换 authorization code 为 access token
 
@@ -382,9 +388,7 @@ impl AuthManager {
                         permissions: vec!["read".to_string()],
                         tenant_id: None,
                     }),
-                    None => Err(AuthError::InvalidToken(
-                        "Invalid API key".to_string(),
-                    )),
+                    None => Err(AuthError::InvalidToken("Invalid API key".to_string())),
                 }
             }
             _ => Err(AuthError::InvalidToken(
@@ -413,14 +417,12 @@ enum AuthProvider {
         issuer_url: String,
     },
     /// OpenID Connect 提供商
-    OIDC {
+    Oidc {
         discovery_url: String,
         client_id: String,
     },
     /// API Key 认证
-    ApiKey {
-        hash_map: HashMap<String, u64>,
-    },
+    ApiKey { hash_map: HashMap<String, u64> },
 }
 
 /// JWT Token 验证器
@@ -445,17 +447,15 @@ impl JwtValidator {
         // 解析 JWT 三部分：header.payload.signature
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
-            return Err(AuthError::InvalidToken(
-                "Invalid JWT format".to_string(),
-            ));
+            return Err(AuthError::InvalidToken("Invalid JWT format".to_string()));
         }
 
         // 解码 payload（Base64URL 解码）
         let payload_bytes =
             base64_url_decode(parts[1]).map_err(|e| AuthError::InvalidToken(e.to_string()))?;
 
-        let payload: JwtPayload =
-            serde_json::from_slice(&payload_bytes).map_err(|e| AuthError::InvalidToken(e.to_string()))?;
+        let payload: JwtPayload = serde_json::from_slice(&payload_bytes)
+            .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
 
         // 检查过期时间
         let now = Utc::now().timestamp() as u64;
@@ -468,15 +468,12 @@ impl JwtValidator {
         }
 
         // 构建认证上下文
-        let user_id = payload.sub.as_ref()
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "unknown".to_string());
-        let username = payload.preferred_username.as_ref()
-            .map(|s| s.clone())
+        let user_id = payload.sub.clone().unwrap_or_else(|| "unknown".to_string());
+        let username = payload
+            .preferred_username
+            .clone()
             .unwrap_or_else(|| user_id.clone());
-        let roles = payload.roles.as_ref()
-            .map(|r| r.clone())
-            .unwrap_or_default();
+        let roles = payload.roles.clone().unwrap_or_default();
 
         Ok(AuthContext {
             user_id,
@@ -489,7 +486,7 @@ impl JwtValidator {
 }
 
 fn base64_url_decode(input: &str) -> Result<Vec<u8>, String> {
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::{engine::general_purpose, Engine as _};
 
     // 补齐 padding
     let pad_len = (4 - input.len() % 4) % 4;
@@ -792,7 +789,11 @@ mod tests {
             user_id: "1".to_string(),
             username: "admin".to_string(),
             roles: vec!["admin".to_string(), "user".to_string()],
-            permissions: vec!["read".to_string(), "write".to_string(), "execute".to_string()],
+            permissions: vec![
+                "read".to_string(),
+                "write".to_string(),
+                "execute".to_string(),
+            ],
             tenant_id: Some("tenant-1".to_string()),
         };
 

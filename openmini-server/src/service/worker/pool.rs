@@ -105,12 +105,21 @@ impl WorkerHandle {
         let last_heartbeat = Arc::new(AtomicU64::new(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map_err(|e| AppError::Worker(WorkerError::CommunicationError(format!("Time error: {}", e))))?
+                .map_err(|e| {
+                    AppError::Worker(WorkerError::CommunicationError(format!(
+                        "Time error: {}",
+                        e
+                    )))
+                })?
                 .as_secs(),
         ));
 
-        let current_exe = std::env::current_exe()
-            .map_err(|e| AppError::Worker(WorkerError::SpawnFailed(format!("Cannot get current exe: {}", e))))?;
+        let current_exe = std::env::current_exe().map_err(|e| {
+            AppError::Worker(WorkerError::SpawnFailed(format!(
+                "Cannot get current exe: {}",
+                e
+            )))
+        })?;
 
         let mut child = Command::new(&current_exe)
             .env("MINICPM_WORKER_ID", id.to_string())
@@ -118,11 +127,27 @@ impl WorkerHandle {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|e| AppError::Worker(WorkerError::SpawnFailed(format!("Failed to spawn worker: {}", e))))?;
+            .map_err(|e| {
+                AppError::Worker(WorkerError::SpawnFailed(format!(
+                    "Failed to spawn worker: {}",
+                    e
+                )))
+            })?;
 
         let pid = child.id();
-        let stdin = child.stdin.take().ok_or(AppError::Worker(WorkerError::CommunicationError("stdin not available".into())))?;
-        let stdout = child.stdout.take().ok_or(AppError::Worker(WorkerError::CommunicationError("stdout not available".into())))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or(AppError::Worker(WorkerError::CommunicationError(
+                "stdin not available".into(),
+            )))?;
+        let stdout =
+            child
+                .stdout
+                .take()
+                .ok_or(AppError::Worker(WorkerError::CommunicationError(
+                    "stdout not available".into(),
+                )))?;
 
         Ok(Self {
             id,
@@ -142,7 +167,12 @@ impl WorkerHandle {
                 .child
                 .lock()
                 .map_err(|_| AppError::Worker(WorkerError::LockPoisoned))
-                .ok().map(|mut guard| guard.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none()))
+                .ok()
+                .map(|mut guard| {
+                    guard
+                        .as_mut()
+                        .is_some_and(|c| c.try_wait().ok().flatten().is_none())
+                })
                 .unwrap_or(false)
     }
 
@@ -159,48 +189,81 @@ impl WorkerHandle {
     /// # 返回
     /// 成功返回任务结果，失败返回错误
     pub fn send_task(&self, task: &Task) -> Result<TaskResult, AppError> {
-        let mut stdin_guard = self.stdin.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
-        let stdin = stdin_guard
-            .as_mut()
-            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdin not available".into())))?;
+        let mut stdin_guard = self
+            .stdin
+            .lock()
+            .map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
+        let stdin =
+            stdin_guard
+                .as_mut()
+                .ok_or(AppError::Worker(WorkerError::CommunicationError(
+                    "stdin not available".into(),
+                )))?;
 
         let task_data = task.serialize();
 
         stdin.write_all(&[WORKER_CMD_TASK]).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to send command: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to send command: {}",
+                e
+            )))
         })?;
         stdin
             .write_all(&(task_data.len() as u32).to_le_bytes())
             .map_err(|e| {
-                AppError::Worker(WorkerError::CommunicationError(format!("Failed to send length: {}", e)))
+                AppError::Worker(WorkerError::CommunicationError(format!(
+                    "Failed to send length: {}",
+                    e
+                )))
             })?;
         stdin.write_all(&task_data).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to send task: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to send task: {}",
+                e
+            )))
         })?;
-        stdin
-            .flush()
-            .map_err(|e| AppError::Worker(WorkerError::CommunicationError(format!("Failed to flush: {}", e))))?;
+        stdin.flush().map_err(|e| {
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to flush: {}",
+                e
+            )))
+        })?;
 
         drop(stdin_guard);
 
-        let mut stdout_guard = self.stdout.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
-        let stdout = stdout_guard
-            .as_mut()
-            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdout not available".into())))?;
+        let mut stdout_guard = self
+            .stdout
+            .lock()
+            .map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
+        let stdout =
+            stdout_guard
+                .as_mut()
+                .ok_or(AppError::Worker(WorkerError::CommunicationError(
+                    "stdout not available".into(),
+                )))?;
 
         let mut len_buf = [0u8; 4];
         stdout.read_exact(&mut len_buf).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to read result length: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to read result length: {}",
+                e
+            )))
         })?;
         let len = u32::from_le_bytes(len_buf) as usize;
 
         let mut result_data = vec![0u8; len];
         stdout.read_exact(&mut result_data).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to read result: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to read result: {}",
+                e
+            )))
         })?;
 
         TaskResult::deserialize(&result_data).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to deserialize result: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to deserialize result: {}",
+                e
+            )))
         })
     }
 
@@ -209,28 +272,49 @@ impl WorkerHandle {
     /// # 返回
     /// 成功返回 Worker 当前状态
     pub fn send_heartbeat(&self) -> Result<u8, AppError> {
-        let mut stdin_guard = self.stdin.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
-        let stdin = stdin_guard
-            .as_mut()
-            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdin not available".into())))?;
+        let mut stdin_guard = self
+            .stdin
+            .lock()
+            .map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
+        let stdin =
+            stdin_guard
+                .as_mut()
+                .ok_or(AppError::Worker(WorkerError::CommunicationError(
+                    "stdin not available".into(),
+                )))?;
 
         stdin.write_all(&[WORKER_CMD_HEARTBEAT]).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to send heartbeat: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to send heartbeat: {}",
+                e
+            )))
         })?;
-        stdin
-            .flush()
-            .map_err(|e| AppError::Worker(WorkerError::CommunicationError(format!("Failed to flush: {}", e))))?;
+        stdin.flush().map_err(|e| {
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to flush: {}",
+                e
+            )))
+        })?;
 
         drop(stdin_guard);
 
-        let mut stdout_guard = self.stdout.lock().map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
-        let stdout = stdout_guard
-            .as_mut()
-            .ok_or(AppError::Worker(WorkerError::CommunicationError("stdout not available".into())))?;
+        let mut stdout_guard = self
+            .stdout
+            .lock()
+            .map_err(|_| AppError::Worker(WorkerError::LockPoisoned))?;
+        let stdout =
+            stdout_guard
+                .as_mut()
+                .ok_or(AppError::Worker(WorkerError::CommunicationError(
+                    "stdout not available".into(),
+                )))?;
 
         let mut resp = [0u8; 1];
         stdout.read_exact(&mut resp).map_err(|e| {
-            AppError::Worker(WorkerError::CommunicationError(format!("Failed to read heartbeat response: {}", e)))
+            AppError::Worker(WorkerError::CommunicationError(format!(
+                "Failed to read heartbeat response: {}",
+                e
+            )))
         })?;
 
         Ok(resp[0])
@@ -421,7 +505,10 @@ impl WorkerPool {
             .workers
             .iter()
             .find(|w| w.id == id)
-            .ok_or(AppError::Worker(WorkerError::CommunicationError(format!("Worker {} not found", id))))?;
+            .ok_or(AppError::Worker(WorkerError::CommunicationError(format!(
+                "Worker {} not found",
+                id
+            ))))?;
 
         worker.kill();
 

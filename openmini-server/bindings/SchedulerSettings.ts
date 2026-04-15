@@ -14,16 +14,4 @@ max_concurrent: number,
 /**
  * 任务队列容量 (超出将返回错误)
  */
-queue_capacity: number, 
-/**
- * 任务类型: "blocking" | "async" | "auto"
- */
-worker_type: string, 
-/**
- * 批处理大小
- */
-batch_size: number, 
-/**
- * 批处理超时 (ms)
- */
-batch_timeout_ms: bigint, };
+queue_capacity: number, };

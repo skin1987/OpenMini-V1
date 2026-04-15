@@ -99,7 +99,11 @@ impl HotReloadManager {
     }
 
     /// 获取或加载模型
-    pub fn get_or_load(&self, model_id: &str, model_path: &Path) -> Result<Arc<ModelInstance>, HotReloadError> {
+    pub fn get_or_load(
+        &self,
+        model_id: &str,
+        model_path: &Path,
+    ) -> Result<Arc<ModelInstance>, HotReloadError> {
         // 先检查活跃模型
         {
             let active = self.active_models.read().unwrap();
@@ -125,7 +129,11 @@ impl HotReloadManager {
     }
 
     /// 加载新模型
-    fn load_model(&self, model_id: &str, model_path: &Path) -> Result<Arc<ModelInstance>, HotReloadError> {
+    fn load_model(
+        &self,
+        model_id: &str,
+        model_path: &Path,
+    ) -> Result<Arc<ModelInstance>, HotReloadError> {
         if !model_path.exists() {
             return Err(HotReloadError::NotFound(format!("{:?}", model_path)));
         }
@@ -134,7 +142,9 @@ impl HotReloadManager {
         {
             let active = self.active_models.read().unwrap();
             if active.len() >= self.config.max_loaded_models && !active.contains_key(model_id) {
-                return Err(HotReloadError::MaxModelsReached(self.config.max_loaded_models));
+                return Err(HotReloadError::MaxModelsReached(
+                    self.config.max_loaded_models,
+                ));
             }
         }
 
@@ -165,7 +175,8 @@ impl HotReloadManager {
     /// 切换到备用模型（原子操作）
     pub fn switch_to_standby(&self, model_id: &str) -> Result<(), HotReloadError> {
         let mut standby = self.standby_models.write().unwrap();
-        let standby_model = standby.remove(model_id)
+        let standby_model = standby
+            .remove(model_id)
             .ok_or_else(|| HotReloadError::NotFound(model_id.to_string()))?;
 
         drop(standby);
@@ -180,7 +191,8 @@ impl HotReloadManager {
     /// 卸载模型
     pub fn unload(&self, model_id: &str) -> Result<(), HotReloadError> {
         let mut active = self.active_models.write().unwrap();
-        active.remove(model_id)
+        active
+            .remove(model_id)
             .ok_or_else(|| HotReloadError::NotFound(model_id.to_string()))?;
 
         Ok(())
@@ -252,7 +264,9 @@ mod tests {
         std::fs::write(&model_path, "standby data").unwrap();
 
         let manager = HotReloadManager::default();
-        manager.preload_standby("standby-model", &model_path).unwrap();
+        manager
+            .preload_standby("standby-model", &model_path)
+            .unwrap();
 
         let status = manager.status();
         assert!(status.is_empty()); // 备用模型不在active列表中
@@ -267,7 +281,9 @@ mod tests {
         let manager = HotReloadManager::default();
 
         // 预加载备用
-        manager.preload_standby("switch-model", &model_path).unwrap();
+        manager
+            .preload_standby("switch-model", &model_path)
+            .unwrap();
 
         // 切换
         manager.switch_to_standby("switch-model").unwrap();

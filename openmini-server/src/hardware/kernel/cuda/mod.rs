@@ -8,9 +8,9 @@
 //! - TPOT < 10ms/token
 //! - Throughput > 100 tokens/s
 
-pub mod memory;
-pub mod matmul;
 pub mod flash_attention;
+pub mod matmul;
+pub mod memory;
 pub mod quant;
 
 // 重新导出常用类型
@@ -103,13 +103,13 @@ impl CudaDevice {
         // 实际值需要考虑架构-specific的优化
         let cores_per_sm = match self.info.compute_capability {
             (8, 0) | (8, 6) | (8, 9) | (9, 0) => 128, // Ampere/Lovelace/Hopper
-            (7, 0) | (7, 5) => 64,                      // Volta/Turing
+            (7, 0) | (7, 5) => 64,                    // Volta/Turing
             _ => 64,
         };
-        
+
         let cores = cores_per_sm as f64 * self.info.multiprocessor_count as f64;
         let clock_ghz = self.info.clock_rate_khz as f64 / 1e6;
-        
+
         // 假设FMA操作，每周期2 FLOPS
         cores * clock_ghz * 2.0 / 1000.0
     }
@@ -123,7 +123,7 @@ impl CudaDevice {
             (7, 0) | (7, 5) => 352, // V100/TITAN V
             _ => 256,
         };
-        
+
         let freq_hz = self.info.memory_clock_rate_khz as f64 * 1000.0;
         (bus_width as f64 / 8.0) * (freq_hz / 1e9) * 2.0 // DDR
     }
@@ -154,26 +154,22 @@ impl CudaContext {
 
         // 获取可用设备列表
         let devices = Self::devices_internal()?;
-        
+
         if devices.is_empty() {
             return Err(CudaError::DriverNotAvailable);
         }
 
         // 选择目标设备
         let target_device = if let Some(id) = device_id {
-            devices.into_iter()
+            devices
+                .into_iter()
                 .find(|d| d.id == id)
                 .ok_or(CudaError::DeviceNotFound { device_id: id })?
         } else {
             // 自动选择：优先选择显存最大、计算能力最高的设备
-            devices.into_iter()
-                .max_by_key(|d| {
-                    (
-                        d.total_memory,
-                        d.compute_capacity_score(),
-                        d.free_memory,
-                    )
-                })
+            devices
+                .into_iter()
+                .max_by_key(|d| (d.total_memory, d.compute_capacity_score(), d.free_memory))
                 .expect("已验证devices非空")
         };
 
@@ -205,7 +201,7 @@ impl CudaContext {
         {
             Self::enumerate_cuda_devices()
         }
-        
+
         // 回退到模拟模式（用于开发和测试）
         #[cfg(not(feature = "cuda-native"))]
         {
@@ -217,16 +213,16 @@ impl CudaContext {
     #[cfg(feature = "cuda-native")]
     fn enumerate_cuda_devices() -> Result<Vec<CudaDeviceInfo>, CudaError> {
         use cudarc::driver::CudaDevice;
-        
-        let num_devices = cudarc::driver::result::device_count()
-            .map_err(|_| CudaError::DriverNotAvailable)?;
-        
+
+        let num_devices =
+            cudarc::driver::result::device_count().map_err(|_| CudaError::DriverNotAvailable)?;
+
         let mut devices = Vec::with_capacity(num_devices as usize);
-        
+
         for i in 0..num_devices {
             let props = cudarc::driver::result::get_device_properties(i)
                 .map_err(|_| CudaError::DeviceNotFound { device_id: i })?;
-            
+
             devices.push(CudaDeviceInfo {
                 id: i,
                 name: props.name.to_string(),
@@ -241,7 +237,7 @@ impl CudaContext {
                 shared_memory_per_block: props.shared_mem_per_block,
             });
         }
-        
+
         Ok(devices)
     }
 
@@ -249,22 +245,20 @@ impl CudaContext {
     #[cfg(not(feature = "cuda-native"))]
     fn mock_devices() -> Result<Vec<CudaDeviceInfo>, CudaError> {
         log::warn!("CUDA不可用，使用模拟设备模式");
-        
-        Ok(vec![
-            CudaDeviceInfo {
-                id: 0,
-                name: "NVIDIA GeForce RTX 4090".to_string(),
-                total_memory: 24 * 1024 * 1024 * 1024, // 24GB
-                free_memory: 20 * 1024 * 1024 * 1024,
-                compute_capability: (8, 9),
-                max_threads_per_block: 1024,
-                multiprocessor_count: 128,
-                clock_rate_khz: 2520000,
-                memory_clock_rate_khz: 21000,
-                l2_cache_size: 72 * 1024 * 1024,
-                shared_memory_per_block: 228 * 1024,
-            }
-        ])
+
+        Ok(vec![CudaDeviceInfo {
+            id: 0,
+            name: "NVIDIA GeForce RTX 4090".to_string(),
+            total_memory: 24 * 1024 * 1024 * 1024, // 24GB
+            free_memory: 20 * 1024 * 1024 * 1024,
+            compute_capability: (8, 9),
+            max_threads_per_block: 1024,
+            multiprocessor_count: 128,
+            clock_rate_khz: 2520000,
+            memory_clock_rate_khz: 21000,
+            l2_cache_size: 72 * 1024 * 1024,
+            shared_memory_per_block: 228 * 1024,
+        }])
     }
 
     /// 获取当前设备引用
@@ -324,7 +318,7 @@ impl Drop for CudaContext {
     fn drop(&mut self) {
         if self.active {
             log::info!("释放CUDA上下文 (设备 {})", self.device.info().id);
-            
+
             #[cfg(feature = "cuda-native")]
             {
                 // 清理CUDA流等资源
@@ -334,7 +328,7 @@ impl Drop for CudaContext {
                     }
                 }
             }
-            
+
             self.active = false;
         }
     }
@@ -349,7 +343,7 @@ mod tests {
     fn test_mock_device_creation() {
         let devices = CudaContext::devices().unwrap();
         assert!(!devices.is_empty());
-        
+
         let device = &devices[0];
         assert_eq!(device.id, 0);
         assert!(device.name.contains("RTX"));
@@ -388,7 +382,7 @@ mod tests {
     fn test_device_compute_capability_check() {
         let ctx = CudaContext::new(None).unwrap();
         let device = ctx.device();
-        
+
         // RTX 4090 是 SM 8.9
         assert!(device.supports_compute_capability(8, 0));
         assert!(device.supports_compute_capability(8, 9));
@@ -399,10 +393,10 @@ mod tests {
     fn test_theoretical_performance() {
         let ctx = CudaContext::new(None).unwrap();
         let device = ctx.device();
-        
+
         let tflops = device.theoretical_tflops();
         assert!(tflops > 300.0); // RTX 4090 应该 >300 TFLOPS
-        
+
         let bandwidth = device.memory_bandwidth_gb_s();
         assert!(bandwidth > 500.0); // 应该 >500 GB/s
     }
@@ -411,7 +405,7 @@ mod tests {
     fn test_error_types() {
         let err = CudaError::MemoryAllocationFailed { requested: 1024 };
         assert!(err.to_string().contains("1024"));
-        
+
         let err = CudaError::Timeout { timeout_ms: 5000 };
         assert!(err.to_string().contains("5000"));
     }
@@ -421,7 +415,7 @@ mod tests {
         let mut ctx = CudaContext::new(None).unwrap();
         // 手动停用
         ctx.active = false;
-        
+
         let result = ctx.synchronize();
         assert!(result.is_err());
     }
