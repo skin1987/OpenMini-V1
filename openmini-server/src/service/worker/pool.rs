@@ -922,7 +922,6 @@ mod tests {
         match no_worker_err {
             WorkerPoolError::NoAvailableWorker => {
                 // 这是应该重试的分支
-                
             }
             _ => panic!("Expected NoAvailableWorker"),
         }
@@ -932,7 +931,6 @@ mod tests {
             WorkerPoolError::NoAvailableWorker => panic!("Should not be NoAvailableWorker"),
             _ => {
                 // 这是应该立即返回的分支
-                
             }
         }
     }

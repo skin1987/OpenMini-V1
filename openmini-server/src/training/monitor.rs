@@ -1000,7 +1000,8 @@ mod tests {
     fn test_perplexity_calculation() {
         assert!((TrainingMonitor14B::perplexity(0.0) - 1.0).abs() < 1e-6);
         assert!((TrainingMonitor14B::perplexity(1.0) - std::f64::consts::E).abs() < 0.01);
-        assert!((TrainingMonitor14B::perplexity(std::f64::consts::LN_10) - 10.0).abs() < 0.1); // ln(10)
+        assert!((TrainingMonitor14B::perplexity(std::f64::consts::LN_10) - 10.0).abs() < 0.1);
+        // ln(10)
     }
 
     #[test]

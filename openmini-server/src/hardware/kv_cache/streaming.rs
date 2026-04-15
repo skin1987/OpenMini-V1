@@ -497,11 +497,7 @@ mod tests {
         let mut attn = StreamingAttention::new(config.clone());
 
         // 测试超出最大块数的写入
-        let result = attn.write(
-            config.max_blocks * config.block_size,
-            &[1.0; 8],
-            &[1.0; 8],
-        );
+        let result = attn.write(config.max_blocks * config.block_size, &[1.0; 8], &[1.0; 8]);
         assert!(result.is_err(), "Should fail when exceeding max blocks");
     }
 

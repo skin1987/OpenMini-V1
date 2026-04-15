@@ -763,7 +763,6 @@ mod tests {
                 // 多token时可能因投影矩阵未初始化而失败，这是预期行为
                 // 只要不是panic就算通过
                 eprintln!("多tokenforward返回错误（可能因投影矩阵未初始化）: {}", e);
-                
             }
         }
     }

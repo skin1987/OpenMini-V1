@@ -252,8 +252,6 @@ fn bench_json_serialization(c: &mut Criterion) {
 ///
 /// 测试线程池的任务提交和执行延迟
 fn bench_thread_pool_scheduling(c: &mut Criterion) {
-    
-
     let task_counts = [100, 1000, 10000];
 
     let mut group = c.benchmark_group("thread_pool");

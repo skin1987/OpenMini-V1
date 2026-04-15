@@ -1888,7 +1888,15 @@ mod tests {
     /// 覆盖不同 QuantType 的精度特征
     #[test]
     fn test_dynamic_quantizer_roundtrip() {
-        let test_values = [0.0, 1.0, -1.0, std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2, -(std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2), 100.0, -100.0];
+        let test_values = [
+            0.0,
+            1.0,
+            -1.0,
+            std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2,
+            -(std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2),
+            100.0,
+            -100.0,
+        ];
 
         // Fp32 应该完全无损
         let mut qz_f32 = DynamicQuantizer::new(QuantType::Fp32);

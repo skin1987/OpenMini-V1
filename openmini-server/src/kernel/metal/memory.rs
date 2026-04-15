@@ -79,11 +79,9 @@ mod tests {
             match Device::system_default() {
                 Some(_device) => {
                     // 设备存在，测试通过
-                    
                 }
                 None => {
                     // 无设备也是有效情况（例如在无GPU的环境中）
-                    
                 }
             }
         }
@@ -91,7 +89,6 @@ mod tests {
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
         {
             // 非 macOS 或未启用 metal feature 时，此测试应该跳过或通过
-            
         }
     }
 
@@ -130,14 +127,12 @@ mod tests {
                 let _ = buf_zero;
             } else {
                 // 没有可用的Metal设备
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
         {
             // 在非 Metal 环境下，测试 should pass 或 skip
-            
         }
     }
 
@@ -156,17 +151,13 @@ mod tests {
 
                 // 验证命令缓冲区创建成功（不调用可能有问题的方法）
                 // 只验证创建和基本提交流程不崩溃
-                
             } else {
                 // 没有可用的Metal设备
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     #[test]
@@ -195,7 +186,6 @@ mod tests {
                     assert!(!error_msg.is_empty(), "错误消息不应为空");
                 }
             } else {
-                
             }
         }
 
@@ -226,14 +216,11 @@ mod tests {
                     assert_eq!(buf.size(), size);
                 }
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     #[test]
@@ -262,14 +249,11 @@ mod tests {
                 let result = MetalLibrary::from_source(&device, valid_shader);
                 assert!(result.is_ok(), "有效的 shader 代码应该编译成功");
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     #[test]
@@ -288,14 +272,11 @@ mod tests {
                 // 空字符串可能成功（无kernel）或失败，取决于实现
                 let _ = result;
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     #[test]
@@ -325,14 +306,11 @@ mod tests {
                 let buf3 = MetalBuffer::alloc(&device, 4096);
                 assert!(buf3.is_ok());
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     #[test]
@@ -359,7 +337,6 @@ mod tests {
         #[cfg(feature = "metal")]
         {
             // 启用了 feature 时此测试不适用
-            
         }
     }
 
@@ -391,14 +368,11 @@ mod tests {
                 // 验证 size=0 边界情况（如果 Metal 允许）
                 let _zero_buf = MetalBuffer::alloc(&device, 0);
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试 MetalBuffer as_buffer() 返回值（覆盖第37-39行 Some/None 分支）
@@ -416,21 +390,17 @@ mod tests {
                 match buf.as_buffer() {
                     Some(_buffer_ref) => {
                         // 成功获取 buffer 引用
-                        
                     }
                     None => {
                         panic!("as_buffer 不应在有效缓冲区上返回 None");
                     }
                 }
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试 MetalLibrary from_source 复杂shader（覆盖第48-53行完整路径）
@@ -478,14 +448,11 @@ mod tests {
                 // 验证返回的 library 实例
                 let _library = result.unwrap();
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试 MetalBuffer 分配边界值（覆盖第16-28行 alloc 方法）
@@ -515,14 +482,11 @@ mod tests {
                 assert!(large_buf.is_ok());
                 assert_eq!(large_buf.unwrap().size(), 16384);
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试 MetalLibrary 错误消息详细程度（覆盖错误处理分支）
@@ -552,7 +516,6 @@ mod tests {
                     }
                 }
             } else {
-                
             }
         }
 
@@ -593,14 +556,11 @@ mod tests {
                 let final_buf = MetalBuffer::alloc(&device, 1024);
                 assert!(final_buf.is_ok(), "多次分配释放后设备应仍可用");
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     // ==================== 新增测试：达到 20+ 覆盖率 ====================
@@ -630,14 +590,11 @@ mod tests {
                     }
                 }
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试：MetalLibrary::from_source - 空字符串和空白字符串（边界条件）
@@ -660,14 +617,11 @@ mod tests {
                     let _ = result;
                 }
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试：MetalLibrary::from_source - 包含中文注释的shader（Unicode支持）
@@ -700,14 +654,11 @@ mod tests {
                     panic!("Unicode注释shader应编译成功: {}", e);
                 }
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试：MetalBuffer 分配失败时的错误信息质量（覆盖第26-27行错误分支）
@@ -737,7 +688,6 @@ mod tests {
         #[cfg(feature = "metal")]
         {
             // 启用了feature时此测试不适用
-            
         }
     }
 
@@ -757,7 +707,6 @@ mod tests {
                 match buf.as_buffer() {
                     Some(_buffer) => {
                         // 成功获取buffer引用 - 正常路径
-                        
                     }
                     None => {
                         // 理论上不应该发生，但如果是有效的防御性编程
@@ -765,14 +714,11 @@ mod tests {
                     }
                 }
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 
     /// 测试：多次创建和销毁 MetalLibrary 实例（内存泄漏检测）
@@ -806,13 +752,10 @@ mod tests {
                 let final_lib = MetalLibrary::from_source(&device, valid_shader);
                 assert!(final_lib.is_ok(), "多次创建销毁后设备应仍可用");
             } else {
-                
             }
         }
 
         #[cfg(not(all(target_os = "macos", feature = "metal")))]
-        {
-            
-        }
+        {}
     }
 }

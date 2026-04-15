@@ -671,7 +671,6 @@ mod tests {
         // 注意：在某些平台上可能返回所有核心
         // 允许空结果（某些平台可能返回空 affinity）
         let _current_affinity_len = current_affinity.len(); // Use variable to suppress unused warning
-        
     }
 
     /// 测试ThreadPoolConfig的mixed方法和其他属性

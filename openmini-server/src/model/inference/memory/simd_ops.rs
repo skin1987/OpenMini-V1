@@ -1341,7 +1341,11 @@ mod tests {
         assert_eq!(results.len(), 3);
         assert!(approx_eq(results[0].score, 1.0, 1e-5));
         assert!(approx_eq(results[1].score, 0.0, 1e-5));
-        assert!(approx_eq(results[2].score, std::f32::consts::FRAC_1_SQRT_2, 1e-5));
+        assert!(approx_eq(
+            results[2].score,
+            std::f32::consts::FRAC_1_SQRT_2,
+            1e-5
+        ));
     }
 
     #[test]

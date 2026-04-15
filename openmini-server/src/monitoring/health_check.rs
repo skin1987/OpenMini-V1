@@ -804,9 +804,11 @@ mod tests {
     fn test_aggregate_status_all_healthy() {
         // 所有组件健康时返回healthy
         let _checker = HealthChecker::new();
-        let components = [ComponentHealth::healthy("gpu"),
+        let components = [
+            ComponentHealth::healthy("gpu"),
             ComponentHealth::healthy("memory"),
-            ComponentHealth::healthy("cpu")];
+            ComponentHealth::healthy("cpu"),
+        ];
 
         // 注意：aggregate_status是私有方法，我们通过check()间接测试
         // 这里我们直接验证逻辑等价性

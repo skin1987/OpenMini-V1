@@ -559,7 +559,8 @@ mod tests {
 
     #[test]
     fn test_batch_construction() {
-        let samples = [TrainingSample {
+        let samples = [
+            TrainingSample {
                 input_ids: vec![1, 2, 3, 0, 0],
                 labels: vec![1, 2, 3, usize::MAX, usize::MAX],
                 attention_mask: vec![1, 1, 1, 0, 0],
@@ -570,7 +571,8 @@ mod tests {
                 labels: vec![4, 5, usize::MAX, usize::MAX, usize::MAX],
                 attention_mask: vec![1, 1, 0, 0, 0],
                 seq_len: 2,
-            }];
+            },
+        ];
 
         let batch = Batch::from_samples(&samples.iter().collect::<Vec<_>>());
 

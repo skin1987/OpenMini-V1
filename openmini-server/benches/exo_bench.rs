@@ -422,5 +422,7 @@ criterion_main!(exo_benches);
 
 #[cfg(not(feature = "distributed"))]
 fn main() {
-    println!("EXO bench requires 'distributed' feature. Run with: cargo bench --features distributed");
+    println!(
+        "EXO bench requires 'distributed' feature. Run with: cargo bench --features distributed"
+    );
 }

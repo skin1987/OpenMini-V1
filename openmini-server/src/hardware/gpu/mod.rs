@@ -728,10 +728,12 @@ mod tests {
     /// 覆盖分支：枚举变体互不相同
     #[test]
     fn test_gpu_backend_type_all_distinct() {
-        let types = [GpuBackendType::Metal,
+        let types = [
+            GpuBackendType::Metal,
             GpuBackendType::Cuda,
             GpuBackendType::Vulkan,
-            GpuBackendType::None];
+            GpuBackendType::None,
+        ];
 
         // 验证任意两个不同变体都不相等
         for i in 0..types.len() {

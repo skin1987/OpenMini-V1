@@ -640,8 +640,16 @@ mod tests {
         // 验证预定义的采样配置常量有效
         let debug_prob = DEBUG_SAMPLE_PROBABILITY;
         let trace_prob = TRACE_SAMPLE_PROBABILITY;
-        assert!(debug_prob > 0.0 && debug_prob <= 1.0, "DEBUG_SAMPLE_PROBABILITY out of range: {}", debug_prob);
-        assert!(trace_prob > 0.0 && trace_prob <= 1.0, "TRACE_SAMPLE_PROBABILITY out of range: {}", trace_prob);
+        assert!(
+            debug_prob > 0.0 && debug_prob <= 1.0,
+            "DEBUG_SAMPLE_PROBABILITY out of range: {}",
+            debug_prob
+        );
+        assert!(
+            trace_prob > 0.0 && trace_prob <= 1.0,
+            "TRACE_SAMPLE_PROBABILITY out of range: {}",
+            trace_prob
+        );
         assert!(GPU_MEMORY_SAMPLE_INTERVAL.as_secs() > 0);
         assert!(BATCH_STATUS_SAMPLE_INTERVAL.as_secs() > 0);
     }

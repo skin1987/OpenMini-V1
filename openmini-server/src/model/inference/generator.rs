@@ -897,6 +897,10 @@ mod tests {
         assert_eq!(STEADY_OUTPUT_INTERVAL_MS, 50);
         // 这个值应该在合理范围内（10-1000ms）
         let interval = STEADY_OUTPUT_INTERVAL_MS;
-        assert!((10..=1000).contains(&interval), "Interval {} out of range [10, 1000]", interval);
+        assert!(
+            (10..=1000).contains(&interval),
+            "Interval {} out of range [10, 1000]",
+            interval
+        );
     }
 }

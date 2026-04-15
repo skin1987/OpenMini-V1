@@ -542,7 +542,15 @@ mod tests {
 
         // 正常范围值
         let values: Vec<f32> = vec![
-            0.0, 1.0, -1.0, std::f32::consts::PI, std::f32::consts::E, 100.0, -100.0, 0.001, -0.001,
+            0.0,
+            1.0,
+            -1.0,
+            std::f32::consts::PI,
+            std::f32::consts::E,
+            100.0,
+            -100.0,
+            0.001,
+            -0.001,
         ];
 
         for &val in &values {

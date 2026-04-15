@@ -1243,7 +1243,6 @@ mod tests {
     fn test_draft_model_creation() {
         let _model = DraftModel::new(1000, 0.7);
         // 验证模型创建成功（无 panic）
-        
     }
 
     #[test]
@@ -1251,7 +1250,6 @@ mod tests {
         let _model1 = DraftModel::with_seed(1000, 0.7, 42);
         let _model2 = DraftModel::with_seed(1000, 0.7, 42);
         // 相同种子应该产生相同的行为（此处只验证创建成功）
-        
     }
 
     #[test]
@@ -1322,7 +1320,7 @@ mod tests {
     #[test]
     fn test_verifier_creation() {
         let _verifier = TargetVerifier::new(1000);
-         // 验证创建成功
+        // 验证创建成功
     }
 
     #[test]
