@@ -29,22 +29,9 @@ deps-check = ["outdated", "--root-deps-only"]
 # ---------- 构建优化选项 ----------
 [build]
 # Rust 编译器标志优化
-# 启用以下优化以提高性能和安全性：
-# - 目标CPU特性优化
-# - 堆栈溢出保护
-# - 警告未使用的导入和变量
-rustflags = [
-    # 性能优化
-    "-C", "target-cpu=native",           # 针对当前 CPU 架构优化
-    "-C", "codegen-units=1",             # 更好的优化（但编译更慢）
-
-    # 安全性增强
-    "-C", "force-frame-pointers=yes",    # 强制帧指针，便于调试和性能分析
-
-    # 警告级别
-    "-W", "unused-imports",              # 警告未使用的导入
-    "-W", "unused_variables",            # 警告未使用的变量
-]
+# 注意: 不在此处设置 -D warnings 或 -W unused-*，
+# 这些应由 CI/CD 工作流和 clippy 配置管理
+# rustflags 留空以避免跨平台兼容性问题
 
 # ---------- 网络配置 ----------
 [net]
