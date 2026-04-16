@@ -92,6 +92,8 @@ fn output_leak_report(test_name: &str, report: &serde_json::Value) {
 /// - 允许 20% 的内存波动（考虑 GC、缓存等因素）
 /// - 超过 50% 的持续增长视为潜在泄漏
 #[test]
+#[allow(unknown_lints)]
+#[allow(clippy::manual_is_multiple_of)]
 fn test_memory_stability_over_time() {
     use sysinfo::{MemoryRefreshKind, RefreshKind, System};
 
