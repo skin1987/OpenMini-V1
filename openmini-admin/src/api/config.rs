@@ -865,7 +865,7 @@ mod tests {
             old_value: Some("32.0".to_string()),
             new_value: Some("64.0".to_string()),
         };
-        assert!(!needs_restart(&[memory_change.clone()]));
+        assert!(!needs_restart(std::slice::from_ref(&memory_change)));
 
         // 混合变更：只要有一个需要重启就返回 true
         assert!(needs_restart(&[

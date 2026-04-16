@@ -734,12 +734,12 @@ impl AuditLogger {
 
         // 计算 TOP10 用户
         let mut top_users: Vec<(String, u64)> = user_counts.into_iter().collect();
-        top_users.sort_by(|a, b| b.1.cmp(&a.1));
+        top_users.sort_by_key(|b| std::cmp::Reverse(b.1));
         top_users.truncate(10);
 
         // 计算 TOP10 资源
         let mut top_resources: Vec<(String, u64)> = resource_counts.into_iter().collect();
-        top_resources.sort_by(|a, b| b.1.cmp(&a.1));
+        top_resources.sort_by_key(|b| std::cmp::Reverse(b.1));
         top_resources.truncate(10);
 
         // 计算成功率

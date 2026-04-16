@@ -420,8 +420,8 @@ where
     let simd_end = ncols - (ncols % 4);
 
     for i in 0..nrows {
-        let row = result.row_mut(i);
-        let ptr = row.as_slice_mut().unwrap().as_mut_ptr();
+        let mut row = result.row_mut(i);
+        let ptr = row.as_mut_ptr();
 
         unsafe {
             // Phase 1: 找到最大值

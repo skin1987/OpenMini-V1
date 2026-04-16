@@ -15,18 +15,13 @@ pub struct User {
 }
 
 // UserRole 枚举（用于业务逻辑）
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[repr(i32)]
 pub enum UserRole {
+    #[default]
     Admin = 0,
     Operator = 1,
     Viewer = 2,
-}
-
-impl Default for UserRole {
-    fn default() -> Self {
-        Self::Admin
-    }
 }
 
 impl From<i32> for UserRole {
@@ -93,18 +88,13 @@ pub struct AlertRule {
 }
 
 // AlertSeverity 枚举（用于业务逻辑）
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[repr(i32)]
 pub enum AlertSeverity {
+    #[default]
     Critical = 0,
     Warning = 1,
     Info = 2,
-}
-
-impl Default for AlertSeverity {
-    fn default() -> Self {
-        Self::Warning
-    }
 }
 
 impl From<i32> for AlertSeverity {
@@ -141,18 +131,13 @@ pub struct AlertRecord {
 }
 
 // AlertStatus 枚举（用于业务逻辑）
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[repr(i32)]
 pub enum AlertStatus {
+    #[default]
     Firing = 0,
     Acknowledged = 1,
     Resolved = 2,
-}
-
-impl Default for AlertStatus {
-    fn default() -> Self {
-        Self::Firing
-    }
 }
 
 impl From<i32> for AlertStatus {

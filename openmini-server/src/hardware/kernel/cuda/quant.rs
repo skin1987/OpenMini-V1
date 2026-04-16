@@ -167,7 +167,7 @@ impl QuantizationEngine {
         );
 
         // Q5_K_M 查找表 (32个centroids)
-        let q5km_table: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0)).collect();
+        let q5km_table: Vec<f32> = (0..32).map(|i| i as f32 - 16.0).collect();
         self.lookup_tables.insert(QuantFormat::Q5KM, q5km_table);
 
         // Q6_K 查找表 (64个centroids)
