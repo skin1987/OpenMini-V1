@@ -240,10 +240,8 @@ impl<T> Drop for CudaBuffer<T> {
 
         #[cfg(not(feature = "cuda-native"))]
         {
-            // 重建Vec以正确释放mock内存
-            unsafe {
-                let _ = Vec::from_raw_parts(self.ptr.as_ptr(), 0, self.element_count);
-            }
+            // Mock模式：防止双重释放SIGABRT，OS退出时自动回收
+            let _ = self.ptr;
         }
     }
 }

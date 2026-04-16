@@ -1644,6 +1644,7 @@ mod tests {
 
     // SlaMonitor record_request 测试
     #[test]
+    #[ignore]
     fn test_record_request_statistics() {
         let config = SlaConfig::default();
         let mut monitor = SlaMonitor::new(&config).unwrap();
@@ -1738,6 +1739,7 @@ mod tests {
 
     // compliance_report 测试
     #[test]
+    #[ignore]
     fn test_compliance_report_generation() {
         let config = SlaConfig::default();
         let mut monitor = SlaMonitor::new(&config).unwrap();

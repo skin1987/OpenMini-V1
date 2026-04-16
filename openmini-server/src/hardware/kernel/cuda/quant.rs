@@ -753,9 +753,9 @@ mod tests {
         let zero = QuantizationEngine::fp8_e4m3_to_f32(0x00);
         assert_eq!(zero, 0.0);
 
-        // 测试1.0 (近似)
-        let one = QuantizationEngine::fp8_e4m3_to_f32(0x3C); // 1.0 in E4M3
-        assert!((one - 1.0).abs() < 0.1); // 允许一定误差
+        // 测试1.0 (E4M3: sign=0, exp=0, mantissa=0 -> 0x38)
+        let one = QuantizationEngine::fp8_e4m3_to_f32(0x38);
+        assert!((one - 1.0).abs() < 0.01);
     }
 
     #[test]
