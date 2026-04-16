@@ -347,7 +347,7 @@ impl ModelConfig {
 
     /// 验证配置参数的有效性
     pub fn validate(&self) -> InferenceResult<()> {
-        if self.head_dim % 2 != 0 {
+        if !self.head_dim.is_multiple_of(2) {
             return Err(InferenceError::config(format!(
                 "head_dim must be even for RoPE, got {}",
                 self.head_dim
@@ -1119,7 +1119,7 @@ pub fn apply_rotary_emb(
         )));
     }
 
-    if head_dim % 2 != 0 {
+    if !head_dim.is_multiple_of(2) {
         return Err(InferenceError::config(format!(
             "head_dim must be even for RoPE, got {}",
             head_dim

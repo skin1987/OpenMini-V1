@@ -674,7 +674,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let mut values = [0.0f32; 16];
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
-                        let is_high = (elems_start + j) % 2 == 0;
+                        let is_high = !(elems_start + j).is_multiple_of(2);
                         let q = if let Some(byte) = qs.get(byte_idx) {
                             if is_high {
                                 ((byte >> 4) as i32) - 8

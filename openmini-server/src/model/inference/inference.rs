@@ -109,7 +109,7 @@ impl InferenceStats {
         };
 
         let time_per_output_token_ms = if generated_tokens > 0 && time_to_first_token_ms.is_some() {
-            let ttft = time_to_first_token_ms.expect("already checked is_some") as f64;
+            let ttft = time_to_first_token_ms.unwrap_or_default() as f64;
             let decode_time = inference_time_secs * 1000.0 - ttft;
             Some(decode_time / generated_tokens as f64)
         } else {

@@ -992,7 +992,7 @@ impl MoEStrategy {
     pub fn get_layer_type(&self, layer_idx: usize, _total_layers: usize) -> LayerType {
         match self {
             Self::Cyclic { period, offset } => {
-                if (layer_idx + offset) % period == 0 {
+                if !(layer_idx + offset).is_multiple_of(*period) {
                     LayerType::MoE
                 } else {
                     LayerType::FFN
@@ -2074,7 +2074,7 @@ impl GgufFile {
         match tensor.tensor_type {
             GgufTensorType::F32 => {
                 // 检查对齐：f32 需要 4 字节对齐
-                if data.as_ptr() as usize % std::mem::align_of::<f32>() != 0 {
+                if !(data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<f32>()) {
                     return Err(anyhow!("F32 data is not properly aligned"));
                 }
                 let f32_slice: &[f32] = cast_slice(data);

@@ -775,6 +775,7 @@ impl MainBranch {
             .collect();
 
         // 并行计算各专家的结果
+        #[allow(clippy::iter_kv_map)]
         let expert_results: std::collections::HashMap<usize, Array2<f32>> = token_expert_map
             .iter()
             .flat_map(|(_token_idx, experts)| experts.iter().map(|(idx, _)| *idx))

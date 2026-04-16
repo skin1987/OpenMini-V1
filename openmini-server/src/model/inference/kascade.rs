@@ -86,9 +86,10 @@ impl fmt::Display for KascadeConfig {
 }
 
 /// 复用策略枚举
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ReuseStrategy {
     /// 直接复用（最近锚点层的索引）
+    #[default]
     Direct,
 
     /// 加权插值（多个锚点层的索引混合）
@@ -96,12 +97,6 @@ pub enum ReuseStrategy {
 
     /// 自适应（根据层相似度动态选择）
     Adaptive { similarity_threshold: f64 },
-}
-
-impl Default for ReuseStrategy {
-    fn default() -> Self {
-        Self::Direct
-    }
 }
 
 impl fmt::Display for ReuseStrategy {

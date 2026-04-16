@@ -922,7 +922,8 @@ impl ContextBuilder {
 
     /// 按优先级排序
     fn sort_by_priority(&mut self) {
-        self.memories.sort_by(|a, b| b.priority.cmp(&a.priority));
+        use std::cmp::Reverse;
+        self.memories.sort_by_key(|m| Reverse(m.priority));
     }
 
     /// 去重记忆
