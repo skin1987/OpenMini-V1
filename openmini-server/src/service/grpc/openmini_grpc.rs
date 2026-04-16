@@ -273,11 +273,11 @@ impl OpenMiniGrpcService {
 }
 
 // ============================================================================
-// 实现 tonic::Service trait
+// 实现 tower::Service trait
 // ============================================================================
 
-impl tonic::Service<http::Request<tonic::body::BoxBody>> for OpenMiniGrpcService {
-    type Response = http::Response<tonic::body::BoxBody>;
+impl tower::Service<tonic::Request<tonic::body::BoxBody>> for OpenMiniGrpcService {
+    type Response = tonic::Response<tonic::body::BoxBody>;
     type Error = Status;
     type Future =
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
@@ -286,10 +286,20 @@ impl tonic::Service<http::Request<tonic::body::BoxBody>> for OpenMiniGrpcService
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: http::Request<tonic::body::BoxBody>) -> Self::Future {
+    fn call(&mut self, req: tonic::Request<tonic::body::BoxBody>) -> Self::Future {
         let service = self.clone();
-        Box::pin(async move { service.handle_request(req).await })
+        Box::pin(async move {
+            // 将 tonic::Request 转换为 http::Request 用于内部处理
+            let (parts, body) = req.into_parts();
+            let http_req = http::Request::from_parts(parts, body);
+            service.handle_request(http_req).await
+        })
     }
+}
+
+/// NamedService trait 实现 - tonic 需要知道服务名称
+impl tonic::server::NamedService for OpenMiniGrpcService {
+    const NAME: &'static str = "openmini.OpenMini";
 }
 
 // ============================================================================

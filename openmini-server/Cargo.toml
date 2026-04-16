@@ -67,6 +67,7 @@ lazy_static = "1.4"
 regex = "1"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit", "request-id"] }
+tower = "0.5"
 base64 = "0.22"
 async-stream = "0.3"
 async-trait = "0.1"

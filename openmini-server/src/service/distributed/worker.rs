@@ -384,6 +384,7 @@ pub struct WorkerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc;
 
     fn create_test_mesh() -> (MeshNode, mpsc::Sender<DistributedMessage>) {
         let caps = NodeCapabilities::new("Test GPU", 8192, 16, vec!["test-model".to_string()]);

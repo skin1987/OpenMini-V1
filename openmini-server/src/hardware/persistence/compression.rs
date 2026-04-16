@@ -298,7 +298,7 @@ impl Compressor for Lz4Compressor {
         let start = std::time::Instant::now();
 
         // 使用 lz4 EncoderBuilder 进行帧级别压缩
-        let mut compressed = Vec::new();
+        let compressed;
         {
             let mut encoder = lz4::EncoderBuilder::new()
                 .level(self.config.level as u32)
@@ -839,7 +839,7 @@ mod tests {
         // 大数据应选择 Zstd (如果可用)
         let _large_algo = manager.auto_select_algorithm(1024 * 1024).unwrap();
         #[cfg(feature = "compression")]
-        assert_eq!(large_algo, CompressionAlgorithm::Zstd);
+        assert_eq!(_large_algo, CompressionAlgorithm::Zstd);
     }
 
     #[cfg(feature = "compression")]

@@ -1071,7 +1071,6 @@ impl HealthChecker {
 //     /// Rendezvous用于会合点发现
 //     rendezvous: Rendezvous,
 // }
-
 /// libp2p发现后端（暂时简化实现）
 struct Libp2pBackend {
     config: DiscoveryConfig,

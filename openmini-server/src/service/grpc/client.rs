@@ -115,6 +115,7 @@ impl GrpcClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::grpc::types::Message;
 
     /// 测试客户端创建 - 正常地址
     #[test]
@@ -239,6 +240,7 @@ mod tests {
         let request = ChatRequest {
             session_id: "test".to_string(),
             messages: vec![],
+            stream: false,
             max_tokens: 100,
             temperature: 0.7,
         };
@@ -368,6 +370,7 @@ mod tests {
         let request = ChatRequest {
             session_id: "empty-session".to_string(),
             messages: vec![], // 空消息列表
+            stream: false,
             max_tokens: 0,    // 极端值：0 tokens
             temperature: 0.0, // 极端值：0温度
         };
@@ -385,11 +388,12 @@ mod tests {
         let client = GrpcClient::new("localhost:50051");
         let request = ChatRequest {
             session_id: "x".repeat(1000), // 长session_id
-            messages: vec![super::types::Message {
+            messages: vec![Message {
                 role: "user".to_string(),
                 content: "y".repeat(10000), // 超长内容
             }],
-            max_tokens: u32::MAX, // 最大token数
+            stream: false,
+            max_tokens: i32::MAX, // 最大token数
             temperature: 2.0,     // 超高温度
         };
 
@@ -490,10 +494,11 @@ mod tests {
         for (role, content) in &roles {
             let request = ChatRequest {
                 session_id: "multi-role-test".to_string(),
-                messages: vec![super::types::Message {
+                messages: vec![Message {
                     role: role.to_string(),
                     content: content.to_string(),
                 }],
+                stream: false,
                 max_tokens: 100,
                 temperature: 0.7,
             };
@@ -523,6 +528,7 @@ mod tests {
         let request = ChatRequest {
             session_id: "debug-test".to_string(),
             messages: vec![],
+            stream: false,
             max_tokens: 50,
             temperature: 0.5,
         };
@@ -584,10 +590,11 @@ mod tests {
         for &temp in &extreme_temps {
             let request = ChatRequest {
                 session_id: "temp-test".to_string(),
-                messages: vec![super::types::Message {
+                messages: vec![Message {
                     role: "user".to_string(),
                     content: "test".to_string(),
                 }],
+                stream: false,
                 max_tokens: 10,
                 temperature: temp,
             };

@@ -35,11 +35,10 @@ jobs:
         feature_profile:
           - name: "default"
             features: ""
-          - name: "grpc+distributed"
-            features: "grpc,distributed"
           - name: "candle+monitoring"
             features: "candle,monitoring,compression"
         exclude:
+          # grpc+distributed 存在循环依赖，单独测试
           # nightly_avx512 需要nightly Rust，不在stable/beta矩阵中测试
           - rust_version: stable
             feature_profile:

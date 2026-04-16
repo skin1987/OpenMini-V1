@@ -248,6 +248,7 @@ mod tests {
     #[tokio::test]
     async fn test_server_start_and_request() {
         use reqwest;
+        use std::time::Duration;
 
         // 使用随机端口避免冲突
         let port = rand::random::<u16>() % 10000 + 20000; // 20000-29999

@@ -110,7 +110,11 @@ impl KvCachePersistence {
             #[cfg(feature = "compression")]
             {
                 let mut encoder = zstd::stream::Encoder::new(writer, 3)?;
-                bincode::serialize_into(encoder.by_ref(), cache)
+                let encoded = bincode::serialize(cache)
+                    .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
+                use std::io::Write as _;
+                encoder
+                    .write_all(&encoded)
                     .map_err(|e| PersistenceError::Serialization(e.to_string()))?;
                 encoder.finish()?;
             }
@@ -155,8 +159,13 @@ impl KvCachePersistence {
             // zstd 压缩格式
             #[cfg(feature = "compression")]
             {
-                let decoder = zstd::stream::Decoder::new(reader)?;
-                bincode::deserialize_from(decoder.by_ref())
+                let mut decoder = zstd::stream::Decoder::new(reader)?;
+                use std::io::Read as _;
+                let mut decompressed = Vec::new();
+                decoder
+                    .read_to_end(&mut decompressed)
+                    .map_err(|e| PersistenceError::Deserialization(e.to_string()))?;
+                bincode::deserialize::<PersistedKvCache>(&decompressed)
                     .map_err(|e| PersistenceError::Deserialization(e.to_string()))
             }
             #[cfg(not(feature = "compression"))]
