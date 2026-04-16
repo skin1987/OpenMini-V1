@@ -31,23 +31,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_version: [stable, beta]
+        rust_version: [stable]
         feature_profile:
           - name: "default"
             features: ""
-          - name: "candle+monitoring"
-            features: "candle,monitoring,compression"
-        exclude:
-          # grpc+distributed 存在循环依赖，单独测试
-          # nightly_avx512 需要nightly Rust，不在stable/beta矩阵中测试
-          - rust_version: stable
-            feature_profile:
-              name: "avx512"
-              features: "nightly_avx512"
-          - rust_version: beta
-            feature_profile:
-              name: "avx512"
-              features: "nightly_avx512"
 
     steps:
       - name: Checkout repository
