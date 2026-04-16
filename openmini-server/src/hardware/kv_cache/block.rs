@@ -179,8 +179,8 @@ impl KVCacheConfig {
     pub fn with_max_memory(mut self, max_memory_mb: usize) -> Self {
         let block_size = self.block_memory_size();
         if block_size > 0 {
-            self.max_blocks = (max_memory_mb * 1024 * 1024) / block_size;
-            self.max_blocks = self.max_blocks.min(MAX_BLOCKS);
+            let blocks = (max_memory_mb * 1024 * 1024) / block_size;
+            self.max_blocks = blocks.min(MAX_BLOCKS);
         }
         self
     }

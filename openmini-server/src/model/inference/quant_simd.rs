@@ -4763,7 +4763,7 @@ mod deep_optimization_tests {
 
     #[test]
     fn test_rms_norm_parallel_basic() {
-        let input: Vec<f32> = (0..1000).map(|i| (i as f32 * 0.01)).collect();
+        let input: Vec<f32> = (0..1000).map(|i| i as f32 * 0.01).collect();
         let weight: Vec<f32> = (0..1000).map(|_| 1.0).collect();
 
         let result = rms_norm_parallel(input.as_slice(), weight.as_slice(), 1e-6, 4);

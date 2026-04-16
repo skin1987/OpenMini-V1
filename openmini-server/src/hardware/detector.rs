@@ -382,7 +382,6 @@ impl MemoryInfo {
                     if line.starts_with("MemTotal:") {
                         let num_str = line.split(':').nth(1).unwrap_or("0");
                         total_kb = num_str
-                            .trim()
                             .split_whitespace()
                             .next()
                             .unwrap_or("0")

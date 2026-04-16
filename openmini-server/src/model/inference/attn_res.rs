@@ -659,7 +659,7 @@ mod tests {
         let data = vec![1.0f32; hidden];
         bs.summaries[0] = Array2::from_shape_vec((1, hidden), data).unwrap();
 
-        let x = Array2::from_shape_fn((seq_len, hidden), |(i, j)| (i as f32 * 0.01 + j as f32));
+        let x = Array2::from_shape_fn((seq_len, hidden), |(i, j)| i as f32 * 0.01 + j as f32);
         let pq = Array1::ones(hidden);
 
         let result = bs.aggregate(&pq, &x).unwrap();
@@ -738,7 +738,7 @@ mod tests {
             let s = Array2::from_shape_fn((1, hidden), |(_, j)| (i * hidden + j) as f32 * 0.1);
             summaries.push(s);
 
-            let q = Array1::from_shape_fn(hidden, |j| (j as f32 * 0.05));
+            let q = Array1::from_shape_fn(hidden, |j| j as f32 * 0.05);
             queries.push(q);
         }
 

@@ -3544,9 +3544,9 @@ mod tests {
         let seq_len = 8;
         let head_dim = 4;
 
-        let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j + 1) as f32 * 0.1));
-        let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i * j + 1) as f32 * 0.1));
-        let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| ((i + 1) as f32 * 0.1));
+        let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| (i + j + 1) as f32 * 0.1);
+        let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| (i * j + 1) as f32 * 0.1);
+        let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| (i + 1) as f32 * 0.1);
 
         let config = DSATopKConfig::new()
             .with_top_k(seq_len)
