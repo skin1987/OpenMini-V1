@@ -147,7 +147,7 @@ impl FlashAttentionKernel {
             });
         }
 
-        if config.head_dim == 0 || config.head_dim % 8 != 0 {
+        if config.head_dim == 0 || !config.head_dim.is_multiple_of(8) {
             return Err(CudaError::InvalidParameter {
                 parameter: "head_dim必须是8的倍数".to_string(),
             });
@@ -161,7 +161,7 @@ impl FlashAttentionKernel {
 
         // 检查分块大小合理性
         let bs = &config.block_sizes;
-        if bs.br % 8 != 0 || bs.bc % 8 != 0 {
+        if !bs.br.is_multiple_of(8) || !bs.bc.is_multiple_of(8) {
             return Err(CudaError::InvalidParameter {
                 parameter: "分块大小必须是8的倍数".to_string(),
             });

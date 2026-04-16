@@ -26,23 +26,18 @@ pub enum RequestState {
 }
 
 /// 请求优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[allow(dead_code)]
 pub enum RequestPriority {
     /// 低优先级
     Low = 0,
     /// 普通优先级
+    #[default]
     Normal = 1,
     /// 高优先级
     High = 2,
     /// 实时优先级
     Realtime = 3,
-}
-
-impl Default for RequestPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 /// 生成请求

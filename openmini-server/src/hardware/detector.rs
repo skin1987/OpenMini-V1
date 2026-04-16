@@ -392,7 +392,6 @@ impl MemoryInfo {
                     if line.starts_with("MemAvailable:") {
                         let num_str = line.split(':').nth(1).unwrap_or("0");
                         available_kb = num_str
-                            .trim()
                             .split_whitespace()
                             .next()
                             .unwrap_or("0")
@@ -740,7 +739,10 @@ impl HyperthreadTopology {
                     if let Some(name) = entry.file_name() {
                         if let Some(node_str) = name.to_str() {
                             if node_str.starts_with("node") {
-                                if let Ok(node_id) = node_str[4..].parse::<usize>() {
+                                if let Some(node_id) = node_str
+                                    .strip_prefix("node")
+                                    .and_then(|s| s.parse::<usize>().ok())
+                                {
                                     let core_path = format!(
                                         "/sys/devices/system/cpu/cpu{}/topology/core_id",
                                         cpu_id
@@ -999,11 +1001,10 @@ impl CacheTopology {
             let size_kb: usize = std::fs::read_to_string(&size_path)
                 .ok()
                 .and_then(|s| {
-                    let s = s.trim();
-                    if s.ends_with('K') {
-                        s[..s.len() - 1].parse().ok()
+                    if let Some(stripped) = s.strip_suffix('K') {
+                        stripped.parse().ok()
                     } else {
-                        s.parse().ok()
+                        s.trim().parse().ok()
                     }
                 })
                 .unwrap_or(0);

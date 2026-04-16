@@ -585,7 +585,7 @@ impl AuditLogger {
             .collect();
 
         // 按数量降序排序
-        results.sort_by(|a, b| b.count.cmp(&a.count));
+        results.sort_by_key(|b| std::cmp::Reverse(b.count));
 
         Ok(results)
     }
