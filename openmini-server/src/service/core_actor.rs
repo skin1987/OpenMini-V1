@@ -9,7 +9,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
+#[cfg(not(target_os = "linux"))]
+use tracing::warn;
 
 /// 推理请求（从 Router 转发过来）
 pub struct CoreRequest {
@@ -133,7 +135,7 @@ fn bind_to_core(core_id: usize) -> Result<(), String> {
 
     let result = unsafe {
         libc::pthread_setaffinity_np(
-            thread::native_handle(),
+            std::thread::current().native_handle().as_raw_handle() as *mut _,
             std::mem::size_of::<libc::cpu_set_t>(),
             &cpuset as *const _ as *const _,
         )

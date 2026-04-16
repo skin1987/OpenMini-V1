@@ -10,6 +10,7 @@ use std::fmt;
 use super::cpu::{CpuBackend, CpuBackendType};
 
 #[cfg(target_os = "linux")]
+#[allow(unused_imports)]
 use glob::glob;
 
 // ============================================================================
@@ -691,11 +692,11 @@ impl HyperthreadTopology {
     }
 
     #[cfg(target_os = "linux")]
-    fn parse_cache_topology() -> HashMap<usize, CacheInfo> {
-        let mut cache_map: HashMap<usize, CacheInfo> = HashMap::new();
+    fn parse_cache_topology() -> HashMap<usize, CoreCacheIds> {
+        let mut cache_map: HashMap<usize, CoreCacheIds> = HashMap::new();
 
         for cpu_id in 0..num_cpus::get() {
-            let mut info = CacheInfo::default();
+            let mut info = CoreCacheIds::default();
 
             let l1d_path = format!("/sys/devices/system/cpu/cpu{}/cache/index0/id", cpu_id);
             if let Ok(content) = std::fs::read_to_string(&l1d_path) {
@@ -804,7 +805,7 @@ impl HyperthreadTopology {
 
 #[cfg(target_os = "linux")]
 #[derive(Default)]
-struct CacheInfo {
+struct CoreCacheIds {
     l1_data_cache_id: Option<usize>,
     l1_inst_cache_id: Option<usize>,
     l2_cache_id: Option<usize>,
