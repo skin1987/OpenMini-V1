@@ -23,7 +23,10 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler build-essential
+          sudo apt-get install -y pkg-config libssl-dev build-essential
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -47,7 +50,10 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler build-essential
+          sudo apt-get install -y pkg-config libssl-dev build-essential
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -73,7 +79,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler build-essential
+          sudo apt-get install -y pkg-config libssl-dev build-essential
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install openssl protobuf
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable

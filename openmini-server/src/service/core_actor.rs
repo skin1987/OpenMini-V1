@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
+
 #[cfg(not(target_os = "linux"))]
 use tracing::warn;
 
@@ -124,18 +125,17 @@ impl PerCoreActor {
 /// 将当前线程绑定到指定的 CPU 核心（Linux）
 #[cfg(target_os = "linux")]
 fn bind_to_core(core_id: usize) -> Result<(), String> {
-    use std::thread;
-
     let core = core_id as libc::c_int;
     let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
     unsafe {
         libc::CPU_ZERO(&mut cpuset);
-        libc::CPU_SET(core, &mut cpuset);
+        libc::CPU_SET(core as usize, &mut cpuset);
     }
 
     let result = unsafe {
+        let thread_id = libc::pthread_self();
         libc::pthread_setaffinity_np(
-            std::thread::current().native_handle().as_raw_handle() as *mut _,
+            thread_id,
             std::mem::size_of::<libc::cpu_set_t>(),
             &cpuset as *const _ as *const _,
         )
