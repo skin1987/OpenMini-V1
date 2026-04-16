@@ -3612,9 +3612,9 @@ mod tests {
         let head_dim = 4;
         let hidden_size = num_heads * head_dim;
 
-        let q = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| ((i + j + 1) as f32 * 0.1));
-        let k = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| ((i * j + 1) as f32 * 0.1));
-        let v = Array2::from_shape_fn((seq_len, hidden_size), |(i, _j)| ((i + 1) as f32 * 0.1));
+        let q = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| (i + j + 1) as f32 * 0.1);
+        let k = Array2::from_shape_fn((seq_len, hidden_size), |(i, j)| (i * j + 1) as f32 * 0.1);
+        let v = Array2::from_shape_fn((seq_len, hidden_size), |(i, _j)| (i + 1) as f32 * 0.1);
 
         let config = DSATopKConfig::new()
             .with_top_k(seq_len)
@@ -4240,8 +4240,8 @@ mod tests {
     #[test]
     fn test_lightning_indexer_large_matrix() {
         // 测试较大矩阵 (256x512)
-        let q = Array2::from_shape_fn((256, 128), |(i, j)| ((i * j) as f32 * 0.01));
-        let k = Array2::from_shape_fn((512, 128), |(i, j)| ((i + j) as f32 * 0.02));
+        let q = Array2::from_shape_fn((256, 128), |(i, j)| (i * j) as f32 * 0.01);
+        let k = Array2::from_shape_fn((512, 128), |(i, j)| (i + j) as f32 * 0.02);
         let result = lightning_indexer(&q, &k);
         assert_eq!(result.dim(), (256, 512));
         // 验证结果有限
@@ -4628,8 +4628,8 @@ mod tests {
     #[test]
     fn test_lightning_indexer_chunked_chunk_size_equals_q_len() {
         // chunk_size == q_len 时应该正常工作
-        let q = Array2::from_shape_fn((4, 4), |(i, j)| ((i + j) as f32 * 0.1));
-        let k = Array2::from_shape_fn((3, 4), |(i, j)| ((i * j) as f32 * 0.1));
+        let q = Array2::from_shape_fn((4, 4), |(i, j)| (i + j) as f32 * 0.1);
+        let k = Array2::from_shape_fn((3, 4), |(i, j)| (i * j) as f32 * 0.1);
 
         let result = lightning_indexer_chunked(&q, &k, 4); // chunk_size == q_len
         let expected = lightning_indexer(&q, &k);
@@ -4646,8 +4646,8 @@ mod tests {
     #[test]
     fn test_lightning_indexer_streaming_chunk_size_larger_than_q_len() {
         // chunk_size > q_len 时应该只产生一个块
-        let q = Array2::from_shape_fn((4, 4), |(i, j)| ((i + j) as f32 * 0.1));
-        let k = Array2::from_shape_fn((3, 4), |(i, j)| ((i * j) as f32 * 0.1));
+        let q = Array2::from_shape_fn((4, 4), |(i, j)| (i + j) as f32 * 0.1);
+        let k = Array2::from_shape_fn((3, 4), |(i, j)| (i * j) as f32 * 0.1);
 
         let results: Vec<_> = lightning_indexer_streaming(&q, &k, 100).collect();
         assert_eq!(results.len(), 1); // 只有一个块
@@ -4816,8 +4816,8 @@ mod tests {
     /// 测试 lightning_indexer_gpu_with_stats 基本功能（覆盖第545-551行）
     #[test]
     fn test_lightning_indexer_gpu_with_stats_basic() {
-        let q = Array2::from_shape_fn((8, 16), |(i, j)| ((i + j) as f32 * 0.1));
-        let k = Array2::from_shape_fn((12, 16), |(i, j)| ((i * j) as f32 * 0.05));
+        let q = Array2::from_shape_fn((8, 16), |(i, j)| (i + j) as f32 * 0.1);
+        let k = Array2::from_shape_fn((12, 16), |(i, j)| (i * j) as f32 * 0.05);
 
         let result = lightning_indexer_gpu_with_stats(&q, &k);
 

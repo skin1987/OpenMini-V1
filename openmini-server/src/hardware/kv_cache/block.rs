@@ -176,6 +176,8 @@ impl KVCacheConfig {
     }
 
     /// 设置最大内存（自动计算块数）
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     pub fn with_max_memory(mut self, max_memory_mb: usize) -> Self {
         let block_size = self.block_memory_size();
         if block_size > 0 {
