@@ -571,6 +571,8 @@ impl From<super::model::ModelConfig> for ModelConfig {
     }
 }
 
+#[allow(unknown_lints)]
+#[allow(clippy::manual_checked_ops)]
 impl From<ModelConfig> for super::model::ModelConfig {
     fn from(config: ModelConfig) -> Self {
         let head_dim = if config.num_attention_heads > 0 {
@@ -2087,7 +2089,7 @@ impl GgufFile {
             }
             GgufTensorType::F16 => {
                 // 检查对齐：f16 需要 2 字节对齐
-                if data.as_ptr() as usize % std::mem::align_of::<half::f16>() != 0 {
+                if !(data.as_ptr() as usize).is_multiple_of(std::mem::align_of::<half::f16>()) {
                     return Err(anyhow!("F16 data is not properly aligned"));
                 }
                 let f16_slice: &[half::f16] = cast_slice(data);

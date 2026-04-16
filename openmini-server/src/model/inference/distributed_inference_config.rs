@@ -85,11 +85,12 @@ impl fmt::Display for ParallelStrategy {
 /// 通信后端选择
 ///
 /// 定义多节点/多设备间的通信实现。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CommunicationBackend {
     /// 使用 NCCL (NVIDIA Collective Communications Library)
     /// 支持: CUDA 设备间高速通信
     /// 适用: NVIDIA GPU 集群
+    #[default]
     Nccl,
 
     /// 使用 RCCL (ROCm Collective Communications Library)
@@ -116,12 +117,6 @@ impl fmt::Display for CommunicationBackend {
             Self::Gloo => write!(f, "gloo"),
             Self::Mpi => write!(f, "mpi"),
         }
-    }
-}
-
-impl Default for CommunicationBackend {
-    fn default() -> Self {
-        Self::Nccl // 默认使用 NCCL（NVIDIA GPU 最优）
     }
 }
 
@@ -293,10 +288,11 @@ impl Default for NodeCommunicationConfig {
 // ==================== 负载均衡配置 ====================
 
 /// 负载均衡策略
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LoadBalancingStrategy {
     /// 轮询调度 (Round Robin)
     /// 依次分配请求到各个节点
+    #[default]
     RoundRobin,
 
     /// 最少连接 (Least Connections)
@@ -321,12 +317,6 @@ impl fmt::Display for LoadBalancingStrategy {
             Self::LatencyBased => write!(f, "latency_based"),
             Self::ConsistentHashing => write!(f, "consistent_hashing"),
         }
-    }
-}
-
-impl Default for LoadBalancingStrategy {
-    fn default() -> Self {
-        Self::RoundRobin
     }
 }
 

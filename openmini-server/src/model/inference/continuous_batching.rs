@@ -282,7 +282,8 @@ impl ContinuousBatchingScheduler {
             SchedulingStrategy::Priority => {
                 // 按优先级排序
                 let mut vec: Vec<_> = queue.drain(..).collect();
-                vec.sort_by(|a, b| b.priority.cmp(&a.priority));
+                use std::cmp::Reverse;
+                vec.sort_by_key(|a| Reverse(a.priority));
                 queue.extend(vec);
             }
             SchedulingStrategy::Fair => {
