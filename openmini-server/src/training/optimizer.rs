@@ -623,11 +623,11 @@ mod tests {
 
         let mut optimizer_with_decay = AdamW::new(0.001, (0.9, 0.999), 1e-8, 0.1);
         let mut params_with_decay = vec![create_test_param(1.0)];
-        let _ = optimizer_with_decay.step(&mut params_with_decay, &[gradient.clone()]);
+        let _ = optimizer_with_decay.step(&mut params_with_decay, std::slice::from_ref(&gradient));
 
         let mut optimizer_no_decay = AdamW::new(0.001, (0.9, 0.999), 1e-8, 0.0);
         let mut params_no_decay = vec![create_test_param(1.0)];
-        let _ = optimizer_no_decay.step(&mut params_no_decay, &[gradient.clone()]);
+        let _ = optimizer_no_decay.step(&mut params_no_decay, std::slice::from_ref(&gradient));
 
         assert!(
             params_with_decay[0].data[[0]] < params_no_decay[0].data[[0]],
@@ -793,8 +793,8 @@ mod tests {
 
         let gradient = ArrayD::from_shape_vec(ndarray::IxDyn(&[1]), vec![0.1]).unwrap();
 
-        let _ = optimizer_nesterov.step(&mut params_nesterov, &[gradient.clone()]);
-        let _ = optimizer_standard.step(&mut params_standard, &[gradient.clone()]);
+        let _ = optimizer_nesterov.step(&mut params_nesterov, std::slice::from_ref(&gradient));
+        let _ = optimizer_standard.step(&mut params_standard, std::slice::from_ref(&gradient));
 
         // Nesterov 和标准动量应产生不同的结果
         assert_ne!(

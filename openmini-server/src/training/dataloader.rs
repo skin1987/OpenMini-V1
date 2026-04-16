@@ -935,7 +935,7 @@ mod tests {
 
     #[test]
     fn test_batch_with_different_lengths() {
-        let samples = vec![
+        let samples = [
             TrainingSample {
                 input_ids: vec![1, 2],
                 labels: vec![1, 2],

@@ -527,7 +527,10 @@ impl Trainer {
 
                 // Checkpoint 保存
                 if self.config.save_steps > 0
-                    && self.state.global_step % self.config.save_steps as u64 == 0
+                    && self
+                        .state
+                        .global_step
+                        .is_multiple_of(self.config.save_steps as u64)
                 {
                     self.save_checkpoint()?;
                 }
