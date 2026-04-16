@@ -36,10 +36,8 @@ jobs:
             ~/.cargo/registry/
             ~/.cargo/git/
             target/
-          key: ${{ runner.os }}-cargo-v2-1.87-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-v2-1.87-
-            ${{ runner.os }}-cargo-v2-
+          key: nocache-${{ github.run_id }}-${{ github.job }}
+          restore-keys: ""
 
       - name: Check formatting
         run: cargo fmt --all -- --check
