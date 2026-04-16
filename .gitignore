@@ -19,7 +19,6 @@
 coverage/
 
 # ============ Cargo 相关 ============
-Cargo.lock
 .cargo/config.toml.local
 
 # ============ Python 相关 ============
