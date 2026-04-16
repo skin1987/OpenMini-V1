@@ -372,8 +372,7 @@ mod tests {
         let empty_image = Array3::<u8>::zeros((0, 0, 3));
         let result = preprocessor.preprocess(&empty_image);
         // 0尺寸图像可能返回错误或空结果
-        if result.is_ok() {
-            let t = result.unwrap();
+        if let Ok(t) = result {
             assert_eq!(t.len(), 0);
         }
     }

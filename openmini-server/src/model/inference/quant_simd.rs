@@ -908,6 +908,8 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     }
 
                     let mut values = [0.0f32; 8];
+                    #[allow(unknown_lints)]
+                    #[allow(clippy::manual_is_multiple_of)]
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;
@@ -944,6 +946,8 @@ fn dequantize_q4_1_impl(data: &[u8], n: usize) -> Vec<f32> {
                     }
 
                     let mut values = [0.0f32; 4];
+                    #[allow(unknown_lints)]
+                    #[allow(clippy::manual_is_multiple_of)]
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
                         let is_high = (elems_start + j) % 2 == 0;

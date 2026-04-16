@@ -517,7 +517,11 @@ impl Trainer {
                 self.metrics_history.push(complete_metrics.clone());
 
                 // 日志输出
-                if self.state.global_step % self.config.logging_steps as u64 == 0 {
+                if self
+                    .state
+                    .global_step
+                    .is_multiple_of(self.config.logging_steps as u64)
+                {
                     self.log_metrics(epoch, &complete_metrics);
                 }
 

@@ -602,13 +602,13 @@ mod tests {
         let gradient = ArrayD::from_shape_vec(ndarray::IxDyn(&[1]), vec![1.0]).unwrap();
 
         // 第一步
-        let _ = optimizer.step(&mut params, &[gradient.clone()]);
+        let _ = optimizer.step(&mut params, std::slice::from_ref(&gradient));
         let step1_value = params[0].data[[0]];
 
         // 执行多步后
         for _ in 0..100 {
             params[0].grad = Some(gradient.clone());
-            let _ = optimizer.step(&mut params, &[gradient.clone()]);
+            let _ = optimizer.step(&mut params, std::slice::from_ref(&gradient));
         }
 
         let step101_value = params[0].data[[0]];

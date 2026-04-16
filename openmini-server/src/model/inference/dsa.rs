@@ -1998,14 +1998,14 @@ impl DSALayoutOptimized {
     }
 
     /// 以行优先格式获取第 i 行的 Q 向量
-    pub fn q_row(&self, i: usize) -> ndarray::ArrayView1<f32> {
+    pub fn q_row(&self, i: usize) -> ndarray::ArrayView1<'_, f32> {
         self.q.row(i)
     }
 
     /// 以列优先格式获取 K^T 的第 d 列（即原始 K 的第 d 行）
     ///
     /// 这对应于隐藏维度 d 上所有键位置的值，适合 SIMD 批量处理。
-    pub fn kt_column(&self, d: usize) -> ndarray::ArrayView1<f32> {
+    pub fn kt_column(&self, d: usize) -> ndarray::ArrayView1<'_, f32> {
         self.k_transposed.row(d)
     }
 

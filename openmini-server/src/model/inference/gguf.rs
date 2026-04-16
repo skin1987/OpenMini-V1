@@ -3078,6 +3078,8 @@ mod integration_tests {
     }
 
     #[test]
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     fn test_gguf_tensor_type_comprehensive() {
         // 张量类型综合测试
         // 测试所有类型的block_size和bytes_per_block的一致性

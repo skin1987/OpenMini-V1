@@ -674,7 +674,7 @@ impl TensorProductAttention {
     }
 
     /// 作为 MLA 替代方案的集成接口
-    pub fn as_attention_selector(&self) -> AttentionSelector {
+    pub fn as_attention_selector(&self) -> AttentionSelector<'_> {
         AttentionSelector { tpa: self }
     }
 

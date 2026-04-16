@@ -81,6 +81,8 @@ impl TrainingBatch {
     }
 
     /// 获取批次大小
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     pub fn batch_size(&self, seq_len: usize) -> usize {
         if seq_len > 0 {
             self.input_ids.len() / seq_len
