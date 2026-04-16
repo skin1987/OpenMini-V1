@@ -1022,7 +1022,7 @@ impl LocalStandardAttention {
         assert!(num_heads > 0, "Number of heads must be positive");
         assert!(head_dim > 0, "Head dimension must be positive");
         assert!(
-            head_dim % num_heads == 0,
+            head_dim.is_multiple_of(num_heads),
             "Head dimension must be divisible by num_heads"
         );
 

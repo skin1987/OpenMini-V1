@@ -132,7 +132,7 @@ impl BlockSummary {
     /// 判断当前层是否为 Block 最后一层
     #[inline]
     pub fn is_block_end(&self, layer_idx: usize) -> bool {
-        (layer_idx + 1) % self.block_size == 0 || layer_idx + 1 == self.total_layers
+        (layer_idx + 1).is_multiple_of(self.block_size) || layer_idx + 1 == self.total_layers
     }
 
     /// 更新当前 Block 摘要（在 Block 最后一层调用）

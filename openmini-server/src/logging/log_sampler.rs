@@ -328,7 +328,7 @@ impl AdaptiveSampler {
         let count = self.counter.fetch_add(1, Ordering::Relaxed);
 
         // 每window_size次重新计算采样率
-        if count % self.window_size != 0 {
+        if !count.is_multiple_of(self.window_size) {
             return false; // 在窗口内只采样一次（简化实现）
         }
 

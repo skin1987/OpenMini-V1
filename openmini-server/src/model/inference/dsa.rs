@@ -5122,7 +5122,7 @@ mod tests {
     #[test]
     fn test_top_k_selection_adaptive_small_matrix() {
         // 小矩阵应该使用 heap_cpu 算法
-        let scores = Array2::from_shape_fn((8, 16), |(i, j)| ((i + j) as f32 * 0.1));
+        let scores = Array2::from_shape_fn((8, 16), |(i, j)| (i + j) as f32 * 0.1);
 
         let (result, stats) = top_k_selection_adaptive(&scores, 4);
 
@@ -5592,7 +5592,7 @@ mod tests {
         }
 
         // Top-K Metal 回退路径测试
-        let scores = Array2::from_shape_fn((4, 32), |(i, j)| ((i * j) as f32 * 0.1));
+        let scores = Array2::from_shape_fn((4, 32), |(i, j)| (i * j) as f32 * 0.1);
         let top_k_result = top_k_selection_metal(&scores, 4);
         assert!(
             top_k_result.is_ok(),
