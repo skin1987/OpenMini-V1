@@ -256,6 +256,8 @@ impl CpuInfo {
 
     /// 获取每个物理核心的逻辑核心数
     #[allow(dead_code)]
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     pub fn threads_per_core(&self) -> usize {
         if self.physical_cores > 0 {
             self.logical_cores / self.physical_cores
@@ -618,6 +620,8 @@ impl HyperthreadTopology {
     }
 
     #[cfg(target_os = "linux")]
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     fn detect_linux() -> Self {
         let physical_cores = num_cpus::get_physical();
         let logical_cores = num_cpus::get();

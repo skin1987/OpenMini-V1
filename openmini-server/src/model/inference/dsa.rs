@@ -3578,9 +3578,9 @@ mod tests {
         let seq_len = 16;
         let head_dim = 8;
 
-        let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i + j + 1) as f32 * 0.1));
-        let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| ((i * j + 1) as f32 * 0.1));
-        let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| ((i + 1) as f32 * 0.1));
+        let q = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| (i + j + 1) as f32 * 0.1);
+        let k = Array2::from_shape_fn((seq_len, head_dim), |(i, j)| (i * j + 1) as f32 * 0.1);
+        let v = Array2::from_shape_fn((seq_len, head_dim), |(i, _j)| (i + 1) as f32 * 0.1);
 
         let config = DSATopKConfig::new().with_top_k(8);
         let result = sparse_attention_forward(&q, &k, &v, head_dim, &config, false).unwrap();
@@ -4147,8 +4147,8 @@ mod tests {
 
     #[test]
     fn test_lightning_indexer_auto_consistency_with_standard() {
-        let q = Array2::from_shape_fn((16, 32), |(i, j)| ((i * j + 1) as f32 * 0.1));
-        let k = Array2::from_shape_fn((24, 32), |(i, j)| ((i + j) as f32 * 0.05));
+        let q = Array2::from_shape_fn((16, 32), |(i, j)| (i * j + 1) as f32 * 0.1);
+        let k = Array2::from_shape_fn((24, 32), |(i, j)| (i + j) as f32 * 0.05);
 
         let standard_result = lightning_indexer(&q, &k);
         let auto_result = lightning_indexer_auto(&q, &k).expect("Auto indexer should succeed");

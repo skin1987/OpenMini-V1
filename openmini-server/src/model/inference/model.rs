@@ -6214,7 +6214,7 @@ mod tests {
         cache.update(&c_kv1).unwrap();
         assert_eq!(cache.len(), 2);
 
-        let c_kv2 = Array2::from_shape_fn((3, 512), |(i, j)| ((i as f32 + 2.0) * 100.0 + j as f32));
+        let c_kv2 = Array2::from_shape_fn((3, 512), |(i, j)| (i as f32 + 2.0) * 100.0 + j as f32);
         cache.update(&c_kv2).unwrap();
         assert_eq!(cache.len(), 5);
 
