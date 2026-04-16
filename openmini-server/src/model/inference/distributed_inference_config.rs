@@ -43,13 +43,14 @@ use thiserror::Error;
 ///
 /// 定义模型在多个计算设备间的并行方式。
 /// 推理场景通常优先考虑延迟，而非训练中的吞吐量。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[allow(clippy::enum_variant_names)]
 pub enum ParallelStrategy {
     /// 张量并行 (Tensor Parallelism)
     /// 将单个层拆分为多个设备
     /// 优势: 层内并行，低延迟
     /// 适用: 单节点多 GPU 场景
+    #[default]
     TensorParallel,
 
     /// 流水线并行 (Pipeline Parallelism)
@@ -78,12 +79,6 @@ impl fmt::Display for ParallelStrategy {
             Self::HybridParallel => write!(f, "hybrid_parallel"),
             Self::SequenceParallel => write!(f, "sequence_parallel"),
         }
-    }
-}
-
-impl Default for ParallelStrategy {
-    fn default() -> Self {
-        Self::TensorParallel // 推理场景默认使用张量并行（低延迟）
     }
 }
 

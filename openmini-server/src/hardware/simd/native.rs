@@ -1624,6 +1624,8 @@ impl SimdOps for HygonOps {
         output
     }
 
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     fn fused_gemm_softmax(
         &self,
         query: &[f32],

@@ -6190,7 +6190,7 @@ mod tests {
     fn test_mla_cache_update_and_retrieve() {
         let mut cache = MLACache::new(1024, 512);
 
-        let c_kv = Array2::from_shape_fn((4, 512), |(i, j)| (i as f32 * 512.0 + j as f32));
+        let c_kv = Array2::from_shape_fn((4, 512), |(i, j)| i as f32 * 512.0 + j as f32);
         cache.update(&c_kv).unwrap();
 
         assert_eq!(cache.len(), 4);

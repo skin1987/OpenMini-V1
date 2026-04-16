@@ -126,7 +126,7 @@ impl BlockSummary {
     /// 判断当前层是否为 Block 第一层
     #[inline]
     pub fn is_block_start(&self, layer_idx: usize) -> bool {
-        layer_idx == 0 || layer_idx % self.block_size == 0
+        layer_idx == 0 || layer_idx.is_multiple_of(self.block_size)
     }
 
     /// 判断当前层是否为 Block 最后一层

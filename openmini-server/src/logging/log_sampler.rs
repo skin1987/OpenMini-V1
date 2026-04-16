@@ -148,7 +148,7 @@ impl ProbabilitySampler {
             return true; // probability接近1.0时的边界情况
         }
 
-        count % interval == 0
+        count.is_multiple_of(interval)
     }
 
     /// 获取当前的采样概率
@@ -208,7 +208,7 @@ impl CountSampler {
     /// 检查是否应该记录当前日志
     pub fn should_log(&mut self) -> bool {
         self.counter += 1;
-        self.counter % self.interval == 0
+        self.counter.is_multiple_of(self.interval)
     }
 
     /// 获取当前计数

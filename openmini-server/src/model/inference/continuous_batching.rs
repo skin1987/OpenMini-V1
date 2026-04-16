@@ -381,7 +381,8 @@ impl ContinuousBatchingScheduler {
         let mut running = self.running_requests.write();
 
         // 按优先级排序，抢占低优先级的请求
-        let mut requests: Vec<_> = running.iter().map(|(id, _)| *id).collect();
+        #[allow(clippy::iter_kv_map)]
+        let mut requests: Vec<_> = running.keys().copied().collect();
         requests.sort();
 
         // 计算需要释放的内存
