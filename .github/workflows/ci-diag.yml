@@ -1,0 +1,30 @@
+name: CI Diag
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler build-essential curl
+      
+      - name: Rust info
+        run: |
+          rustc --version
+          cargo --version
+          
+      - name: Cargo check verbose
+        run: cargo check --workspace --locked 2>&1 | tee build.log || true
+        
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log

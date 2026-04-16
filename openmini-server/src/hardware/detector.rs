@@ -646,7 +646,7 @@ impl HyperthreadTopology {
 
         for core_id in sorted_core_ids {
             if let Some(logical_ids) = core_map.get(&core_id) {
-                let mut core = PhysicalCore {
+                let core = PhysicalCore {
                     id: core_id,
                     core_type: CoreType::Standard,
                     logical_cores: logical_ids.clone(),
