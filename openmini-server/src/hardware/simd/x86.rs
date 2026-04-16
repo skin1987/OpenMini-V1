@@ -66,6 +66,8 @@ fn scalar_fused_gemm_add(
     output
 }
 
+#[allow(unknown_lints)]
+#[allow(clippy::manual_checked_ops)]
 fn scalar_fused_gemm_softmax(
     query: &[f32],
     key: &[f32],
@@ -618,6 +620,8 @@ impl SimdOps for SseOps {
         output
     }
 
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     fn fused_gemm_softmax(
         &self,
         query: &[f32],
@@ -1283,6 +1287,8 @@ impl SimdOps for Avx2Ops {
         output
     }
 
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     fn fused_gemm_softmax(
         &self,
         query: &[f32],

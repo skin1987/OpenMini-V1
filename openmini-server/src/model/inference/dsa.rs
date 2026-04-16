@@ -4915,8 +4915,8 @@ mod tests {
     /// 测试 lightning_indexer_gpu_chunked 结果一致性（与标准版对比）
     #[test]
     fn test_lightning_indexer_gpu_chunked_consistency() {
-        let q = Array2::from_shape_fn((16, 32), |(i, j)| ((i + j + 1) as f32 * 0.1));
-        let k = Array2::from_shape_fn((24, 32), |(i, j)| ((i * j + 1) as f32 * 0.05));
+        let q = Array2::from_shape_fn((16, 32), |(i, j)| (i + j + 1) as f32 * 0.1);
+        let k = Array2::from_shape_fn((24, 32), |(i, j)| (i * j + 1) as f32 * 0.05);
 
         // 获取标准版结果作为参考
         let standard_result = lightning_indexer(&q, &k);
@@ -5147,7 +5147,7 @@ mod tests {
     #[test]
     fn test_top_k_selection_metal_returns_result() {
         // 测试 GPU Top-K 函数能正常返回结果（即使回退到 CPU）
-        let scores = Array2::from_shape_fn((4, 8), |(i, j)| ((i * j) as f32 * 0.1));
+        let scores = Array2::from_shape_fn((4, 8), |(i, j)| (i * j) as f32 * 0.1);
 
         let result = top_k_selection_metal(&scores, 2);
 

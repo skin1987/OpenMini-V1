@@ -127,6 +127,8 @@ fn scalar_fused_gemm_add(
     output
 }
 
+#[allow(unknown_lints)]
+#[allow(clippy::manual_checked_ops)]
 fn scalar_fused_gemm_softmax(
     query: &[f32],
     key: &[f32],

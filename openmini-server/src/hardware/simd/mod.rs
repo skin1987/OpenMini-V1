@@ -229,6 +229,8 @@ pub trait SimdOps: Send + Sync {
     ///
     /// # 返回
     /// 输出矩阵 [M x head_dim]
+    #[allow(unknown_lints)]
+    #[allow(clippy::manual_checked_ops)]
     fn fused_gemm_softmax(
         &self,
         query: &[f32],
