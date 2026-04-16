@@ -317,7 +317,7 @@ fn test_long_running_stability() {
 
         // 定期记录内存快照（每 snapshot_interval 秒）
         let elapsed_secs = start.elapsed().as_secs();
-        if elapsed_secs > 0 && elapsed_secs % snapshot_interval.as_secs() == 0 {
+        if elapsed_secs > 0 && elapsed_secs.is_multiple_of(snapshot_interval.as_secs()) {
             sys.refresh_memory();
             let current_mem = sys.used_memory();
             if let Ok(mut snapshots) = memory_snapshots.lock() {

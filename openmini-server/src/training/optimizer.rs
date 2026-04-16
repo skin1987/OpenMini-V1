@@ -641,11 +641,11 @@ mod tests {
         let mut params = vec![create_test_param(1.0)];
         let gradient = ArrayD::from_shape_vec(ndarray::IxDyn(&[1]), vec![0.1]).unwrap();
 
-        let _ = optimizer.step(&mut params, &[gradient.clone()]);
+        let _ = optimizer.step(&mut params, std::slice::from_ref(&gradient));
         let step1_value = params[0].data[[0]];
 
         params[0].grad = Some(gradient.clone());
-        let _ = optimizer.step(&mut params, &[gradient.clone()]);
+        let _ = optimizer.step(&mut params, std::slice::from_ref(&gradient));
         let step2_value = params[0].data[[0]];
 
         // 有动量时，第二步的变化幅度应该更大
