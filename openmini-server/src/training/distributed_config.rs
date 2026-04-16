@@ -43,7 +43,7 @@ use thiserror::Error;
 ///
 /// 定义模型参数和优化器状态在多 GPU 间的分片方式。
 /// 70B 模型必须使用 FULL_SHARD 或 HYBRID_SHARD 才能适配显存。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ShardingStrategy {
     /// 完全分片: 参数、梯度、优化器状态全部分片
     /// 显存效率最高，通信开销最大
@@ -58,6 +58,7 @@ pub enum ShardingStrategy {
     /// 混合分片: 结合前两者优点
     /// 参数在 TP 组内复制，跨组分片
     /// 推荐: 70B 模型在 H100 集群上的最佳选择
+    #[default]
     HybridShard,
 }
 
@@ -68,12 +69,6 @@ impl fmt::Display for ShardingStrategy {
             Self::ShardGradOp => write!(f, "shard_grad_op"),
             Self::HybridShard => write!(f, "hybrid_shard"),
         }
-    }
-}
-
-impl Default for ShardingStrategy {
-    fn default() -> Self {
-        Self::HybridShard // 70B 默认使用混合分片
     }
 }
 
@@ -229,20 +224,15 @@ impl FsdpConfig {
 /// - Stage 1: 梯度分片 (类似 ZeRO-1)
 /// - Stage 2: 梯度 + 优化器状态分片 (ZeRO-2)
 /// - Stage 3: 全部分片包括参数 (ZeRO-3)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DeepSpeedStage {
     /// Stage 1: 仅梯度分片
     Stage1 = 1,
     /// Stage 2: 梯度 + 优化器状态分片
     Stage2 = 2,
     /// Stage 3: 全部分片 (推荐用于 70B)
+    #[default]
     Stage3 = 3,
-}
-
-impl Default for DeepSpeedStage {
-    fn default() -> Self {
-        Self::Stage3 // 70B 默认使用 Stage 3
-    }
 }
 
 impl fmt::Display for DeepSpeedStage {

@@ -725,7 +725,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let mut values = [0.0f32; 8];
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
-                        let is_high = (elems_start + j) % 2 == 0;
+                        let is_high = (elems_start + j).is_multiple_of(2);
                         let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                         values[j] = q as f32;
                     }
@@ -760,7 +760,7 @@ fn dequantize_q4_0_impl(data: &[u8], n: usize) -> Vec<f32> {
                     let mut values = [0.0f32; 4];
                     for j in 0..simd_width {
                         let byte_idx = (elems_start + j) / 2;
-                        let is_high = (elems_start + j) % 2 == 0;
+                        let is_high = (elems_start + j).is_multiple_of(2);
                         let q = safe_get_q4_byte_i32(qs, byte_idx, is_high);
                         values[j] = q as f32;
                     }

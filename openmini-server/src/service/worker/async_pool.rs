@@ -168,7 +168,7 @@ impl AsyncInferencePool {
                     .unwrap_or_default();
 
                 // 分发结果回各请求方
-                for (wrapper, result) in batch.into_iter().zip(results.into_iter()) {
+                for (wrapper, result) in batch.into_iter().zip(results) {
                     let _ = wrapper.response_tx.send(Ok(result));
                 }
             }

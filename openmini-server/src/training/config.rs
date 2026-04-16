@@ -167,7 +167,10 @@ impl Model14BConfig {
                 "num_key_value_heads must be > 0".to_string(),
             ));
         }
-        if self.num_attention_heads % self.num_key_value_heads != 0 {
+        if !self
+            .num_attention_heads
+            .is_multiple_of(self.num_key_value_heads)
+        {
             return Err(ConfigError::InvalidValue(format!(
                 "num_attention_heads ({}) must be divisible by num_key_value_heads ({})",
                 self.num_attention_heads, self.num_key_value_heads

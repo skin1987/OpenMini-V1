@@ -353,19 +353,22 @@ impl ModelConfig {
                 self.head_dim
             )));
         }
-        if self.mla_latent_dim % 2 != 0 {
+        if !self.mla_latent_dim.is_multiple_of(2) {
             return Err(InferenceError::config(format!(
                 "mla_latent_dim must be even for MLA KV compression, got {}",
                 self.mla_latent_dim
             )));
         }
-        if self.hidden_size % self.num_attention_heads != 0 {
+        if !self.hidden_size.is_multiple_of(self.num_attention_heads) {
             return Err(InferenceError::config(format!(
                 "hidden_size ({}) must be divisible by num_attention_heads ({})",
                 self.hidden_size, self.num_attention_heads
             )));
         }
-        if self.num_attention_heads % self.num_key_value_heads != 0 {
+        if !self
+            .num_attention_heads
+            .is_multiple_of(self.num_key_value_heads)
+        {
             return Err(InferenceError::config(format!(
                 "num_attention_heads ({}) must be divisible by num_key_value_heads ({}) for GQA",
                 self.num_attention_heads, self.num_key_value_heads
@@ -977,7 +980,7 @@ impl MLAWeights {
         let latent_dim = config.mla_latent_dim;
 
         assert!(
-            latent_dim % 2 == 0,
+            latent_dim.is_multiple_of(2),
             "latent_dim must be even for MLA KV compression, got {}",
             latent_dim
         );

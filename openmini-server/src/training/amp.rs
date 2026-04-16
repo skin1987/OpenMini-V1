@@ -6,20 +6,15 @@
 use ndarray::ArrayD;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum MixedPrecision {
     /// 不使用混合精度（默认）
+    #[default]
     None,
     /// FP16 半精度浮点
     Fp16,
     /// BFloat16（Brain Float，保留指数范围）
     Bf16,
-}
-
-impl Default for MixedPrecision {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl std::fmt::Display for MixedPrecision {

@@ -789,7 +789,7 @@ impl ComputationGraph {
                 };
 
                 // 累加到各输入节点的梯度
-                for (&input_id, grad) in inputs.iter().zip(input_grads.into_iter()) {
+                for (&input_id, grad) in inputs.iter().zip(input_grads) {
                     if let Some(existing) = self.get_node_value_grad(input_id) {
                         let sum = existing + grad;
                         self.set_node_grad(input_id, sum);
