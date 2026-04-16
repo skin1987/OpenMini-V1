@@ -1511,8 +1511,7 @@ pub fn softmax_simd(input: &[f32]) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        use std::arch::aarch64::is_aarch64_feature_detected;
-        if is_aarch64_feature_detected!("neon") {
+        if std::arch::aarch64::is_aarch64_feature_detected!("neon") {
             unsafe {
                 softmax_neon(input, &mut result, max_val);
                 return result;
@@ -1728,8 +1727,7 @@ pub fn rms_norm_simd(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        use std::arch::aarch64::is_aarch64_feature_detected;
-        if is_aarch64_feature_detected!("neon") {
+        if std::arch::aarch64::is_aarch64_feature_detected!("neon") {
             unsafe {
                 ss = sum_squares_neon(input);
             }
@@ -1760,8 +1758,7 @@ pub fn rms_norm_simd(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        use std::arch::aarch64::is_aarch64_feature_detected;
-        if is_aarch64_feature_detected!("neon") {
+        if std::arch::aarch64::is_aarch64_feature_detected!("neon") {
             unsafe {
                 rms_norm_neon(input, weight, &mut result, inv_rms);
                 return result;

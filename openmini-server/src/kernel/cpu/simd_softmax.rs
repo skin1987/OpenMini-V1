@@ -179,13 +179,33 @@ pub struct SimdFeatures {
     pub neon: bool,
 }
 
+#[cfg(target_arch = "x86_64")]
+fn has_avx2() -> bool {
+    is_x86_feature_detected!("avx2")
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn has_avx2() -> bool {
+    false
+}
+
+#[cfg(target_arch = "x86_64")]
+fn has_sse42() -> bool {
+    is_x86_feature_detected!("sse4.1")
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn has_sse42() -> bool {
+    false
+}
+
 impl SimdFeatures {
     /// 运行时检测当前 CPU 支持的 SIMD 指令集
     pub fn detect() -> Self {
         Self {
-            avx2: cfg!(target_arch = "x86_64") && is_x86_feature_detected!("avx2"),
-            sse42: cfg!(target_arch = "x86_64") && is_x86_feature_detected!("sse4.1"),
-            neon: cfg!(target_arch = "aarch64"), // ARM NEON 在 aarch64 上普遍支持
+            avx2: has_avx2(),
+            sse42: has_sse42(),
+            neon: cfg!(target_arch = "aarch64"),
         }
     }
 

@@ -4,7 +4,11 @@
 
 #![allow(clippy::needless_range_loop)] // CPU SIMD 内核：使用索引循环以优化性能
 
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
+
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::*;
 
 #[cfg(target_arch = "x86_64")]
 pub fn is_avx2_supported() -> bool {

@@ -284,7 +284,7 @@ impl CpuBackend {
     pub fn has_neon() -> bool {
         #[cfg(target_arch = "aarch64")]
         {
-            std::is_aarch64_feature_detected!("neon")
+            std::arch::aarch64::is_aarch64_feature_detected!("neon")
         }
         #[cfg(not(target_arch = "aarch64"))]
         {
@@ -353,7 +353,7 @@ impl CpuBackend {
 
         #[cfg(target_arch = "aarch64")]
         {
-            info.neon = std::is_aarch64_feature_detected!("neon");
+            info.neon = std::arch::aarch64::is_aarch64_feature_detected!("neon");
             info.best_width = if info.neon { 128 } else { 0 };
         }
 
