@@ -474,11 +474,7 @@ async fn test_connection_pool_leak_detection() {
     );
 
     // 允许少量差异（边界情况），但应基本平衡
-    let diff = if acquire_count > release_count {
-        acquire_count - release_count
-    } else {
-        release_count - acquire_count
-    };
+    let diff = acquire_count.abs_diff(release_count);
     assert!(
         diff < 10,
         "Acquire/release count mismatch by {} (threshold: 10)",
