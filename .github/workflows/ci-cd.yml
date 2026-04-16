@@ -36,8 +36,10 @@ jobs:
             ~/.cargo/registry/
             ~/.cargo/git/
             target/
-          key: ${{ runner.os }}-cargo-1.87-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-1.87-
+          key: ${{ runner.os }}-cargo-v2-1.87-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-v2-1.87-
+            ${{ runner.os }}-cargo-v2-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
