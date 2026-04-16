@@ -16,7 +16,7 @@ authors = ["OpenMini Team"]
 license = "MIT"
 
 [workspace.dependencies]
-candle-core = "0.7"
+candle-core = "0.8"
 candle-transformers = "0.7"
 tokio = { version = "1", features = ["full"] }
 tonic = "0.12"
