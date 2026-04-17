@@ -123,7 +123,7 @@ pub fn detect_simd_support() -> SimdSupport {
         avx512: false,
         avx2: false,
         sse42: false,
-        neon: is_aarch64_feature_detected!("neon"),
+        neon: std::arch::aarch64::is_aarch64_feature_detected!("neon"),
     }
 }
 
@@ -1511,7 +1511,7 @@ pub fn softmax_simd(input: &[f32]) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        if std::arch::aarch64::is_aarch64_feature_detected!("neon") {
+        if detect_neon_support() {
             unsafe {
                 softmax_neon(input, &mut result, max_val);
                 return result;
@@ -1727,7 +1727,7 @@ pub fn rms_norm_simd(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        if std::arch::aarch64::is_aarch64_feature_detected!("neon") {
+        if detect_neon_support() {
             unsafe {
                 ss = sum_squares_neon(input);
             }
@@ -1758,7 +1758,7 @@ pub fn rms_norm_simd(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
 
     #[cfg(target_arch = "aarch64")]
     {
-        if std::arch::aarch64::is_aarch64_feature_detected!("neon") {
+        if detect_neon_support() {
             unsafe {
                 rms_norm_neon(input, weight, &mut result, inv_rms);
                 return result;
@@ -4774,4 +4774,14 @@ mod deep_optimization_tests {
             assert!(val.is_finite());
         }
     }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detect_neon_support() -> bool {
+    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn detect_neon_support() -> bool {
+    false
 }

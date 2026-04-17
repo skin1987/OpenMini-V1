@@ -210,7 +210,7 @@ impl CpuBackend {
 
         #[cfg(target_arch = "aarch64")]
         {
-            if std::is_aarch64_feature_detected!("neon") {
+            if detect_neon_support() {
                 return CpuBackendType::Neon;
             }
         }
@@ -282,14 +282,7 @@ impl CpuBackend {
     /// 检测是否有 NEON 支持
     #[allow(dead_code)]
     pub fn has_neon() -> bool {
-        #[cfg(target_arch = "aarch64")]
-        {
-            std::arch::aarch64::is_aarch64_feature_detected!("neon")
-        }
-        #[cfg(not(target_arch = "aarch64"))]
-        {
-            false
-        }
+        detect_neon_support()
     }
 
     /// 检测是否有 BLAS 支持
@@ -353,7 +346,7 @@ impl CpuBackend {
 
         #[cfg(target_arch = "aarch64")]
         {
-            info.neon = std::arch::aarch64::is_aarch64_feature_detected!("neon");
+            info.neon = detect_neon_support();
             info.best_width = if info.neon { 128 } else { 0 };
         }
 
@@ -1008,4 +1001,14 @@ mod tests {
             | CpuBackendType::Rust => {}
         }
     }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detect_neon_support() -> bool {
+    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn detect_neon_support() -> bool {
+    false
 }
