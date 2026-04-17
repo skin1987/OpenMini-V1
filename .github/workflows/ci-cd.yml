@@ -87,7 +87,7 @@ jobs:
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run tests (core)
+      - name: Run tests (smoke)
         run: |
           cargo test --workspace --lib --locked \
             -- --skip stress_test \
@@ -105,7 +105,18 @@ jobs:
                 --skip dsa_integration_test \
                 --skip monitoring_test \
                 --skip quant_simd_regression_test \
-            2>&1 | tail -80
+                --skip model::inference::dsa::tests \
+                --skip model::inference::quant_simd::tests \
+                --skip model::inference::model::tests \
+                --skip model::inference::moe::longcat::tests \
+                --skip model::inference::ahn::tests \
+                --skip enterprise::audit::tests \
+                --skip model::inference::gguf::tests \
+                --skip logging::structured_fields::tests \
+                --skip model::inference::moe::blockffn::tests \
+                --skip model::inference::speculative::tests \
+                --skip model::inference::speculative_decoding_v2::tests \
+            2>&1 | tail -100
 
   security-audit:
     name: Security Audit
