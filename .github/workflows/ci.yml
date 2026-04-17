@@ -107,7 +107,7 @@ jobs:
 
       - name: Install cargo-audit
         run: |
-          cargo install cargo-audit --locked || true
+          cargo install cargo-audit@0.17.7 || cargo install cargo-audit || true
           if ! command -v cargo-audit &> /dev/null; then
             echo "cargo-audit install failed, skipping audit"
             exit 0
