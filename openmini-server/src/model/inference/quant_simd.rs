@@ -1463,6 +1463,16 @@ pub fn get_optimal_threads(data_size: usize) -> usize {
     cpus.min(block_count).max(1)
 }
 
+#[cfg(target_arch = "aarch64")]
+fn detect_neon_support() -> bool {
+    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn detect_neon_support() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4774,14 +4784,4 @@ mod deep_optimization_tests {
             assert!(val.is_finite());
         }
     }
-}
-
-#[cfg(target_arch = "aarch64")]
-fn detect_neon_support() -> bool {
-    std::arch::aarch64::is_aarch64_feature_detected!("neon")
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-fn detect_neon_support() -> bool {
-    false
 }

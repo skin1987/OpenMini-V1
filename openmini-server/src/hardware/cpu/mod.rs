@@ -739,6 +739,16 @@ impl CpuOps for neon::NeonBackend {
 // 单元测试
 // ============================================================================
 
+#[cfg(target_arch = "aarch64")]
+fn detect_neon_support() -> bool {
+    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn detect_neon_support() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1001,14 +1011,4 @@ mod tests {
             | CpuBackendType::Rust => {}
         }
     }
-}
-
-#[cfg(target_arch = "aarch64")]
-fn detect_neon_support() -> bool {
-    std::arch::aarch64::is_aarch64_feature_detected!("neon")
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-fn detect_neon_support() -> bool {
-    false
 }

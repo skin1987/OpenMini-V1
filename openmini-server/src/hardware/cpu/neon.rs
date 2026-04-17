@@ -611,6 +611,16 @@ impl Default for NeonBackend {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+fn detect_neon_support() -> bool {
+    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn detect_neon_support() -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -901,14 +911,4 @@ mod tests {
         let backend = NeonBackend::default();
         assert_eq!(backend.num_threads(), NeonBackend::new().num_threads());
     }
-}
-
-#[cfg(target_arch = "aarch64")]
-fn detect_neon_support() -> bool {
-    std::arch::aarch64::is_aarch64_feature_detected!("neon")
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-fn detect_neon_support() -> bool {
-    false
 }
