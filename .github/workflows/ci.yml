@@ -43,6 +43,7 @@ jobs:
     name: Test Suite (stable)
     runs-on: ubuntu-latest
     needs: [check]
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +68,7 @@ jobs:
   build:
     name: Build Verification (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
