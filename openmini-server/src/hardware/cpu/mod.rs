@@ -741,7 +741,7 @@ impl CpuOps for neon::NeonBackend {
 
 #[cfg(target_arch = "aarch64")]
 fn detect_neon_support() -> bool {
-    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+    true // NEON is universally available on aarch64
 }
 
 #[cfg(not(target_arch = "aarch64"))]

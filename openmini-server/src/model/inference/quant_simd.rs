@@ -123,7 +123,7 @@ pub fn detect_simd_support() -> SimdSupport {
         avx512: false,
         avx2: false,
         sse42: false,
-        neon: std::arch::aarch64::is_aarch64_feature_detected!("neon"),
+        neon: true, // NEON is always available on aarch64
     }
 }
 
@@ -1465,7 +1465,7 @@ pub fn get_optimal_threads(data_size: usize) -> usize {
 
 #[cfg(target_arch = "aarch64")]
 fn detect_neon_support() -> bool {
-    std::arch::aarch64::is_aarch64_feature_detected!("neon")
+    true // NEON is universally available on aarch64
 }
 
 #[cfg(not(target_arch = "aarch64"))]
