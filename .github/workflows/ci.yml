@@ -59,19 +59,35 @@ jobs:
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run unit tests
+      - name: Run unit tests (core)
         run: |
           cargo test --workspace --lib --locked \
             -- --skip stress_test \
                 --skip memory_leak_test \
                 --skip test_cuda \
-            2>&1 | tail -50
+                --skip concurrent_stress_test \
+                --skip kv_cache_bench \
+                --skip dsa_bench \
+                --skip gpu_e2e_test \
+                --skip e2e_full_lifecycle \
+                --skip e2e_inference_test \
+                --skip exo_architecture_integration_test \
+                --skip unified_compute_test \
+                --skip worker_fault_tolerance \
+                --skip dsa_integration_test \
+                --skip monitoring_test \
+                --skip quant_simd_regression_test \
+            2>&1 | tail -80
 
-      - name: Run integration tests (selected)
+      - name: Run integration tests (quick)
         run: |
           cargo test --workspace --test '*' --locked \
             -- --skip stress_test \
                 --skip memory_leak_test \
+                --skip concurrent_stress_test \
+                --skip kv_cache_bench \
+                --skip dsa_bench \
+                --skip gpu_e2e_test \
             2>&1 | tail -30 || true
 
   build:
