@@ -7,7 +7,7 @@ use candle_core::{DType, Device, Result as CandleResult, Tensor};
 #[cfg(feature = "cuda")]
 mod cuda_backend;
 #[cfg(feature = "metal")]
-mod metal_backend;
+pub mod metal_backend;
 
 use crate::model::inference::error::{InferenceError, InferenceResult};
 
