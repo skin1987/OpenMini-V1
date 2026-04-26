@@ -31,6 +31,7 @@ pub mod moe;
 pub mod mtp;
 pub mod nsa;
 pub mod pipeline; // 端到端推理管线验证模块
+pub mod high_performance_pipeline; // 高性能推理Pipeline（FA3 + PagedKV + MLA）
 pub mod quant;
 pub mod quant_loader;
 pub mod quant_simd;

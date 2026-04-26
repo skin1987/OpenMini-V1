@@ -8,6 +8,8 @@ use candle_core::{DType, Device, Result as CandleResult, Tensor};
 mod cuda_backend;
 #[cfg(feature = "metal")]
 pub mod metal_backend;
+#[cfg(feature = "vulkan")]
+pub mod vulkan_backend;
 
 use crate::model::inference::error::{InferenceError, InferenceResult};
 
@@ -17,6 +19,7 @@ pub enum GemmBackendType {
     CandleCpuBlas,
     CandleCuda,
     CandleMetal,
+    Vulkan,
 }
 
 impl std::fmt::Display for GemmBackendType {
@@ -26,6 +29,7 @@ impl std::fmt::Display for GemmBackendType {
             Self::CandleCpuBlas => write!(f, "candle-cpu-blas"),
             Self::CandleCuda => write!(f, "candle-cuda"),
             Self::CandleMetal => write!(f, "candle-metal"),
+            Self::Vulkan => write!(f, "vulkan"),
         }
     }
 }
@@ -369,6 +373,7 @@ impl GemmEngineManagerInner {
     pub fn new() -> Self {
         let engine: Box<dyn GemmEngine> = Self::try_create_cuda_backend()
             .or_else(Self::try_create_metal_backend)
+            .or_else(Self::try_create_vulkan_backend)
             .or_else(|| Self::try_create_blas_backend())
             .unwrap_or_else(|| Box::new(NdarrayFallbackBackend));
 
@@ -403,6 +408,20 @@ impl GemmEngineManagerInner {
 
     #[cfg(not(feature = "metal"))]
     fn try_create_metal_backend() -> Option<Box<dyn GemmEngine>> {
+        None
+    }
+
+    #[cfg(feature = "vulkan")]
+    fn try_create_vulkan_backend() -> Option<Box<dyn GemmEngine>> {
+        use crate::model::inference::gemm_engine::vulkan_backend::VulkanGemmBackend;
+        match VulkanGemmBackend::new() {
+            Ok(b) if b.is_available() => Some(Box::new(b)),
+            _ => None,
+        }
+    }
+
+    #[cfg(not(feature = "vulkan"))]
+    fn try_create_vulkan_backend() -> Option<Box<dyn GemmEngine>> {
         None
     }
 

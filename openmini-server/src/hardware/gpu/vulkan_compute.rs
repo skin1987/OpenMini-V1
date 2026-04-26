@@ -22,7 +22,7 @@
 //! let result = vector_add_gpu(&gpu, &a, &b)?;
 //! ```
 
-use super::vulkan::{BufferUsage, TypedVulkanBuffer, VulkanBuffer, VulkanError, VulkanGpu};
+use super::vulkan::{BufferUsage, TypedVulkanBuffer, VulkanError, VulkanGpu};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,6 +43,20 @@ const VECTOR_ADD_SHADER: &str = include_str!("shaders/vector_add.comp");
 /// 通过 push constants 传递矩阵维度参数。
 /// 从 `shaders/matrix_multiply.comp` 文件加载。
 const MATRIX_MULTIPLY_SHADER: &str = include_str!("shaders/matrix_multiply.comp");
+
+/// Softmax Compute Shader 源码 (GLSL 450)
+///
+/// 实现数值稳定的 softmax: exp(x - max(x)) / sum(exp(x - max(x)))
+/// 支持批量操作，使用 workgroup 归约算法。
+/// 从 `shaders/softmax.comp` 文件加载。
+const SOFTMAX_SHADER: &str = include_str!("shaders/softmax.comp");
+
+/// LayerNorm Compute Shader 源码 (GLSL 450)
+///
+/// 实现 Layer Normalization: (x - mean) / sqrt(var + eps) * weight + bias
+/// 使用 workgroup 并行计算均值和方差。
+/// 从 `shaders/layernorm.comp` 文件加载。
+const LAYERNORM_SHADER: &str = include_str!("shaders/layernorm.comp");
 
 // ============================================================================
 // Shader 缓存管理器
@@ -624,6 +638,114 @@ pub fn batch_vector_add(
     }
 
     Ok(results)
+}
+
+// ============================================================================
+// Softmax & LayerNorm GPU 计算
+// ============================================================================
+
+/// Softmax GPU 计算
+///
+/// 对输入的2D张量 (batch_size x seq_length) 计算 softmax。
+/// 使用数值稳定算法: exp(x - max(x)) / sum(exp(x - max(x)))
+pub fn softmax_gpu(
+    gpu: &VulkanGpu,
+    input: &[f32],
+    batch_size: usize,
+    seq_length: usize,
+) -> Result<Vec<f32>, VulkanError> {
+    if input.is_empty() {
+        return Err(VulkanError::ComputeError("输入不能为空".to_string()));
+    }
+    if input.len() != batch_size * seq_length {
+        return Err(VulkanError::ComputeError(format!(
+            "输入长度 {} 不匹配 batch_size({}) * seq_length({})",
+            input.len(),
+            batch_size,
+            seq_length
+        )));
+    }
+
+    let can_use_gpu = gpu.is_compute_capable() && input.len() >= 1024;
+
+    if can_use_gpu {
+        log::info!("使用 Vulkan GPU 执行 Softmax (batch={}, seq={})", batch_size, seq_length);
+        log::warn!("GPU Softmax 尚未完全实现，使用 CPU 回退");
+    }
+
+    let mut result = Vec::with_capacity(input.len());
+
+    for batch_idx in 0..batch_size {
+        let base = batch_idx * seq_length;
+        let slice = &input[base..base + seq_length];
+
+        let max_val = slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exp_sum: f32 = slice.iter().map(|&x| (x - max_val).exp()).sum();
+
+        for &val in slice {
+            result.push((val - max_val).exp() / exp_sum);
+        }
+    }
+
+    Ok(result)
+}
+
+/// LayerNorm GPU 计算
+///
+/// 对输入的2D张量 (batch_size x hidden_size) 进行 Layer Normalization。
+/// 公式: output = (x - mean) / sqrt(var + eps) * weight + bias
+pub fn layernorm_gpu(
+    gpu: &VulkanGpu,
+    input: &[f32],
+    weight: &[f32],
+    bias: &[f32],
+    batch_size: usize,
+    hidden_size: usize,
+    eps: f32,
+) -> Result<Vec<f32>, VulkanError> {
+    if input.is_empty() {
+        return Err(VulkanError::ComputeError("输入不能为空".to_string()));
+    }
+    if input.len() != batch_size * hidden_size {
+        return Err(VulkanError::ComputeError(format!(
+            "输入长度 {} 不匹配 batch_size({}) * hidden_size({})",
+            input.len(),
+            batch_size,
+            hidden_size
+        )));
+    }
+    if weight.len() != hidden_size || bias.len() != hidden_size {
+        return Err(VulkanError::ComputeError(format!(
+            "权重/偏置长度 ({}/{}) 不匹配 hidden_size ({})",
+            weight.len(),
+            bias.len(),
+            hidden_size
+        )));
+    }
+
+    let can_use_gpu = gpu.is_compute_capable() && input.len() >= 1024;
+
+    if can_use_gpu {
+        log::info!("使用 Vulkan GPU 执行 LayerNorm (batch={}, hidden={})", batch_size, hidden_size);
+        log::warn!("GPU LayerNorm 尚未完全实现，使用 CPU 回退");
+    }
+
+    let mut result = Vec::with_capacity(input.len());
+
+    for batch_idx in 0..batch_size {
+        let base = batch_idx * hidden_size;
+        let slice = &input[base..base + hidden_size];
+
+        let mean: f32 = slice.iter().sum::<f32>() / hidden_size as f32;
+        let var: f32 = slice.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / hidden_size as f32;
+        let inv_std = 1.0 / (var + eps).sqrt();
+
+        for (i, &val) in slice.iter().enumerate() {
+            result.push((val - mean) * inv_std * weight[i] + bias[i]);
+        }
+    }
+
+    Ok(result)
 }
 
 // ============================================================================

@@ -1,0 +1,71 @@
+#version 450
+
+// ============================================
+// Softmax Compute Shader
+// 对输入向量的每个元素计算 softmax: exp(x_i) / sum(exp(x_j))
+// 使用数值稳定的实现: exp(x - max(x))
+// ============================================
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Input { float input[]; };
+layout(std430, binding = 1) buffer Output { float output[]; };
+
+layout(push_constant) uniform Params {
+    uint batch_size;    // 批次大小
+    uint seq_length;    // 序列长度
+};
+
+shared float shared_max[256];
+shared float shared_sum[256];
+
+void main() {
+    uint global_id = gl_GlobalInvocationID.x;
+    uint local_id = gl_LocalInvocationID.x;
+    
+    // 计算批次和位置
+    uint batch_idx = global_id / seq_length;
+    uint pos_in_seq = global_id % seq_length;
+    
+    // 边界检查
+    if (batch_idx >= batch_size || pos_in_seq >= seq_length) {
+        return;
+    }
+    
+    uint base_offset = batch_idx * seq_length;
+    
+    // ========== Phase 1: Find Max ==========
+    // 每个线程读取一个值
+    float val = input[base_offset + pos_in_seq];
+    
+    // Workgroup内归约找最大值
+    shared_max[local_id] = val;
+    barrier();
+    
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (local_id < stride && local_id + stride < 256) {
+            shared_max[local_id] = max(shared_max[local_id], shared_max[local_id + stride]);
+        }
+        barrier();
+    }
+    
+    float max_val = shared_max[0];  // 广播最大值
+    
+    // ========== Phase 2: Compute Exp and Sum ==========
+    float exp_val = exp(val - max_val);
+    
+    shared_sum[local_id] = exp_val;
+    barrier();
+    
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (local_id < stride && local_id + stride < 256) {
+            shared_sum[local_id] += shared_sum[local_id + stride];
+        }
+        barrier();
+    }
+    
+    float sum_exp = shared_sum[0];  // 广播求和结果
+    
+    // ========== Phase 3: Normalize ==========
+    output[base_offset + pos_in_seq] = exp_val / sum_exp;
+}

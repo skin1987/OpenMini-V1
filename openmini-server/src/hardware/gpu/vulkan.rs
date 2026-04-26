@@ -1908,7 +1908,7 @@ impl VulkanBackend {
             if let Some(ds) = self.descriptor_set_pool.acquire(descriptor_set_layout) {
                 ds
             } else {
-                let mut descriptor_pool = self
+                let descriptor_pool = self
                     .descriptor_pool
                     .write()
                     .map_err(|_| anyhow::anyhow!("获取 descriptor_pool 写锁失败"))?;

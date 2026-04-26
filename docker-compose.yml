@@ -1,13 +1,137 @@
 version: '3.8'
+
+# OpenMini-V1 Docker Compose Configuration
+# Supports: CPU-only, CUDA (NVIDIA), Vulkan modes
+
+x-common-config: &common-config
+  image: ghcr.io/skin1987/openmini:v1.2.0-beta.1
+  container_name: openmini-server
+  restart: unless-stopped
+  ports:
+    - "${GRPC_PORT:-50051}:50051"
+    - "${HTTP_PORT:-8080}:8080"
+  volumes:
+    - ${MODEL_PATH:-./models}:/data/models:ro
+    - ${CONFIG_PATH:-./config}:/etc/openmini:ro
+    - ${LOG_PATH:-./logs}:/data/logs
+  environment:
+    - RUST_LOG=${LOG_LEVEL:-info}
+    - HARDWARE_BACKEND=${HARDWARE_BACKEND:-auto}
+    - OPENMINI_CONFIG_PATH=/etc/openmini/server.toml
+    - OPENMINI_MODEL_PATH=/data/models
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 60s
+  networks:
+    - openmini-network
+
 services:
-  openmini:
-    build: { context: ., dockerfile: Dockerfile, target: runtime }
-    image: ghcr.io/skin1987/openmini:v1.2.0-beta.1
-    container_name: openmini-server
-    restart: unless-stopped
-    ports: ["${GRPC_PORT:-50051}:50051", "${HTTP_PORT:-8080}:8080"]
-    volumes: ["${MODEL_PATH:-./models}:/data/models:ro", "${CONFIG_PATH:-./config}:/etc/openmini:ro", "${LOG_PATH:-./logs}:/data/logs"]
-    environment: ["RUST_LOG=${LOG_LEVEL:-info}", "HARDWARE_BACKEND=${HARDWARE_BACKEND:-auto}"]
-    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:8080/health"], interval: 30s, timeout: 10s, retries: 3 }
-    networks: [openmini-network]
-networks: { openmini-network: { driver: bridge } }
+  # ============================================
+  # Default: CPU-only mode (no GPU required)
+  # ============================================
+  openmini-cpu:
+    <<: *common-config
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDER_TARGET: builder-cpu
+        BUILD_FEATURES: ""
+    profiles:
+      - cpu
+      - default
+
+  # ============================================
+  # NVIDIA CUDA mode (requires NVIDIA GPU + nvidia-docker2)
+  # Usage: docker compose --profile cuda up -d
+  # ============================================
+  openmini-cuda:
+    <<: *common-config
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-cuda-real
+      args:
+        BUILD_FEATURES: "cuda"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - RUST_LOG=${LOG_LEVEL:-info}
+      - HARDWARE_BACKEND=cuda
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    profiles:
+      - cuda
+
+  # ============================================
+  # Vulkan mode (cross-platform GPU)
+  # Usage: docker compose --profile vulkan up -d
+  # ============================================
+  openmini-vulkan:
+    <<: *common-config
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-vulkan
+      args:
+        BUILDER_TARGET: builder-vulkan
+        BUILD_FEATURES: "vulkan"
+    environment:
+      - RUST_LOG=${LOG_LEVEL:-info}
+      - HARDWARE_BACKEND=vulkan
+    volumes:
+      - ${MODEL_PATH:-./models}:/data/models:ro
+      - ${CONFIG_PATH:-./config}:/etc/openmini:ro
+      - ${LOG_PATH:-./logs}:/data/logs
+      - /dev/dri:/dev/dri  # GPU device access for Vulkan
+    profiles:
+      - vulkan
+
+  # ============================================
+  # Development mode (with hot-reload)
+  # Usage: docker compose --profile dev up -d
+  # ============================================
+  openmini-dev:
+    <<: *common-config
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDER_TARGET: builder-cpu
+        BUILD_FEATURES: ""
+    volumes:
+      - ${MODEL_PATH:-./models}:/data/models:ro
+      - ${CONFIG_PATH:-./config}:/etc/openmini:ro
+      - ${LOG_PATH:-./logs}:/data/logs
+      - ./openmini-server/src:/app/src:ro  # Source code mount for development
+    environment:
+      - RUST_LOG=debug
+      - HARDWARE_BACKEND=${HARDWARE_BACKEND:-auto}
+      - RUST_BACKTRACE=1
+    profiles:
+      - dev
+
+networks:
+  openmini-network:
+    driver: bridge
+
+# ============================================
+# Volume definitions (persistent storage)
+# ============================================
+volumes:
+  model-data:
+    driver: local
+  log-data:
+    driver: local
+  config-data:
+    driver: local

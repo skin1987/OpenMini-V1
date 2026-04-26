@@ -1,0 +1,73 @@
+#version 450
+
+// ============================================
+// LayerNorm Compute Shader
+// 实现Layer Normalization: (x - mean) / sqrt(var + eps) * weight + bias
+// ============================================
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Input { float input[]; };
+layout(std430, binding = 1) buffer Output { float output[]; };
+layout(std430, binding = 2) readonly buffer Weight { float weight[]; };
+layout(std430, binding = 3) readonly buffer Bias { float bias[]; };
+
+layout(push_constant) uniform Params {
+    uint batch_size;    // 批次大小
+    uint hidden_size;   // 隐藏层维度
+    float eps;          // 防止除零的小量
+};
+
+shared float shared_mean[256];
+shared float shared_var[256];
+
+void main() {
+    uint global_id = gl_GlobalInvocationID.x;
+    uint local_id = gl_LocalInvocationID.x;
+    
+    // 计算批次和位置
+    uint batch_idx = global_id / hidden_size;
+    uint pos_in_seq = global_id % hidden_size;
+    
+    // 边界检查
+    if (batch_idx >= batch_size || pos_in_seq >= hidden_size) {
+        return;
+    }
+    
+    uint base_offset = batch_idx * hidden_size;
+    
+    // ========== Phase 1: Compute Mean ==========
+    float val = input[base_offset + pos_in_seq];
+    
+    shared_mean[local_id] = val / float(hidden_size);  // 部分均值
+    barrier();
+    
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (local_id < stride && local_id + stride < 256) {
+            shared_mean[local_id] += shared_mean[local_id + stride];
+        }
+        barrier();
+    }
+    
+    float mean = shared_mean[0];  // 广播均值
+    
+    // ========== Phase 2: Compute Variance ==========
+    float diff = val - mean;
+    float diff_sq = diff * diff;
+    
+    shared_var[local_id] = diff_sq / float(hidden_size);  // 部分方差
+    barrier();
+    
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (local_id < stride && local_id + stride < 256) {
+            shared_var[local_id] += shared_var[local_id + stride];
+        }
+        barrier();
+    }
+    
+    float var = shared_var[0];  // 广播方差
+    float inv_std = inversesqrt(var + eps);
+    
+    // ========== Phase 3: Normalize and Scale ==========
+    output[base_offset + pos_in_seq] = diff * inv_std * weight[pos_in_seq] + bias[pos_in_seq];
+}
