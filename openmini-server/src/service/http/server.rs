@@ -212,6 +212,7 @@ pub async fn start_http_server(
 /// 注册所有 REST API 端点到路由器。
 fn build_routes(state: AppState, enable_metrics: bool) -> axum::Router {
     use super::handlers::*;
+    use super::inference_handlers::*;
 
     let mut api_routes = axum::Router::new()
         // 聊天相关
@@ -224,7 +225,13 @@ fn build_routes(state: AppState, enable_metrics: bool) -> axum::Router {
         .route("/stt", axum::routing::post(speech_to_text))
         // 健康检查和监控
         .route("/health", axum::routing::get(health_check))
-        .route("/models", axum::routing::get(list_models));
+        .route("/models", axum::routing::get(list_models))
+        // 高性能推理 Pipeline 端点
+        .route("/inference/compute", axum::routing::post(inference_compute))
+        .route("/inference/batch", axum::routing::post(inference_batch))
+        .route("/inference/stats", axum::routing::get(inference_stats))
+        .route("/inference/config", axum::routing::get(inference_config))
+        .route("/inference/reset", axum::routing::post(inference_reset));
 
     // 可选：启用 Prometheus metrics 端点
     if enable_metrics {
@@ -246,7 +253,12 @@ fn build_routes(state: AppState, enable_metrics: bool) -> axum::Router {
                     "name": "OpenMini Server",
                     "version": env!("CARGO_PKG_VERSION"),
                     "docs": "/api/v1",
-                    "status": "running"
+                    "status": "running",
+                    "endpoints": {
+                        "chat": "/api/v1/chat",
+                        "inference": "/api/v1/inference/compute",
+                        "health": "/api/v1/health"
+                    }
                 })),
             )
         }),

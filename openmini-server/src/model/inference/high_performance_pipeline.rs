@@ -192,12 +192,12 @@ impl HighPerfStats {
 // ============================================================================
 
 pub struct HighPerformancePipeline {
-    config: HighPerfPipelineConfig,
+    pub config: HighPerfPipelineConfig,
     fa3: Option<FlashAttention3>,
     kv_cache: Option<PagedKVCache>,
     current_strategy: AttentionStrategy,
     stats: HighPerfStats,
-    total_processed_tokens: usize,
+    pub total_processed_tokens: usize,
 }
 
 impl HighPerformancePipeline {

@@ -32,10 +32,14 @@ pub mod handlers;
 pub mod middleware;
 pub mod server;
 pub mod sensitive_filter;
+pub mod inference_types;
+pub mod inference_handlers;
 
 // 重新导出常用类型和函数
 pub use types::*;
 pub use handlers::{AppState, health_check, list_models};
+pub use inference_types::*;
+pub use inference_handlers::{InferenceState, PipelineStatsResponse};
 pub use server::{HttpConfig, start_http_server, wait_for_http_server_shutdown};
 
 /// HTTP API 版本常量

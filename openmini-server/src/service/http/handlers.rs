@@ -16,12 +16,15 @@ use super::types::*;
 // 使用相对路径访问 monitoring 模块
 #[allow(unused_imports)]
 use crate::monitoring::HealthChecker;
+use super::inference_handlers::InferenceState;
 
 /// 应用状态（共享服务实例）
 #[derive(Clone)]
 pub struct AppState {
     /// 健康检查器
     pub health_checker: Arc<HealthChecker>,
+    /// 高性能推理 Pipeline（可选）
+    pub inference: Option<InferenceState>,
 }
 
 impl AppState {
@@ -29,6 +32,15 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             health_checker: Arc::new(HealthChecker::new()),
+            inference: Some(InferenceState::default()),
+        }
+    }
+    
+    /// 创建无推理功能的状态（用于测试）
+    pub fn new_without_inference() -> Self {
+        Self {
+            health_checker: Arc::new(HealthChecker::new()),
+            inference: None,
         }
     }
 }

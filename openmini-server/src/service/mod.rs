@@ -27,6 +27,8 @@ pub mod grpc {
 /// 提供基于 axum 的 HTTP REST API 实现，支持聊天、图像理解、语音等功能。
 pub mod http {
     pub mod handlers;
+    pub mod inference_handlers;
+    pub mod inference_types;
     pub mod middleware;
     pub mod sensitive_filter;
     pub mod server;
