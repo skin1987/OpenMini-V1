@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use axum::{
     extract::State,
-    response::{Json, IntoResponse},
+    response::{Json},
 };
 use ndarray::Array2;
 use serde::Serialize;

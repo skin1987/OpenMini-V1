@@ -114,7 +114,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy binary from selected builder stage
+# Copy binary from builder stage
+# Default: CPU builder. To use CUDA: docker build --build-arg BUILDER_TARGET=builder-cuda .
+# To use Vulkan: docker build --build-arg BUILDER_TARGET=builder-vulkan .
 ARG BUILDER_TARGET=builder-cpu
 COPY --from=${BUILDER_TARGET} /app/target/release/openmini-server /usr/local/bin/
 
