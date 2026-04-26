@@ -114,11 +114,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy binary from builder stage
-# Default: CPU builder. To use CUDA: docker build --build-arg BUILDER_TARGET=builder-cuda .
-# To use Vulkan: docker build --build-arg BUILDER_TARGET=builder-vulkan .
-ARG BUILDER_TARGET=builder-cpu
-COPY --from=${BUILDER_TARGET} /app/target/release/openmini-server /usr/local/bin/
+# Copy binary from CPU builder stage (default)
+# To build with CUDA:   docker build --target runtime-cuda .
+# To build with Vulkan: docker build --target runtime-vulkan .
+COPY --from=builder-cpu /app/target/release/openmini-server /usr/local/bin/
 
 # Copy default config
 COPY config/server.toml.example /etc/openmini/server.toml.example
