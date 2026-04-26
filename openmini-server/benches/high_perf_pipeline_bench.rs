@@ -15,14 +15,18 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use ndarray::Array2;
 
 use openmini_server::model::inference::high_performance_pipeline::{
-    HighPerformancePipeline, HighPerfPipelineConfig,
+    HighPerfPipelineConfig, HighPerformancePipeline,
 };
 
 // ============================================================================
 // 辅助函数
 // ============================================================================
 
-fn create_test_data(seq_len: usize, num_heads: usize, head_dim: usize) -> (Array2<f32>, Array2<f32>, Array2<f32>) {
+fn create_test_data(
+    seq_len: usize,
+    num_heads: usize,
+    head_dim: usize,
+) -> (Array2<f32>, Array2<f32>, Array2<f32>) {
     let hidden_dim = num_heads * head_dim;
 
     let q = Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| {
@@ -73,7 +77,7 @@ fn create_standard_pipeline(num_heads: usize, head_dim: usize) -> HighPerformanc
 
 fn bench_short_sequence_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("short_seq_comparison");
-    
+
     let num_heads = 4;
     let head_dim = 32;
 
@@ -87,7 +91,11 @@ fn bench_short_sequence_comparison(c: &mut Criterion) {
             seq_len,
             |b, _| {
                 let mut pipeline = create_fa3_pipeline(num_heads, head_dim);
-                b.iter(|| pipeline.forward(black_box(&q), black_box(&k), black_box(&v)).unwrap());
+                b.iter(|| {
+                    pipeline
+                        .forward(black_box(&q), black_box(&k), black_box(&v))
+                        .unwrap()
+                });
             },
         );
 
@@ -96,7 +104,11 @@ fn bench_short_sequence_comparison(c: &mut Criterion) {
             seq_len,
             |b, _| {
                 let mut pipeline = create_standard_pipeline(num_heads, head_dim);
-                b.iter(|| pipeline.forward(black_box(&q), black_box(&k), black_box(&v)).unwrap());
+                b.iter(|| {
+                    pipeline
+                        .forward(black_box(&q), black_box(&k), black_box(&v))
+                        .unwrap()
+                });
             },
         );
     }
@@ -125,7 +137,11 @@ fn bench_medium_sequence_comparison(c: &mut Criterion) {
             seq_len,
             |b, _| {
                 let mut pipeline = create_fa3_pipeline(num_heads, head_dim);
-                b.iter(|| pipeline.forward(black_box(&q), black_box(&k), black_box(&v)).unwrap());
+                b.iter(|| {
+                    pipeline
+                        .forward(black_box(&q), black_box(&k), black_box(&v))
+                        .unwrap()
+                });
             },
         );
 
@@ -134,7 +150,11 @@ fn bench_medium_sequence_comparison(c: &mut Criterion) {
             seq_len,
             |b, _| {
                 let mut pipeline = create_standard_pipeline(num_heads, head_dim);
-                b.iter(|| pipeline.forward(black_box(&q), black_box(&k), black_box(&v)).unwrap());
+                b.iter(|| {
+                    pipeline
+                        .forward(black_box(&q), black_box(&k), black_box(&v))
+                        .unwrap()
+                });
             },
         );
     }
@@ -163,7 +183,11 @@ fn bench_long_sequence(c: &mut Criterion) {
             seq_len,
             |b, _| {
                 let mut pipeline = create_standard_pipeline(num_heads, head_dim);
-                b.iter(|| pipeline.forward(black_box(&q), black_box(&k), black_box(&v)).unwrap());
+                b.iter(|| {
+                    pipeline
+                        .forward(black_box(&q), black_box(&k), black_box(&v))
+                        .unwrap()
+                });
             },
         );
     }
@@ -191,14 +215,14 @@ fn bench_model_scale_comparison(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(seq_len as u64));
 
-        group.bench_with_input(
-            BenchmarkId::new(name.to_string(), name),
-            name,
-            |b, _| {
-                let mut pipeline = HighPerformancePipeline::new(config.clone()).unwrap();
-                b.iter(|| pipeline.forward(black_box(&q), black_box(&k), black_box(&v)).unwrap());
-            },
-        );
+        group.bench_with_input(BenchmarkId::new(name.to_string(), name), name, |b, _| {
+            let mut pipeline = HighPerformancePipeline::new(config.clone()).unwrap();
+            b.iter(|| {
+                pipeline
+                    .forward(black_box(&q), black_box(&k), black_box(&v))
+                    .unwrap()
+            });
+        });
     }
 
     group.finish();

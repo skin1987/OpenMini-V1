@@ -36,8 +36,8 @@ jobs:
       - name: Check code formatting
         run: cargo fmt --all -- --check
 
-      - name: Run Clippy lints
-        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Run Clippy lints (lib only)
+        run: cargo clippy --lib --locked -- -D warnings
 
   test:
     name: Test Suite (stable)

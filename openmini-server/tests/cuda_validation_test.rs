@@ -14,11 +14,11 @@
 mod cuda_validation {
 
     use ndarray::{Array1, Array2, Array3};
-    use rand::Rng;
-    use rand::SeedableRng;
     use openmini_server::model::inference::gemm_engine::{
         cuda_backend::CandleCudaBackend, GemmEngine, NdarrayFallbackBackend,
     };
+    use rand::Rng;
+    use rand::SeedableRng;
 
     /// 数值比较容差：f32 浮点运算在 CPU/GPU 间的可接受误差上限
     const ABS_TOL: f32 = 1e-5;
@@ -28,9 +28,7 @@ mod cuda_validation {
     /// 使用固定种子生成确定性随机矩阵 (可复现测试结果)
     fn make_matrix(rows: usize, cols: usize, seed: u64) -> Array2<f32> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        Array2::from_shape_fn((rows, cols), |_| {
-            rng.gen_range(-1.0f32..1.0f32)
-        })
+        Array2::from_shape_fn((rows, cols), |_| rng.gen_range(-1.0f32..1.0f32))
     }
 
     /// 使用固定种子生成确定性随机偏置向量
@@ -42,9 +40,7 @@ mod cuda_validation {
     /// 使用固定种子生成确定性批量矩阵 (3D: batch x rows x cols)
     fn make_batch_matrix(batch: usize, rows: usize, cols: usize, seed: u64) -> Array3<f32> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        Array3::from_shape_fn((batch, rows, cols), |_| {
-            rng.gen_range(-1.0f32..1.0f32)
-        })
+        Array3::from_shape_fn((batch, rows, cols), |_| rng.gen_range(-1.0f32..1.0f32))
     }
 
     /// 尝试创建 CUDA 后端并预热。
@@ -231,9 +227,7 @@ mod cuda_validation {
             "[cuda-matmul-128] Shape mismatch after matmul"
         );
 
-        eprintln!(
-            "[cuda-matmul-128] PASSED: 128x128 matmul matches reference within tolerance"
-        );
+        eprintln!("[cuda-matmul-128] PASSED: 128x128 matmul matches reference within tolerance");
     }
 
     /// 测试目标：验证非方阵 matmul (32x64 @ 64x96 => 32x96) 形状与数值均正确
@@ -252,18 +246,22 @@ mod cuda_validation {
         let k = 64;
         let n = 96;
 
-        let a = make_matrix(m, k, 777);     // (32, 64)
-        let b = make_matrix(n, k, 888);     // (96, 64), 转置后 (64, 96)
+        let a = make_matrix(m, k, 777); // (32, 64)
+        let b = make_matrix(n, k, 888); // (96, 64), 转置后 (64, 96)
 
         let cuda_result = match cuda.matmul(&a, &b) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[cuda-matmul-nonsquare] Skipped - CUDA execution error: {}", e);
+                eprintln!(
+                    "[cuda-matmul-nonsquare] Skipped - CUDA execution error: {}",
+                    e
+                );
                 return;
             }
         };
-        let ref_result =
-            reference.matmul(&a, &b).expect("[ref-matmul-nonsquare] Reference matmul failed");
+        let ref_result = reference
+            .matmul(&a, &b)
+            .expect("[ref-matmul-nonsquare] Reference matmul failed");
 
         assert_array2_approx(
             &cuda_result,
@@ -332,9 +330,7 @@ mod cuda_validation {
             cuda_result.shape()
         );
 
-        eprintln!(
-            "[cuda-batched-4x64] PASSED: batched_matmul (batch=4, 64x64) correct"
-        );
+        eprintln!("[cuda-batched-4x64] PASSED: batched_matmul (batch=4, 64x64) correct");
     }
 
     /// 测试目标：验证 batch=8 且非方阵的批量乘法 (8 x 128x64 @ 8 x 64x64) 正确性
@@ -371,9 +367,7 @@ mod cuda_validation {
             "[cuda-batched-8x128] Batched matmul result mismatch (batch=8, 128x64)",
         );
 
-        eprintln!(
-            "[cuda-batched-8x128] PASSED: batched_matmul (batch=8, 128x64) correct"
-        );
+        eprintln!("[cuda-batched-8x128] PASSED: batched_matmul (batch=8, 128x64) correct");
     }
 
     // ==================== 测试：fused_gemm_relu 正确性 ====================
@@ -400,10 +394,7 @@ mod cuda_validation {
         let cuda_result = match cuda.fused_gemm_relu(&a, &w, Some(&bias)) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "[cuda-gemm-relu-64] Skipped - CUDA execution error: {}",
-                    e
-                );
+                eprintln!("[cuda-gemm-relu-64] Skipped - CUDA execution error: {}", e);
                 return;
             }
         };
@@ -427,9 +418,7 @@ mod cuda_validation {
             );
         }
 
-        eprintln!(
-            "[cuda-gemm-relu-64] PASSED: fused_gemm_relu with bias (64x64) correct"
-        );
+        eprintln!("[cuda-gemm-relu-64] PASSED: fused_gemm_relu with bias (64x64) correct");
     }
 
     /// 测试目标：验证无偏置的 fused GEMM + ReLU (128x64) 结果正确
@@ -478,9 +467,7 @@ mod cuda_validation {
             );
         }
 
-        eprintln!(
-            "[cuda-gemm-relu-no-bias] PASSED: fused_gemm_relu without bias (128x64) correct"
-        );
+        eprintln!("[cuda-gemm-relu-no-bias] PASSED: fused_gemm_relu without bias (128x64) correct");
     }
 
     // ==================== 测试：fused_gemm_silu 正确性 ====================
@@ -508,10 +495,7 @@ mod cuda_validation {
         let cuda_result = match cuda.fused_gemm_silu(&x, &gate_w, &up_w, Some(&bias)) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "[cuda-gemm-silu-64] Skipped - CUDA execution error: {}",
-                    e
-                );
+                eprintln!("[cuda-gemm-silu-64] Skipped - CUDA execution error: {}", e);
                 return;
             }
         };
@@ -525,9 +509,7 @@ mod cuda_validation {
             "[cuda-gemm-silu-64] fused_gemm_silu(with bias) result mismatch (64x64)",
         );
 
-        eprintln!(
-            "[cuda-gemm-silu-64] PASSED: fused_gemm_silu with bias (64x64) correct"
-        );
+        eprintln!("[cuda-gemm-silu-64] PASSED: fused_gemm_silu with bias (64x64) correct");
     }
 
     /// 测试目标：验证无偏置的 SwiGLU fused 操作 (128x64) 结果正确
@@ -567,9 +549,7 @@ mod cuda_validation {
             "[cuda-gemm-silu-no-bias] fused_gemm_silu(no bias) result mismatch (128x64)",
         );
 
-        eprintln!(
-            "[cuda-gemm-silu-no-bias] PASSED: fused_gemm_silu without bias (128x64) correct"
-        );
+        eprintln!("[cuda-gemm-silu-no-bias] PASSED: fused_gemm_silu without bias (128x64) correct");
     }
 
     // ==================== 测试：边界情况 ====================
@@ -641,10 +621,7 @@ mod cuda_validation {
         let cuda_result = match cuda.fused_gemm_relu(&a, &w, None) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "[cuda-relu-allneg] Skipped - CUDA execution error: {}",
-                    e
-                );
+                eprintln!("[cuda-relu-allneg] Skipped - CUDA execution error: {}", e);
                 return;
             }
         };
@@ -658,9 +635,7 @@ mod cuda_validation {
             "[cuda-relu-allneg] All-negative ReLU case mismatch",
         );
 
-        eprintln!(
-            "[cuda-relu-allneg] PASSED: all-negative ReLU boundary case correct"
-        );
+        eprintln!("[cuda-relu-allneg] PASSED: all-negative ReLU boundary case correct");
     }
 }
 

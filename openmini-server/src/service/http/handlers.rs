@@ -14,9 +14,9 @@ use uuid::Uuid;
 
 use super::types::*;
 // 使用相对路径访问 monitoring 模块
+use super::inference_handlers::InferenceState;
 #[allow(unused_imports)]
 use crate::monitoring::HealthChecker;
-use super::inference_handlers::InferenceState;
 
 /// 应用状态（共享服务实例）
 #[derive(Clone)]
@@ -35,7 +35,7 @@ impl AppState {
             inference: Some(InferenceState::default()),
         }
     }
-    
+
     /// 创建无推理功能的状态（用于测试）
     pub fn new_without_inference() -> Self {
         Self {

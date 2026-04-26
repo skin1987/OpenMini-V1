@@ -100,9 +100,7 @@ mod vulkan_validation {
                 // 验证 instance handle 非空 (非 null handle)
                 let _handle = instance.instance();
 
-                eprintln!(
-                    "[vulkan-instance] PASSED: Vulkan instance created successfully"
-                );
+                eprintln!("[vulkan-instance] PASSED: Vulkan instance created successfully");
             }
             Err(e) => {
                 eprintln!(
@@ -207,15 +205,16 @@ mod vulkan_validation {
                             read_result.err()
                         );
 
-                        assert_vec_approx(&read_back, &data, "[vulkan-buffer] Data roundtrip mismatch");
+                        assert_vec_approx(
+                            &read_back,
+                            &data,
+                            "[vulkan-buffer] Data roundtrip mismatch",
+                        );
 
                         eprintln!("[vulkan-buffer] PASSED: VulkanBuffer roundtrip correct");
                     }
                     Err(e) => {
-                        eprintln!(
-                            "[vulkan-buffer] Skipped: Buffer creation failed: {}",
-                            e
-                        );
+                        eprintln!("[vulkan-buffer] Skipped: Buffer creation failed: {}", e);
                     }
                 }
 
@@ -226,7 +225,8 @@ mod vulkan_validation {
                         assert!(!typed_buf.is_empty());
 
                         // 上传新数据
-                        let new_data: Vec<f32> = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
+                        let new_data: Vec<f32> =
+                            vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0];
                         let upload_result = typed_buf.upload(&new_data);
                         assert!(
                             upload_result.is_ok(),
@@ -247,10 +247,7 @@ mod vulkan_validation {
                                 );
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "[vulkan-typed-buffer] Download failed: {}",
-                                    e
-                                );
+                                eprintln!("[vulkan-typed-buffer] Download failed: {}", e);
                             }
                         }
                     }
@@ -305,17 +302,17 @@ mod vulkan_validation {
                         );
                     }
                     Err(e) => {
-                        eprintln!(
-                            "[vulkan-shader] Skipped: Shader compilation failed: {}",
-                            e
-                        );
+                        eprintln!("[vulkan-shader] Skipped: Shader compilation failed: {}", e);
                     }
                 }
 
                 // 编译分块矩阵乘法 shader
                 match compiler.compile(ShaderType::MatmulBlocked) {
                     Ok(spirv) => {
-                        assert_eq!(spirv[0], 0x07230203, "[vulkan-shader] Blocked matmul invalid magic");
+                        assert_eq!(
+                            spirv[0], 0x07230203,
+                            "[vulkan-shader] Blocked matmul invalid magic"
+                        );
                         eprintln!(
                             "[vulkan-shader] PASSED: MatmulBlocked shader compiled ({} words)",
                             spirv.len()
@@ -332,17 +329,17 @@ mod vulkan_validation {
                 // 编译 Softmax shader
                 match compiler.compile(ShaderType::Softmax) {
                     Ok(spirv) => {
-                        assert_eq!(spirv[0], 0x07230203, "[vulkan-shader] Softmax invalid magic");
+                        assert_eq!(
+                            spirv[0], 0x07230203,
+                            "[vulkan-shader] Softmax invalid magic"
+                        );
                         eprintln!(
                             "[vulkan-shader] PASSED: Softmax shader compiled ({} words)",
                             spirv.len()
                         );
                     }
                     Err(e) => {
-                        eprintln!(
-                            "[vulkan-shader] Skipped: Softmax compilation failed: {}",
-                            e
-                        );
+                        eprintln!("[vulkan-shader] Skipped: Softmax compilation failed: {}", e);
                     }
                 }
             }
@@ -398,10 +395,7 @@ mod vulkan_validation {
                 eprintln!("[vulkan-vector-add-small] PASSED: Small vector add correct");
             }
             Err(e) => {
-                eprintln!(
-                    "[vulkan-vector-add-small] Skipped - Execution error: {}",
-                    e
-                );
+                eprintln!("[vulkan-vector-add-small] Skipped - Execution error: {}", e);
             }
         }
     }
@@ -417,9 +411,7 @@ mod vulkan_validation {
         let size = 1024;
         let a: Vec<f32> = (0..size).map(|i| i as f32 * 0.1).collect();
         let b: Vec<f32> = (0..size).map(|i| i as f32 * 0.2).collect();
-        let expected: Vec<f32> = (0..size)
-            .map(|i| i as f32 * 0.3)
-            .collect();
+        let expected: Vec<f32> = (0..size).map(|i| i as f32 * 0.3).collect();
 
         match vector_add_gpu(&gpu, &a, &b) {
             Ok(result) => {
@@ -436,10 +428,7 @@ mod vulkan_validation {
                 eprintln!("[vulkan-vector-add-1k] PASSED: 1K vector add correct");
             }
             Err(e) => {
-                eprintln!(
-                    "[vulkan-vector-add-1k] Skipped - Execution error: {}",
-                    e
-                );
+                eprintln!("[vulkan-vector-add-1k] Skipped - Execution error: {}", e);
             }
         }
     }
@@ -531,7 +520,9 @@ mod vulkan_validation {
 
         // 构造确定性输入
         let a: Vec<f32> = (0..m * k).map(|i| ((i % 100) as f32) / 100.0).collect();
-        let b: Vec<f32> = (0..k * n).map(|i| ((i % 100) as f32) / 100.0 + 0.5).collect();
+        let b: Vec<f32> = (0..k * n)
+            .map(|i| ((i % 100) as f32) / 100.0 + 0.5)
+            .collect();
 
         // CPU 参考实现
         let mut expected = vec![0.0f32; m * n];
@@ -578,7 +569,9 @@ mod vulkan_validation {
         let (m, k, n) = (64, 64, 64);
 
         // 使用简单模式生成确定性数据
-        let a: Vec<f32> = (0..m * k).map(|i| ((i as f32) % 10.0) / 10.0 - 0.5).collect();
+        let a: Vec<f32> = (0..m * k)
+            .map(|i| ((i as f32) % 10.0) / 10.0 - 0.5)
+            .collect();
         let b: Vec<f32> = (0..k * n).map(|i| ((i as f32) % 10.0) / 10.0).collect();
 
         // CPU 参考
@@ -619,7 +612,9 @@ mod vulkan_validation {
 
         let (m, k, n) = (32, 64, 48); // A: 32×64, B: 64×48, C: 32×48
 
-        let a: Vec<f32> = (0..m * k).map(|i| ((i as f32) % 7.0) / 7.0 - 0.35).collect();
+        let a: Vec<f32> = (0..m * k)
+            .map(|i| ((i as f32) % 7.0) / 7.0 - 0.35)
+            .collect();
         let b: Vec<f32> = (0..k * n).map(|i| ((i as f32) % 11.0) / 11.0).collect();
 
         // CPU 参考
@@ -654,10 +649,7 @@ mod vulkan_validation {
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "[vulkan-matmul-nonsquare] Skipped - Execution error: {}",
-                    e
-                );
+                eprintln!("[vulkan-matmul-nonsquare] Skipped - Execution error: {}", e);
             }
         }
     }
@@ -692,13 +684,22 @@ mod vulkan_validation {
         let tiny_a = vec![1.0f32];
         let tiny_b = vec![2.0f32];
         let r3 = matrix_multiply_gpu(&gpu, &tiny_a, &tiny_b, 0, 1, 1);
-        assert!(r3.is_err(), "[vulkan-matmul-err] Zero M dimension should return error");
+        assert!(
+            r3.is_err(),
+            "[vulkan-matmul-err] Zero M dimension should return error"
+        );
 
         let r4 = matrix_multiply_gpu(&gpu, &tiny_a, &tiny_b, 1, 0, 1);
-        assert!(r4.is_err(), "[vulkan-matmul-err] Zero K dimension should return error");
+        assert!(
+            r4.is_err(),
+            "[vulkan-matmul-err] Zero K dimension should return error"
+        );
 
         let r5 = matrix_multiply_gpu(&gpu, &tiny_a, &tiny_b, 1, 1, 0);
-        assert!(r5.is_err(), "[vulkan-matmul-err] Zero N dimension should return error");
+        assert!(
+            r5.is_err(),
+            "[vulkan-matmul-err] Zero N dimension should return error"
+        );
 
         eprintln!("[vulkan-matmul-err] PASSED: Error handling correct");
     }
@@ -724,11 +725,7 @@ mod vulkan_validation {
 
         match matrix_multiply_gpu(&gpu, &a, &identity, n, n, n) {
             Ok(result) => {
-                assert_vec_approx(
-                    &result,
-                    &a,
-                    "[vulkan-identity] A @ I should approximate A",
-                );
+                assert_vec_approx(&result, &a, "[vulkan-identity] A @ I should approximate A");
                 eprintln!("[vulkan-identity] PASSED: Identity-like multiplication preserves input");
             }
             Err(e) => {

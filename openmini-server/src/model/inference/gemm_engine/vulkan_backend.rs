@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2, Array3, s};
+use ndarray::{s, Array1, Array2, Array3};
 
 use super::{GemmBackendType, GemmEngine};
 use crate::hardware::gpu::vulkan::VulkanGpu;
@@ -78,8 +78,10 @@ impl GemmEngine for VulkanGemmBackend {
                 b_slice.as_standard_layout().as_slice().unwrap().to_vec()
             };
 
-            let result = matrix_multiply_gpu(&self.gpu, &a_data, &b_data, m, k, n)
-                .map_err(|e| InferenceError::generation(format!("Batch matmul[{}] failed: {}", i, e)))?;
+            let result =
+                matrix_multiply_gpu(&self.gpu, &a_data, &b_data, m, k, n).map_err(|e| {
+                    InferenceError::generation(format!("Batch matmul[{}] failed: {}", i, e))
+                })?;
 
             results.extend(result);
         }

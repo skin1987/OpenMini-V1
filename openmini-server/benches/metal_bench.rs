@@ -43,17 +43,13 @@
 //! - `target_os = "macos"`: Apple macOS 系统
 //! - `feature = "metal"`: 启用了 Metal GPU 支持
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ndarray::{Array1, Array2, Array3};
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
-use openmini_server::model::inference::gemm_engine::{
-    GemmEngine, NdarrayFallbackBackend,
-};
-#[cfg(all(target_os = "macos", feature = "metal"))]
 use openmini_server::model::inference::gemm_engine::metal_backend::CandleMetalBackend;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use openmini_server::model::inference::gemm_engine::{GemmEngine, NdarrayFallbackBackend};
 
 // ============================================================================
 // 辅助函数：生成确定性测试数据
@@ -67,8 +63,7 @@ use openmini_server::model::inference::gemm_engine::metal_backend::CandleMetalBa
 /// - 数值范围适合 FP32 计算（约 [-1.0, 1.0]）
 fn make_matrix(rows: usize, cols: usize) -> Array2<f32> {
     Array2::from_shape_fn((rows, cols), |(i, j)| {
-        let val = ((i * cols + j) as f32 * 0.01).sin()
-            + ((i * cols + j) as f32 * 0.007).cos();
+        let val = ((i * cols + j) as f32 * 0.01).sin() + ((i * cols + j) as f32 * 0.007).cos();
         // 归一化到合理范围
         val * 0.5
     })
@@ -155,12 +150,15 @@ fn bench_matmul(c: &mut Criterion) {
         {
             let a_ref = &a;
             let b_ref = &b;
-            group.bench_function(BenchmarkId::new("cpu_ndarray", format!("{}x{}", m, n)), |b| {
-                b.iter(|| {
-                    let result = cpu_backend.matmul(black_box(a_ref), black_box(b_ref));
-                    black_box(result)
-                });
-            });
+            group.bench_function(
+                BenchmarkId::new("cpu_ndarray", format!("{}x{}", m, n)),
+                |b| {
+                    b.iter(|| {
+                        let result = cpu_backend.matmul(black_box(a_ref), black_box(b_ref));
+                        black_box(result)
+                    });
+                },
+            );
         }
     }
 
@@ -196,8 +194,7 @@ fn bench_batched_matmul(c: &mut Criterion) {
     let cpu_backend = NdarrayFallbackBackend;
 
     // (batch_size, rows, cols) 配置
-    let configs: [(usize, usize, usize); 3] =
-        [(8, 64, 64), (8, 128, 128), (8, 256, 256)];
+    let configs: [(usize, usize, usize); 3] = [(8, 64, 64), (8, 128, 128), (8, 256, 256)];
 
     let mut group = c.benchmark_group("batched_matmul");
 
@@ -234,8 +231,7 @@ fn bench_batched_matmul(c: &mut Criterion) {
                 BenchmarkId::new("cpu_ndarray", format!("batch{}_{}x{}", batch, m, n)),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            cpu_backend.batched_matmul(black_box(a_ref), black_box(b_ref));
+                        let result = cpu_backend.batched_matmul(black_box(a_ref), black_box(b_ref));
                         black_box(result)
                     });
                 },
@@ -301,13 +297,19 @@ fn bench_fused_gemm_relu(c: &mut Criterion) {
             let x_ref = &x;
             let w_ref = &w;
             let bias_opt: Option<&Array1<f32>> = Some(&bias);
-            group.bench_function(BenchmarkId::new("metal", format!("{}x{}", in_dim, out_dim)), |b| {
-                b.iter(|| {
-                    let result =
-                        metal_backend.fused_gemm_relu(black_box(x_ref), black_box(w_ref), bias_opt);
-                    black_box(result)
-                });
-            });
+            group.bench_function(
+                BenchmarkId::new("metal", format!("{}x{}", in_dim, out_dim)),
+                |b| {
+                    b.iter(|| {
+                        let result = metal_backend.fused_gemm_relu(
+                            black_box(x_ref),
+                            black_box(w_ref),
+                            bias_opt,
+                        );
+                        black_box(result)
+                    });
+                },
+            );
         }
 
         // --- CPU (ndarray) Fused GEMM + ReLU ---
@@ -319,8 +321,11 @@ fn bench_fused_gemm_relu(c: &mut Criterion) {
                 BenchmarkId::new("cpu_ndarray", format!("{}x{}", in_dim, out_dim)),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            cpu_backend.fused_gemm_relu(black_box(x_ref), black_box(w_ref), bias_opt);
+                        let result = cpu_backend.fused_gemm_relu(
+                            black_box(x_ref),
+                            black_box(w_ref),
+                            bias_opt,
+                        );
                         black_box(result)
                     });
                 },
@@ -390,17 +395,20 @@ fn bench_fused_gemm_silu(c: &mut Criterion) {
             let gw_ref = &gate_w;
             let uw_ref = &up_w;
             let bias_opt: Option<&Array1<f32>> = Some(&bias);
-            group.bench_function(BenchmarkId::new("metal", format!("{}x{}", in_dim, out_dim)), |b| {
-                b.iter(|| {
-                    let result = metal_backend.fused_gemm_silu(
-                        black_box(x_ref),
-                        black_box(gw_ref),
-                        black_box(uw_ref),
-                        bias_opt,
-                    );
-                    black_box(result)
-                });
-            });
+            group.bench_function(
+                BenchmarkId::new("metal", format!("{}x{}", in_dim, out_dim)),
+                |b| {
+                    b.iter(|| {
+                        let result = metal_backend.fused_gemm_silu(
+                            black_box(x_ref),
+                            black_box(gw_ref),
+                            black_box(uw_ref),
+                            bias_opt,
+                        );
+                        black_box(result)
+                    });
+                },
+            );
         }
 
         // --- CPU (ndarray) Fused GEMM + SiLU ---

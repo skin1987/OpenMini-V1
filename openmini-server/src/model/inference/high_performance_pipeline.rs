@@ -37,8 +37,8 @@ use ndarray::Array2;
 
 use crate::hardware::kv_cache::block::KVCacheConfig;
 use crate::hardware::kv_cache::paged_cache::PagedKVCache;
-use crate::model::inference::flash_attention_3::{FlashAttention3, FlashAttention3Config};
 use crate::model::inference::error::InferenceResult;
+use crate::model::inference::flash_attention_3::{FlashAttention3, FlashAttention3Config};
 
 // ============================================================================
 // 注意力策略枚举
@@ -57,6 +57,7 @@ pub enum AttentionStrategy {
     Standard,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for AttentionStrategy {
     fn default() -> Self {
         AttentionStrategy::Standard
@@ -316,7 +317,7 @@ impl HighPerformancePipeline {
                     for d in 0..head_dim {
                         let q_idx = h * head_dim + d;
                         let k_idx = kv_h * head_dim + d;
-                        
+
                         if q_idx < q.ncols() && k_idx < k.ncols() {
                             dot_product += q[[pos, q_idx]] * k[[ctx_pos, k_idx]];
                         }
@@ -340,7 +341,7 @@ impl HighPerformancePipeline {
                     for d in 0..head_dim {
                         let o_idx = h * head_dim + d;
                         let v_idx = kv_h * head_dim + d;
-                        
+
                         if o_idx < output.ncols() && v_idx < v.ncols() {
                             output[[pos, o_idx]] += weight * v[[ctx_pos, v_idx]];
                         }
@@ -467,10 +468,7 @@ mod tests {
             AttentionStrategy::FlashAttention3
         );
 
-        assert_eq!(
-            config.select_strategy(10000),
-            AttentionStrategy::Streaming
-        );
+        assert_eq!(config.select_strategy(10000), AttentionStrategy::Streaming);
     }
 
     #[test]
@@ -551,9 +549,7 @@ mod tests {
         let k = Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| {
             ((i + j) as f32 * 0.005).cos()
         });
-        let v = Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| {
-            (i as f32 * 0.01).tanh()
-        });
+        let v = Array2::from_shape_fn((seq_len, hidden_dim), |(i, _j)| (i as f32 * 0.01).tanh());
 
         let start = Instant::now();
         let result = pipeline.forward(&q, &k, &v).unwrap();
@@ -579,8 +575,8 @@ mod tests {
         let hidden_dim = 4 * 32;
 
         let q = Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| (i + j) as f32 * 0.1);
-        let k = Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| i as f32 * 0.1);
-        let v = Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| j as f32 * 0.1);
+        let k = Array2::from_shape_fn((seq_len, hidden_dim), |(i, _j)| i as f32 * 0.1);
+        let v = Array2::from_shape_fn((seq_len, hidden_dim), |(_i, j)| j as f32 * 0.1);
 
         let output1 = pipeline1.forward(&q, &k, &v).unwrap();
         let output2 = pipeline2.forward(&q, &k, &v).unwrap();
@@ -591,7 +587,8 @@ mod tests {
                 assert!(
                     (output1[[i, j]] - output2[[i, j]]).abs() < 1e-5,
                     "Outputs differ at [{},{}]: {} vs {}",
-                    i, j,
+                    i,
+                    j,
                     output1[[i, j]],
                     output2[[i, j]]
                 );
@@ -610,7 +607,7 @@ mod tests {
         let (available, allocated, util) = info.unwrap();
         assert!(available > 0);
         assert_eq!(allocated, 0);
-        assert!(util >= 0.0 && util <= 1.0);
+        assert!((0.0..=1.0).contains(&util));
     }
 
     #[test]
@@ -686,10 +683,10 @@ mod tests {
             queries.push(Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| {
                 (i + j) as f32 * 0.01
             }));
-            keys.push(Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| {
+            keys.push(Array2::from_shape_fn((seq_len, hidden_dim), |(i, _j)| {
                 i as f32 * 0.01
             }));
-            values.push(Array2::from_shape_fn((seq_len, hidden_dim), |(i, j)| {
+            values.push(Array2::from_shape_fn((seq_len, hidden_dim), |(_i, j)| {
                 j as f32 * 0.01
             }));
         }

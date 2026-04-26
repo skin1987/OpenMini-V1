@@ -5,20 +5,17 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::{
-    extract::State,
-    response::{Json},
-};
+use axum::{extract::State, response::Json};
 use ndarray::Array2;
 use serde::Serialize;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-use super::inference_types::*;
 use super::handlers::AppState;
+use super::inference_types::*;
 use super::types::ApiError;
 use crate::model::inference::high_performance_pipeline::{
-    HighPerformancePipeline, HighPerfPipelineConfig,
+    HighPerfPipelineConfig, HighPerformancePipeline,
 };
 
 // ============================================================================
@@ -35,20 +32,20 @@ pub async fn inference_compute(
     Json(req): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, ApiError> {
     let start = Instant::now();
-    
+
     // 获取推理状态
     let inference_state = state.inference.as_ref().ok_or(ApiError {
         error_type: "service_unavailable".to_string(),
         message: "Inference service not available".to_string(),
         status_code: 503,
     })?;
-    
+
     debug!(
         query_rows = req.query.len(),
         key_rows = req.key.len(),
         "收到推理计算请求"
     );
-    
+
     // 验证输入
     if req.query.is_empty() || req.key.is_empty() || req.value.is_empty() {
         return Err(ApiError {
@@ -57,7 +54,7 @@ pub async fn inference_compute(
             status_code: 400,
         });
     }
-    
+
     // 转换为 ndarray Array2
     let q = match vec_to_array2(&req.query) {
         Ok(arr) => arr,
@@ -69,7 +66,7 @@ pub async fn inference_compute(
             });
         }
     };
-    
+
     let k = match vec_to_array2(&req.key) {
         Ok(arr) => arr,
         Err(e) => {
@@ -80,7 +77,7 @@ pub async fn inference_compute(
             });
         }
     };
-    
+
     let v = match vec_to_array2(&req.value) {
         Ok(arr) => arr,
         Err(e) => {
@@ -91,7 +88,7 @@ pub async fn inference_compute(
             });
         }
     };
-    
+
     // 执行推理
     let mut pipeline = inference_state.pipeline.write().await;
     let output = match pipeline.forward(&q, &k, &v) {
@@ -105,14 +102,14 @@ pub async fn inference_compute(
             });
         }
     };
-    
+
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
     let stats = pipeline.stats();
-    
+
     // 转换输出为 Vec<Vec<f32>>
     let output_vec = array2_to_vec(&output);
     let output_shape = vec![output.nrows(), output.ncols()];
-    
+
     Ok(Json(InferenceResponse {
         id: Uuid::new_v4().to_string(),
         output: output_vec,
@@ -136,18 +133,15 @@ pub async fn inference_batch(
     Json(req): Json<BatchInferenceRequest>,
 ) -> Result<Json<BatchInferenceResponse>, ApiError> {
     let start = Instant::now();
-    
+
     let inference_state = state.inference.as_ref().ok_or(ApiError {
         error_type: "service_unavailable".to_string(),
         message: "Inference service not available".to_string(),
         status_code: 503,
     })?;
-    
-    debug!(
-        batch_size = req.requests.len(),
-        "收到批量推理请求"
-    );
-    
+
+    debug!(batch_size = req.requests.len(), "收到批量推理请求");
+
     if req.requests.is_empty() {
         return Err(ApiError {
             error_type: "invalid_request".to_string(),
@@ -155,9 +149,9 @@ pub async fn inference_batch(
             status_code: 400,
         });
     }
-    
+
     let mut outputs = Vec::with_capacity(req.requests.len());
-    
+
     for (idx, single_req) in req.requests.iter().enumerate() {
         let q = match vec_to_array2(&single_req.query) {
             Ok(arr) => arr,
@@ -169,7 +163,7 @@ pub async fn inference_batch(
                 });
             }
         };
-        
+
         let k = match vec_to_array2(&single_req.key) {
             Ok(arr) => arr,
             Err(e) => {
@@ -180,7 +174,7 @@ pub async fn inference_batch(
                 });
             }
         };
-        
+
         let v = match vec_to_array2(&single_req.value) {
             Ok(arr) => arr,
             Err(e) => {
@@ -191,7 +185,7 @@ pub async fn inference_batch(
                 });
             }
         };
-        
+
         let mut pipeline = inference_state.pipeline.write().await;
         let output = match pipeline.forward(&q, &k, &v) {
             Ok(result) => result,
@@ -203,9 +197,9 @@ pub async fn inference_batch(
                 });
             }
         };
-        
+
         let stats = pipeline.stats();
-        
+
         outputs.push(InferenceResponse {
             id: Uuid::new_v4().to_string(),
             output: array2_to_vec(&output),
@@ -220,19 +214,20 @@ pub async fn inference_batch(
             }),
         });
     }
-    
+
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-    let total_tokens: usize = outputs.iter()
+    let total_tokens: usize = outputs
+        .iter()
         .filter_map(|o| o.stats.as_ref())
         .map(|s| s.total_tokens)
         .sum();
-    
+
     let avg_tps = if elapsed > 0.0 {
         (total_tokens as f32) / (elapsed as f32 / 1000.0)
     } else {
         0.0
     };
-    
+
     Ok(Json(BatchInferenceResponse {
         id: Uuid::new_v4().to_string(),
         outputs,
@@ -253,7 +248,7 @@ pub async fn inference_stats(
             let stats = pipeline.stats();
             let config = pipeline.config();
             let kv_info = pipeline.kv_cache_info();
-            
+
             Ok(Json(serde_json::json!({
                 "current_strategy": stats.strategy.to_string(),
                 "total_processed_tokens": pipeline.total_processed_tokens,
@@ -286,7 +281,7 @@ pub async fn inference_config(
             let pipeline = inf.pipeline.read().await;
             let config = pipeline.config();
             let kv_info = pipeline.kv_cache_info();
-            
+
             Ok(Json(serde_json::json!({
                 "max_seq_len": config.max_seq_len,
                 "num_heads": config.num_heads,
@@ -330,7 +325,7 @@ pub async fn inference_reset(
             info!("无可用 Pipeline 实例");
         }
     }
-    
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Pipeline state reset successfully"
@@ -352,14 +347,14 @@ impl InferenceState {
     pub fn new(config: HighPerfPipelineConfig) -> Self {
         let pipeline = HighPerformancePipeline::new(config.clone())
             .expect("Failed to create HighPerformancePipeline");
-        
+
         info!(
             num_heads = config.num_heads,
             head_dim = config.head_dim,
             enable_fa3 = config.enable_fa3,
             "高性能推理 Pipeline 初始化成功"
         );
-        
+
         Self {
             pipeline: Arc::new(tokio::sync::RwLock::new(pipeline)),
         }
@@ -395,14 +390,14 @@ fn vec_to_array2(data: &[Vec<f32>]) -> Result<Array2<f32>, String> {
     if data.is_empty() {
         return Err("Empty data".to_string());
     }
-    
+
     let rows = data.len();
     let cols = data[0].len();
-    
+
     if cols == 0 {
         return Err("Zero columns".to_string());
     }
-    
+
     for (i, row) in data.iter().enumerate() {
         if row.len() != cols {
             return Err(format!(
@@ -413,19 +408,17 @@ fn vec_to_array2(data: &[Vec<f32>]) -> Result<Array2<f32>, String> {
             ));
         }
     }
-    
+
     let mut flat_data = Vec::with_capacity(rows * cols);
     for row in data {
         flat_data.extend_from_slice(row);
     }
-    
+
     Array2::from_shape_vec((rows, cols), flat_data)
         .map_err(|e| format!("Failed to create array: {}", e))
 }
 
 /// 将 Array2<f32> 转换为 Vec<Vec<f32>>
 fn array2_to_vec(arr: &Array2<f32>) -> Vec<Vec<f32>> {
-    (0..arr.nrows())
-        .map(|i| arr.row(i).to_vec())
-        .collect()
+    (0..arr.nrows()).map(|i| arr.row(i).to_vec()).collect()
 }

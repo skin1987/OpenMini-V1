@@ -14,11 +14,11 @@
 mod metal_validation {
 
     use ndarray::{Array1, Array2, Array3};
-    use rand::Rng;
-    use rand::SeedableRng;
     use openmini_server::model::inference::gemm_engine::{
         metal_backend::CandleMetalBackend, GemmEngine, NdarrayFallbackBackend,
     };
+    use rand::Rng;
+    use rand::SeedableRng;
 
     /// 数值比较容差
     const ABS_TOL: f32 = 1e-5;
@@ -28,9 +28,7 @@ mod metal_validation {
     /// 生成确定性随机矩阵 (固定种子，可复现)
     fn make_matrix(rows: usize, cols: usize, seed: u64) -> Array2<f32> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        Array2::from_shape_fn((rows, cols), |_| {
-            rng.gen_range(-1.0f32..1.0f32)
-        })
+        Array2::from_shape_fn((rows, cols), |_| rng.gen_range(-1.0f32..1.0f32))
     }
 
     /// 生成确定性随机偏置向量
@@ -42,9 +40,7 @@ mod metal_validation {
     /// 生成确定性批量矩阵 (3D)
     fn make_batch_matrix(batch: usize, rows: usize, cols: usize, seed: u64) -> Array3<f32> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        Array3::from_shape_fn((batch, rows, cols), |_| {
-            rng.gen_range(-1.0f32..1.0f32)
-        })
+        Array3::from_shape_fn((batch, rows, cols), |_| rng.gen_range(-1.0f32..1.0f32))
     }
 
     /// 尝试创建 Metal 后端。
@@ -225,9 +221,7 @@ mod metal_validation {
             "[metal-matmul-128] Shape mismatch after matmul"
         );
 
-        eprintln!(
-            "[metal-matmul-128] PASSED: 128x128 matmul matches reference within tolerance"
-        );
+        eprintln!("[metal-matmul-128] PASSED: 128x128 matmul matches reference within tolerance");
     }
 
     #[test]
@@ -245,18 +239,22 @@ mod metal_validation {
         let k = 64;
         let n = 96;
 
-        let a = make_matrix(m, k, 777);     // (32, 64)
-        let b = make_matrix(n, k, 888);     // (96, 64), 转置后 (64, 96)
+        let a = make_matrix(m, k, 777); // (32, 64)
+        let b = make_matrix(n, k, 888); // (96, 64), 转置后 (64, 96)
 
         let metal_result = match metal.matmul(&a, &b) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[metal-matmul-nonsquare] Skipped - Metal execution error: {}", e);
+                eprintln!(
+                    "[metal-matmul-nonsquare] Skipped - Metal execution error: {}",
+                    e
+                );
                 return;
             }
         };
-        let ref_result =
-            reference.matmul(&a, &b).expect("[ref-matmul-nonsquare] Reference matmul failed");
+        let ref_result = reference
+            .matmul(&a, &b)
+            .expect("[ref-matmul-nonsquare] Reference matmul failed");
 
         assert_array2_approx(
             &metal_result,
@@ -300,7 +298,10 @@ mod metal_validation {
         let metal_result = match metal.batched_matmul(&a, &b) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[metal-batched-4x64] Skipped - Metal execution error: {}", e);
+                eprintln!(
+                    "[metal-batched-4x64] Skipped - Metal execution error: {}",
+                    e
+                );
                 return;
             }
         };
@@ -324,9 +325,7 @@ mod metal_validation {
             metal_result.shape()
         );
 
-        eprintln!(
-            "[metal-batched-4x64] PASSED: batched_matmul (batch=4, 64x64) correct"
-        );
+        eprintln!("[metal-batched-4x64] PASSED: batched_matmul (batch=4, 64x64) correct");
     }
 
     #[test]
@@ -348,7 +347,10 @@ mod metal_validation {
         let metal_result = match metal.batched_matmul(&a, &b) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[metal-batched-8x128] Skipped - Metal execution error: {}", e);
+                eprintln!(
+                    "[metal-batched-8x128] Skipped - Metal execution error: {}",
+                    e
+                );
                 return;
             }
         };
@@ -362,9 +364,7 @@ mod metal_validation {
             "[metal-batched-8x128] Batched matmul result mismatch (batch=8, 128x64)",
         );
 
-        eprintln!(
-            "[metal-batched-8x128] PASSED: batched_matmul (batch=8, 128x64) correct"
-        );
+        eprintln!("[metal-batched-8x128] PASSED: batched_matmul (batch=8, 128x64) correct");
     }
 
     // ==================== 测试：fused_gemm_relu 正确性 ====================
@@ -416,9 +416,7 @@ mod metal_validation {
             );
         }
 
-        eprintln!(
-            "[metal-gemm-relu-64] PASSED: fused_gemm_relu with bias (64x64) correct"
-        );
+        eprintln!("[metal-gemm-relu-64] PASSED: fused_gemm_relu with bias (64x64) correct");
     }
 
     #[test]
@@ -512,9 +510,7 @@ mod metal_validation {
             "[metal-gemm-silu-64] fused_gemm_silu(with bias) result mismatch (64x64)",
         );
 
-        eprintln!(
-            "[metal-gemm-silu-64] PASSED: fused_gemm_silu with bias (64x64) correct"
-        );
+        eprintln!("[metal-gemm-silu-64] PASSED: fused_gemm_silu with bias (64x64) correct");
     }
 
     #[test]
@@ -625,10 +621,7 @@ mod metal_validation {
         let metal_result = match metal.fused_gemm_relu(&a, &w, None) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "[metal-relu-allneg] Skipped - Metal execution error: {}",
-                    e
-                );
+                eprintln!("[metal-relu-allneg] Skipped - Metal execution error: {}", e);
                 return;
             }
         };
@@ -642,9 +635,7 @@ mod metal_validation {
             "[metal-relu-allneg] All-negative ReLU case mismatch",
         );
 
-        eprintln!(
-            "[metal-relu-allneg] PASSED: all-negative ReLU boundary case correct"
-        );
+        eprintln!("[metal-relu-allneg] PASSED: all-negative ReLU boundary case correct");
     }
 }
 

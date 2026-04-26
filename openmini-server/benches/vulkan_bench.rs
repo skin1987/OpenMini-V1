@@ -35,17 +35,13 @@
 //! - `feature = "vulkan"`: 启用了 Vulkan GPU 支持
 //! - 系统需安装 Vulkan 驱动并支持 compute shader
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ndarray::{Array2, Array3};
 
 #[cfg(feature = "vulkan")]
-use openmini_server::model::inference::gemm_engine::{
-    GemmEngine, NdarrayFallbackBackend,
-};
-#[cfg(feature = "vulkan")]
 use openmini_server::model::inference::gemm_engine::vulkan_backend::VulkanGemmBackend;
+#[cfg(feature = "vulkan")]
+use openmini_server::model::inference::gemm_engine::{GemmEngine, NdarrayFallbackBackend};
 
 // ============================================================================
 // 辅助函数：生成确定性测试数据
@@ -64,8 +60,7 @@ use openmini_server::model::inference::gemm_engine::vulkan_backend::VulkanGemmBa
 /// - `cols`: 矩阵列数 (N/K)
 fn make_matrix(rows: usize, cols: usize) -> Array2<f32> {
     Array2::from_shape_fn((rows, cols), |(i, j)| {
-        let val = ((i * cols + j) as f32 * 0.01).sin()
-            + ((i * cols + j) as f32 * 0.007).cos();
+        let val = ((i * cols + j) as f32 * 0.01).sin() + ((i * cols + j) as f32 * 0.007).cos();
         // 归一化到合理范围 [-1.0, 1.0]
         val * 0.5
     })
@@ -159,12 +154,15 @@ fn bench_matmul(c: &mut Criterion) {
         {
             let a_ref = &a;
             let b_ref = &b;
-            group.bench_function(BenchmarkId::new("cpu_ndarray", format!("{}x{}", m, n)), |b| {
-                b.iter(|| {
-                    let result = cpu_backend.matmul(black_box(a_ref), black_box(b_ref));
-                    black_box(result)
-                });
-            });
+            group.bench_function(
+                BenchmarkId::new("cpu_ndarray", format!("{}x{}", m, n)),
+                |b| {
+                    b.iter(|| {
+                        let result = cpu_backend.matmul(black_box(a_ref), black_box(b_ref));
+                        black_box(result)
+                    });
+                },
+            );
         }
     }
 
@@ -212,8 +210,7 @@ fn bench_batched_matmul(c: &mut Criterion) {
     let cpu_backend = NdarrayFallbackBackend;
 
     // (batch_size, M, K) 配置 — N=M（方阵）
-    let configs: [(usize, usize, usize); 3] =
-        [(8, 64, 64), (8, 128, 128), (8, 256, 256)];
+    let configs: [(usize, usize, usize); 3] = [(8, 64, 64), (8, 128, 128), (8, 256, 256)];
 
     let mut group = c.benchmark_group("batched_matmul");
 
@@ -251,8 +248,7 @@ fn bench_batched_matmul(c: &mut Criterion) {
                 BenchmarkId::new("cpu_ndarray", format!("batch{}_{}x{}", batch, m, n)),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            cpu_backend.batched_matmul(black_box(a_ref), black_box(b_ref));
+                        let result = cpu_backend.batched_matmul(black_box(a_ref), black_box(b_ref));
                         black_box(result)
                     });
                 },
@@ -268,11 +264,7 @@ fn bench_batched_matmul(c: &mut Criterion) {
 // ============================================================================
 
 #[cfg(feature = "vulkan")]
-criterion_group!(
-    benches,
-    bench_matmul,
-    bench_batched_matmul,
-);
+criterion_group!(benches, bench_matmul, bench_batched_matmul,);
 #[cfg(feature = "vulkan")]
 criterion_main!(benches);
 

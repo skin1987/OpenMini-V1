@@ -669,7 +669,11 @@ pub fn softmax_gpu(
     let can_use_gpu = gpu.is_compute_capable() && input.len() >= 1024;
 
     if can_use_gpu {
-        log::info!("使用 Vulkan GPU 执行 Softmax (batch={}, seq={})", batch_size, seq_length);
+        log::info!(
+            "使用 Vulkan GPU 执行 Softmax (batch={}, seq={})",
+            batch_size,
+            seq_length
+        );
         log::warn!("GPU Softmax 尚未完全实现，使用 CPU 回退");
     }
 
@@ -726,7 +730,11 @@ pub fn layernorm_gpu(
     let can_use_gpu = gpu.is_compute_capable() && input.len() >= 1024;
 
     if can_use_gpu {
-        log::info!("使用 Vulkan GPU 执行 LayerNorm (batch={}, hidden={})", batch_size, hidden_size);
+        log::info!(
+            "使用 Vulkan GPU 执行 LayerNorm (batch={}, hidden={})",
+            batch_size,
+            hidden_size
+        );
         log::warn!("GPU LayerNorm 尚未完全实现，使用 CPU 回退");
     }
 
