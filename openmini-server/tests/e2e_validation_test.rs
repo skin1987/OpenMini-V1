@@ -18,8 +18,7 @@ use std::time::{Duration, Instant};
 
 // 用于异步测试的运行时 (Legacy兼容)
 #[allow(dead_code)]
-static TOKIO_RT: std::sync::OnceLock<tokio::runtime::Runtime> = 
-    std::sync::OnceLock::new();
+static TOKIO_RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
 
 fn tokio_runtime() -> &'static tokio::runtime::Runtime {
     TOKIO_RT.get_or_init(|| {
