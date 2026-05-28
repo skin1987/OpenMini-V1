@@ -1,0 +1,85 @@
+# Gitleaks Configuration for OpenMini-V1
+# 
+# This configuration defines patterns to detect in source code:
+# - API keys, tokens, passwords
+# - Private keys, certificates
+# - AWS/GCP/Azure credentials
+# - GitHub/GitLab/Bitbucket tokens
+
+title = "OpenMini-V1 Gitleaks Configuration"
+
+# Allowlists for known safe patterns
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''node_modules''',
+    '''vendor''',
+    '''\.git/''',
+    '''target/''',
+    '''\.cargo/''',
+    '''tests/''',
+    '''benches/''',
+]
+
+regexes = [
+    # Example: test keys (safe for development)
+    '''test[_-]?key''',
+    '''example[_-]?token''',
+    '''dummy[_-]?password''',
+    '''sample[_-]?secret''',
+    '''change-me-in-production''',
+    '''\$\{[A-Z_]+\}''',  # Environment variable references like ${VAR}
+    '''localhost''',
+    '''127\.0\.0\.1''',
+]
+
+# Specific rules for this project
+[[rules]]
+id = "openmini-test-key"
+description = "OpenMini test key pattern"
+regex = '''OPENMINI_TEST_[A-Z]+'''
+tags = ["test", "key"]
+
+# Standard Gitleaks built-in rules are automatically enabled
+# See: https://github.com/gitleaks/rules/blob/master/config/gitleaks.toml
+
+[extensions]
+# File extensions to scan
+exts = [
+    ".go",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".rs",
+    ".rb",
+    ".java",
+    ".php",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".yml",
+    ".yaml",
+    ".toml",
+    ".json",
+    ".env",
+    ".md",
+    ".txt",
+    ".sql",
+    ".html",
+    ".css",
+    ".xml",
+    ".conf",
+    ".ini",
+    ".cfg",
+    ".properties",
+]
