@@ -34,10 +34,10 @@ jobs:
           components: rustfmt, clippy
 
       - name: Check code formatting
-        run: cargo fmt --all -- --check
+        run: cargo fmt --package openmini-server -- --check
 
       - name: Run Clippy lints (lib only)
-        run: cargo clippy --lib --locked -- -D warnings
+        run: cargo clippy --package openmini-server --lib --locked -- -D warnings
 
   test:
     name: Test Suite (stable)

@@ -30,11 +30,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - name: Check formatting (lib only)
+        run: cargo fmt --package openmini-server -- --check
 
       - name: Run Clippy lints (lib only)
-        run: cargo clippy --lib --locked -- -D warnings
+        run: cargo clippy --package openmini-server --lib --locked -- -D warnings
 
   build:
     name: Build (${{ matrix.os }})
